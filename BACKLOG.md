@@ -78,3 +78,4 @@ _(neotříděné nápady sem)_
 | v42 | Rychlejší doplnění řady (prázdno 1,3 s místo 2,3–3,8 s) + sestřel zkracuje čekání na královskou o 1,8 s (min 0,8 s). Simulace: 3,6 královských/kolo v nečinnosti vs 6,0 při 1 sestřelu/s | 66d3e1c | 2026-07-30 |
 | v43 | Odměna za aktivitu zvýšena — sestřel ukrojí 3 s (min 0,6 s); simulace: 3,7 královských v nečinnosti vs 7,0 při 1 sestřelu/s (téměř 2×) | d1bb4ee | 2026-07-30 |
 | v44 | **Fix:** královská vznikala odvozeně od sousední kachničky, často až u výjezdu → hráč ji nestihl. Teď vjíždí z náhodného místa vstupní části dráhy, vždy 4,7–11,2 s na obrazovce (medián 7,5) | 300c892 | 2026-07-30 |
+| v45 | Truhla se po otevření potopí pod hladinu (víko zůstává otevřené) místo aby zmizela; stejně mizí i nestihnutá truhla | 3700a49 | 2026-07-30 |

@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v45';
-const WS_CHECKSUM = 'water-shoot-v45';
+const WS_VERSION = 'v46';
+const WS_CHECKSUM = 'water-shoot-v46';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -200,11 +200,17 @@ function hitCd(){ return rainbowOn() ? RAINBOW_HIT_CD : HIT_CD; }
 
 function collectRoyal(){
   if(!tune.specialMode) return;
+  // Během duhy se korunky nesbírají. Bez téhle pojistky by sestřel královské
+  // znovu nastavil rainbowT na plných 10 s a přisypal další porci kachniček —
+  // hra by v duhovém režimu uvázla donekonečna.
+  if(rainbowOn()) return;
   royalCollected++;
   if(royalCollected >= ROYAL_NEEDED){
     rainbowT = RAINBOW_T;     // ikony zůstanou plné, dokud režim běží
     addRainbowDucks();
     chestTimer = 0.3;         // truhly ať naskočí hned, ne až doběhne starý časovač
+    // královská, která je zrovna na scéně, se odklidí — v duze nemá co dělat
+    if(special && special.state!=='sink'){ special.state='sink'; special.t=0; }
   }
 }
 
@@ -977,8 +983,11 @@ function update(dt){
 
   // speciální korunková kachnička
   if(!special){
-    specialTimer -= dt;
-    if(specialTimer <= 0) spawnSpecial();
+    // v duhovém režimu královské nepřijíždějí (viz collectRoyal)
+    if(!rainbowOn()){
+      specialTimer -= dt;
+      if(specialTimer <= 0) spawnSpecial();
+    }
   } else {
     const L = LANES[special.lane];
     const trackLen = 2*laneRangeX(special.lane);
