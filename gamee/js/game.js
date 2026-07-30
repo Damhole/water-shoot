@@ -1,10 +1,10 @@
 'use strict';
-// Water Shoot — prototyp vodního děla pro Gamee.
+// Golden Ducks — prototyp vodního děla pro Gamee.
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v39';
-const WS_CHECKSUM = 'water-shoot-v39';
+const WS_VERSION = 'v40';
+const WS_CHECKSUM = 'water-shoot-v40';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -685,9 +685,15 @@ function prerenderBackground(){
     g.closePath(); g.fill();
   }
   g.fillStyle = '#fdf3d0';
-  g.font = '700 '+Math.round(32*S)+'px "Arial Black", Arial, sans-serif';
+  const title = 'GOLDEN DUCKS';
+  let titleSize = 32*S;
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText('WATER SHOOT', W/2, signH*0.52);
+  do {
+    g.font = '700 '+Math.round(titleSize)+'px "Arial Black", Arial, sans-serif';
+    if(g.measureText(title).width <= W*0.86) break;
+    titleSize -= 1;
+  } while(titleSize > 10);
+  g.fillText(title, W/2, signH*0.52);
 
   // žárovky: řada pod cedulí + svislé okraje
   const bulbCols = ['#ffd54a','#ff6b6b','#5ad1ff','#7dff8a','#ff9ff3'];
@@ -2170,7 +2176,7 @@ function showEndOverlay(reason){
 
 // ---------------------------------------------------------------- init + Gamee lifecycle
 function initGame(){
-  console.log('[WS] Water Shoot '+WS_VERSION);
+  console.log('[WS] Golden Ducks '+WS_VERSION);
   canvas = document.getElementById('game-canvas');
   ctx = canvas.getContext('2d');
   window.addEventListener('resize', resize);

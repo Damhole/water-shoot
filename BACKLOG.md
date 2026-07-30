@@ -72,3 +72,4 @@ _(neotříděné nápady sem)_
 | v36 | Mince letí obloukem do HUD ikony (připsání až při dopadu, cuknutí ikony); ukazatel mince nad kachničkami skryt — hráč neví předem, která platí; truhla se kreslí za kachničkami + spawn doprostřed mezery (0 kolizí ze 40) | f089517 | 2026-07-30 |
 | v37 | Nová grafika děla podle předlohy: válcové stínování, dvě zlaté obruče, zubatý vzor pod ústím, rozšířené nálevkovité ústí; kresba přepsána do lokální soustavy hlavně | 562e3b9 | 2026-07-30 |
 | v38 | Perspektiva děla: z nadhledu zmizel otvor hlavně (silně zkrácený prstenec místo elipsy s dírou), obruče prohnuté podle válce | 9d2d416 | 2026-07-30 |
+| v39 | Fáborková girlanda nad terči — 15 fáborků, každý kyvadlo s pružinou a tlumením; proud vody je rozhoupe (až ~70°) a samy se vrátí do klidu | 45c6dec | 2026-07-30 |
