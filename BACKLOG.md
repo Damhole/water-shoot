@@ -57,3 +57,4 @@ _(neotříděné nápady sem)_
 | v24 | Pulzující kruhy vycházející ze středu kachničky při držené linii — rychlost i jas rostou se sérií | 01187ba | 2026-07-30 |
 | v25 | Dojití vody: proud ztrácí tlak, zakuckává se, padá k dělu a dokape (1,4 s), teprve pak konec kola; kapka z truhly ho stihne zachránit | 446c63f | 2026-07-30 |
 | v26 | Pomalejší dokapávání — ztráta tlaku 2,8 s, konec kola až po doznění kapek ve 3,9 s | 9a11846 | 2026-07-30 |
+| v27 | Skill-based zásahy: užší proud (rozptyl 55→26), střed 1,2× focus (růst 1,32, strop ×5) vs okraj 0,4; střed i u truhly, bullseye u terčů (+150). Naměřeno 3× rychlejší sestřel při přesném míření | 66736d7 | 2026-07-30 |

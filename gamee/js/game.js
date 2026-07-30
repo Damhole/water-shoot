@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v27';
-const WS_CHECKSUM = 'water-shoot-v27';
+const WS_VERSION = 'v28';
+const WS_CHECKSUM = 'water-shoot-v28';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -100,7 +100,11 @@ const tune = {
   autoSpray: STRESS,          // demo/stress: samo stříká, krouží, nekonečná voda/čas
   relativeAim: true,          // dotyk = trackpad (prst nezakrývá cíl); myš zůstává absolutní
   aimGain: 1.8,               // základní citlivost relativního míření
+  // Náběh trysky: po každém stisku chvíli trvá, než je proud v plném tlaku.
+  // Budoucí upgrady děla/pistole tuhle dobu budou zkracovat.
+  jetRampT: 0.45,
 };
+let rampT = 0;                // jak dlouho už tryska nabíhá
 
 // ---- páteř proudu (spine) — uzly pro kreslenou vodní stuhu ----
 // Uzly letí stejnou balistikou jako částice; stuha se přes ně natahuje
@@ -560,9 +564,12 @@ function update(dt){
 
   // emise proudu — spotřebovává vodu; při dokapávání jede i bez držení prstu
   const sprayingNow = !over && !curtainBusy && ((cannon.spraying && water > 0) || dryT >= 0);
-  if(sprayingNow && !prevSpraying) spineGen++;   // nový proud = nová generace stuhy
+  // nový proud = nová generace stuhy + tryska začíná nabíhat od nuly
+  if(sprayingNow && !prevSpraying){ spineGen++; rampT = 0; }
   prevSpraying = sprayingNow;
+  if(!sprayingNow) rampT = 0;
   if(sprayingNow){
+    rampT += dt;
     if(water > 0){
       water -= WATER_PER_SEC * dt;
       if(water < 0) water = 0;
@@ -580,6 +587,10 @@ function update(dt){
     const tFly = dist/JET_SPEED;
     // kompenzace gravitace, aby proud dopadal ~na pointer
     let vx = dx/tFly, vy = dy/tFly + 0.5*GRAV*tFly, vz = dz/tFly;
+    // náběh trysky: proud se nejdřív jen vyvalí u ústí a teprve pak dostřelí
+    const spin = Math.min(rampT/Math.max(0.01, tune.jetRampT), 1);
+    const spinP = 0.28 + 0.72*spin*spin;
+    if(spinP < 1){ const q = 0.5 + 0.5*spinP; vx *= q; vy *= q; vz *= q; }
     if(dryT >= 0){
       // slábnoucí tlak = proud nedoletí a padá čím dál blíž k dělu
       const p = 0.25 + 0.75*pressure;
@@ -589,9 +600,10 @@ function update(dt){
     const armZ = computeAimZ() - 80;   // odjištění až u cílové hloubky
     // úzký proud = kam míříš, tam voda dopadne (bez toho se rozstřik rozlije
     // po celém tělíčku a přesnost přestane rozhodovat)
-    const spread = dryT >= 0 ? 26 + 110*(1-pressure) : 26;
+    // při náběhu je proud i o něco rozstřikovanější, než se srovná do linie
+    const spread = (dryT >= 0 ? 26 + 110*(1-pressure) : 26) + 26*(1-spinP);
 
-    emitAccum += tune.emitRate * (dryT >= 0 ? pressure : 1) * dt;
+    emitAccum += tune.emitRate * (dryT >= 0 ? pressure : 1) * spinP * dt;
     while(emitAccum >= 1){
       emitAccum -= 1;
       const pp = spawnParticle(
@@ -1518,6 +1530,7 @@ function setupHUD(){
   bindSlider('sl-size','size');
   bindSlider('sl-splash','splash');
   bindSlider('sl-gain','aimGain');
+  bindSlider('sl-ramp','jetRampT');
   const cb = document.getElementById('cb-coll');
   cb.checked = tune.collisions;
   cb.addEventListener('change', ()=>{ tune.collisions = cb.checked; });
