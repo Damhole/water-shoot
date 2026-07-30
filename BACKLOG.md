@@ -48,3 +48,4 @@ _(neotříděné nápady sem)_
 | v15 | Krit zásah do kolečka s body (1.0 vs 0.5 dmg + větší splash a kroužek), safe-zone spawn truhly — vyplouvá na vstupní straně s celým průjezdem | 6ab45d0 | 2026-07-30 |
 | v16 | Combo multiplikátor ×2–×5 (okno 4 s): zlatý odtékající bar pod skóre + wiglující ×N, floatery ukazují násobený zisk | 2a36dd7 | 2026-07-30 |
 | v17 | Snížena životnost královské kachničky 36 → 22 | 4a5f879 | 2026-07-30 |
+| v18 | Odstraněn combo multiplikátor (revert v16) — skóre zpět na prosté hodnoty | 9832ef6 | 2026-07-30 |
