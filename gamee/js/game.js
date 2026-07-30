@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v07';
-const WS_CHECKSUM = 'water-shoot-v07';
+const WS_VERSION = 'v08';
+const WS_CHECKSUM = 'water-shoot-v08';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -592,12 +592,15 @@ function draw(){
       if(d.knocked) rot = Math.min(d.knockT/0.35, 1) * Math.PI/2;
       else if(d.riseT < 0.25) rot = (1 - d.riseT/0.25) * Math.PI/2;
       ctx.save();
-      // pivot v těžišti těla — převrhnutá kachnička leží na polici, nevisí pod ní
-      ctx.translate(sx, sy - spriteSz*0.38);
+      // pivot dole u dna; sin-zdvih jen kompenzuje šířku ležícího těla,
+      // aby leželo NA polici (bez něj by po rotaci viselo pod hranu žlabu)
+      ctx.translate(sx, sy - Math.sin(rot)*spriteSz*0.42);
       // sprite míří doleva → při jízdě doprava zrcadlit (zobák dopředu)
       if(L.dir>0) ctx.scale(-1,1);
-      if(rot > 0) ctx.rotate((L.dir>0?1:-1) * rot);
-      ctx.drawImage(duckSprite, -spriteSz*0.53, -spriteSz*0.37, spriteSz, spriteSz);
+      // rotace v lokálním prostoru je pro oba směry stejná — zrcadlení ji
+      // převrátí samo, takže kachnička padá VŽDY na záda (zobáčkem nahoru)
+      if(rot > 0) ctx.rotate(rot);
+      ctx.drawImage(duckSprite, -spriteSz*0.53, -spriteSz*0.75, spriteSz, spriteSz);
       ctx.restore();
 
       // kulatý bar na těle: plní se zásahy, uvnitř aktuální hodnota kachničky
