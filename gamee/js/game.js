@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v15';
-const WS_CHECKSUM = 'water-shoot-v15';
+const WS_VERSION = 'v16';
+const WS_CHECKSUM = 'water-shoot-v16';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -255,10 +255,23 @@ function addFloater(sx,sy,txt){
 
 // ---------------------------------------------------------------- skóre + voda
 let scoreEl=null, timeEl=null;
+
+// Combo multiplikátor: další sestřel v okně COMBO_WINDOW zvyšuje násobič.
+// Dočasný bonus — bar u skóre odtéká a ×N u něj wigluje.
+const COMBO_WINDOW = 4;
+const COMBO_MAX = 5;
+let combo = 1, comboT = 0;
+
+function bumpCombo(){
+  combo = comboT > 0 ? Math.min(combo+1, COMBO_MAX) : 1;
+  comboT = COMBO_WINDOW;
+}
+
 function addScore(n, sx, sy){
-  score += n;
+  const gain = n * combo;
+  score += gain;
   if(scoreEl) scoreEl.textContent = score;
-  if(sx!==undefined) addFloater(sx, sy, '+'+n);
+  if(sx!==undefined) addFloater(sx, sy, '+'+gain + (combo>1 ? ' ×'+combo : ''));
   _safeGamee(()=>gamee.updateScore(score, playTime, WS_CHECKSUM));
 }
 function updateWaterBar(){
@@ -576,6 +589,12 @@ function update(dt){
     }
   }
 
+  // combo okno odtéká
+  if(comboT > 0){
+    comboT -= dt;
+    if(comboT <= 0){ comboT = 0; combo = 1; }
+  }
+
   // rotace hodnotových tierů mezi drahami
   tierRotateT -= dt;
   if(tierRotateT <= 0){
@@ -739,6 +758,7 @@ function hitDuck(d, p, direct){
     d.knocked=true; d.knockT=0; d.respawnT=0;
     const s = projS(L.z);
     addFloater(projX(d.x,s), projY(L.y+L.duckSize*0.45,s), 'KVÁK!');
+    bumpCombo();
     addScore(duckValue(d), projX(d.x,s), projY(L.y+L.duckSize,s));
     splashAt(d.x, L.y+L.duckSize*0.4, L.z, tune.splash*2, 0);
     spawnRing(d.x, L.y+L.duckSize*0.4, L.z, 0);
@@ -755,6 +775,7 @@ function hitSpecial(p, direct){
   if(special.hp<=0){
     const s = projS(L.z);
     addFloater(projX(special.x,s), projY(L.y+L.duckSize*0.45,s), 'KVÁÁK!');
+    bumpCombo();
     addScore(SPECIAL_VAL, projX(special.x,s), projY(L.y+L.duckSize,s));
     splashAt(special.x, L.y+L.duckSize*0.4, L.z, tune.splash*3, 0);
     spawnRing(special.x, L.y+L.duckSize*0.4, L.z, 0);
@@ -790,6 +811,7 @@ function hitPopup(t, p){
   const bonus = Math.round((1 - Math.min(t.t,t.ttl)/t.ttl) * 100);
   t.state='out'; t.t=0;
   const s = projS(t.z);
+  bumpCombo();
   addScore(100 + bonus, projX(t.x,s), projY(t.y+t.r,s));
   spawnRing(t.x, t.y, t.z, 0);
 }
@@ -995,6 +1017,30 @@ function draw(){
   ctx.fillText(Math.ceil(timeLeft)+' s', W - 18*S + 1.5*S, hudY + 1.5*S);
   ctx.fillStyle = 'rgba(255,255,255,0.9)';
   ctx.fillText(Math.ceil(timeLeft)+' s', W - 18*S, hudY);
+
+  // combo bar + wiglující ×N (jen dokud okno běží)
+  if(comboT > 0){
+    const bw = 150*S, bh = 9*S;
+    const bx = W/2 - bw/2, by = hudY + 36*S;
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = '#ffd700';
+    ctx.fillRect(bx, by, bw*(comboT/COMBO_WINDOW), bh);
+    ctx.save();
+    ctx.translate(bx + bw + 32*S, by + bh/2);
+    if(combo > 1){
+      ctx.rotate(Math.sin(ribbonTime*11)*0.16);
+      const wig = 1 + 0.13*Math.sin(ribbonTime*14);
+      ctx.scale(wig, wig);
+    }
+    ctx.font = '800 '+Math.round(27*S)+'px "Arial Black", Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillText('×'+combo, 1.5*S, 1.5*S);
+    ctx.fillStyle = combo > 1 ? '#ffd700' : 'rgba(255,255,255,0.75)';
+    ctx.fillText('×'+combo, 0, 0);
+    ctx.restore();
+  }
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
 
@@ -1346,6 +1392,7 @@ function loop(t){
 // ---------------------------------------------------------------- kolo
 function startRound(){
   score = 0; playTime = 0; timeLeft = ROUND_TIME; over = false;
+  combo = 1; comboT = 0;
   water = WATER_MAX;
   updateWaterBar();
   if(scoreEl) scoreEl.textContent = '0';
