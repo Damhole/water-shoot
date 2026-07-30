@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v25';
-const WS_CHECKSUM = 'water-shoot-v25';
+const WS_VERSION = 'v26';
+const WS_CHECKSUM = 'water-shoot-v26';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -41,7 +41,8 @@ const ROUND_TIME = 60;
 // zásoba vody — druhý limit kola (končí čas NEBO voda)
 const WATER_MAX = 100;
 const WATER_PER_SEC = 3.2;    // spotřeba při stisku (≈31 s souvislého stříkání)
-const DRY_T = 1.4;            // jak dlouho proud zakuckává a dokapává, než je konec
+const DRY_T = 2.8;            // jak dlouho proud ztrácí tlak, než úplně ustane
+const DRY_END_T = 3.9;        // kdy teprve končí kolo — poslední kapky mají doznít
 let dryT = -1;                // -1 = nádrž má vodu; >=0 = běží dokapávání
 let water = WATER_MAX;
 let waterBarEl = null;
@@ -549,10 +550,10 @@ function update(dt){
   if(dryT >= 0){
     dryT += dt;
     const k = Math.min(dryT/DRY_T, 1);
-    pressure = Math.max(0, 1 - k) * (1 - k);            // rychlý propad tlaku
-    pressure *= 0.55 + 0.45*Math.sin(dryT*22);          // zakuckávání
+    pressure = Math.max(0, 1 - k) * (1 - k);            // pozvolný propad tlaku
+    pressure *= 0.55 + 0.45*Math.sin(dryT*15);          // zakuckávání
     pressure = Math.max(0, pressure);
-    if(dryT >= DRY_T) endRound('Došla voda!');
+    if(dryT >= DRY_END_T) endRound('Došla voda!');
   }
 
   // emise proudu — spotřebovává vodu; při dokapávání jede i bez držení prstu
@@ -597,8 +598,8 @@ function update(dt){
       if(pp) pp.armZ = armZ;
     }
 
-    // poslední kapky stékající z ústí, když už tlak není skoro žádný
-    if(dryT >= 0 && pressure < 0.18 && Math.random() < 0.35){
+    // poslední kapky stékající z ústí — postupně řídnou a ještě před koncem ustanou
+    if(dryT >= 0 && pressure < 0.2 && dryT < DRY_END_T - 0.6 && Math.random() < 0.16){
       spawnParticle(m.x + rand(-8,8), m.y, m.z, rand(-25,25), rand(-40,10), rand(10,60),
                     1.1, tune.size*2.6*rand(0.9,1.4), 1);
     }

@@ -55,3 +55,4 @@ _(neotříděné nápady sem)_
 | v22 | Divadelní opona: rozhrnutí na startu kola, zatažení při konci (čas/voda); overlay čeká na zatažení, během rozhrnování stojí čas i stříkání | cccb4d1 | 2026-07-30 |
 | v23 | Držení linie na středu = exponenciální nárůst poškození (×1,25 za zásah, strop ×4, grace 0,3 s); prstenec se rozžhaví do zlaté | 1f533ca | 2026-07-30 |
 | v24 | Pulzující kruhy vycházející ze středu kachničky při držené linii — rychlost i jas rostou se sérií | 01187ba | 2026-07-30 |
+| v25 | Dojití vody: proud ztrácí tlak, zakuckává se, padá k dělu a dokape (1,4 s), teprve pak konec kola; kapka z truhly ho stihne zachránit | 446c63f | 2026-07-30 |
