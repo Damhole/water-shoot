@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v10';
-const WS_CHECKSUM = 'water-shoot-v10';
+const WS_VERSION = 'v11';
+const WS_CHECKSUM = 'water-shoot-v11';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -117,10 +117,13 @@ function spawnParticle(x,y,z,vx,vy,vz,life,size,type){
 // Dráhy = police se žlabem na zadní stěně v různé hloubce (spodní blíž).
 // hp = kolik zásahů proudem je potřeba — víc hodnotná kachnička spolkne víc vody
 const LANES = [
-  { z:900, y:-240, dir: 1, speed:170, duckSize:165, count:3, baseVal:150, hp:12 },
-  { z:800, y:-429, dir:-1, speed:130, duckSize:182, count:3, baseVal:110, hp:8 },
-  { z:700, y:-589, dir: 1, speed:100, duckSize:200, count:2, baseVal:80,  hp:5 },
+  { z:900, y:-240, dir: 1, speed:170, duckSize:165, count:3, baseVal:150, hp:14 },
+  { z:800, y:-429, dir:-1, speed:130, duckSize:182, count:3, baseVal:110, hp:10 },
+  { z:700, y:-589, dir: 1, speed:100, duckSize:200, count:2, baseVal:80,  hp:6 },
 ];
+// Damage cooldown: kachnička ztratí max 1 HP za HIT_CD sekund (≈12 HP/s),
+// jinak by hustý proud (stovky částic/s) sestřelil cokoli za pár setin.
+const HIT_CD = 0.08;
 // hodnota kachničky klesá s časem bez zásahu: baseVal → 25 % za VALUE_DECAY_T sekund
 const VALUE_DECAY_T = 12;
 let ducks = [];               // {lane,pos,x,knocked,knockT,respawnT,hp,ageT,wobble}
@@ -135,7 +138,7 @@ function duckValue(d){
 // Občas vyplave, má korunku a velký zisk; ve hře je jen krátce a spolkne
 // víc vody než ostatní. Pluje v mezeře mezi sloty vybrané dráhy.
 const SPECIAL_VAL = 300;
-const SPECIAL_HP = 18;
+const SPECIAL_HP = 36;        // 2× původních 18 — královna musí něco vydržet
 const SPECIAL_UP_T = 6;       // jak dlouho zůstane vynořená
 let special = null;           // {lane,pos,x,hp,state:'rise'|'up'|'sink',t}
 let specialTimer = 7;
@@ -146,7 +149,7 @@ function spawnSpecial(){
   const trackLen = 2*laneRangeX(lane);
   const buddy = ducks.find(d=>d.lane===lane);
   const pos = ((buddy ? buddy.pos : rand(0,trackLen)) + trackLen/(2*L.count)) % trackLen;
-  special = { lane, pos, x:0, hp:SPECIAL_HP, state:'rise', t:0 };
+  special = { lane, pos, x:0, hp:SPECIAL_HP, state:'rise', t:0, hitCd:0 };
 }
 
 const POPUP_SLOTS = 3;
@@ -174,7 +177,7 @@ function resetEntities(){
         lane:l,
         pos: (laneOffset + i*(trackLen/L.count)) % trackLen,
         x: 0,
-        knocked:false, knockT:0, respawnT:0, hp:L.hp, ageT: rand(0,3), riseT:1,
+        knocked:false, knockT:0, respawnT:0, hp:L.hp, ageT: rand(0,3), riseT:1, hitCd:0,
         wobble: rand(0, Math.PI*2),
       });
     }
@@ -485,6 +488,7 @@ function update(dt){
       }
     } else {
       if(d.riseT < 1) d.riseT += dt;
+      if(d.hitCd > 0) d.hitCd -= dt;
       d.ageT += dt;
       d.wobble += dt*3;
     }
@@ -500,6 +504,7 @@ function update(dt){
     special.pos = (special.pos + L.speed*dt) % trackLen;
     special.x = L.dir>0 ? special.pos - trackLen/2 : trackLen/2 - special.pos;
     special.t += dt;
+    if(special.hitCd > 0) special.hitCd -= dt;
     if(special.state==='rise' && special.t>0.4){ special.state='up'; special.t=0; }
     else if(special.state==='up' && special.t>SPECIAL_UP_T){ special.state='sink'; special.t=0; }
     else if(special.state==='sink' && special.t>0.4){ special=null; specialTimer=rand(8,14); }
@@ -604,6 +609,8 @@ function splashAt(x,y,z,n,mode){
 function hitDuck(d, p){
   const L = LANES[d.lane];
   splashAt(p.x, p.y, p.z, tune.splash, 0);
+  if(d.hitCd > 0) return;      // šplíchá to, ale HP ubývá max 1× za HIT_CD
+  d.hitCd = HIT_CD;
   d.hp--;
   if(d.hp<=0){
     d.knocked=true; d.knockT=0; d.respawnT=0;
@@ -617,6 +624,8 @@ function hitDuck(d, p){
 function hitSpecial(p){
   const L = LANES[special.lane];
   splashAt(p.x, p.y, p.z, tune.splash, 0);
+  if(special.hitCd > 0) return;
+  special.hitCd = HIT_CD;
   special.hp--;
   if(special.hp<=0){
     const s = projS(L.z);
