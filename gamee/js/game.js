@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v34';
-const WS_CHECKSUM = 'water-shoot-v34';
+const WS_VERSION = 'v35';
+const WS_CHECKSUM = 'water-shoot-v35';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -109,6 +109,33 @@ const tune = {
 };
 let rampT = 0;                // jak dlouho už tryska nabíhá
 
+// ---------------------------------------------------------------- mince
+// Měna pro budoucí odemykání obsahu a upgrady vodního děla. Sbírá se napříč
+// koly (reset kola je nemaže); persistence půjde později přes gamee saveState.
+let coins = 0;
+const COIN_DUCK_CHANCE = 0.14;   // část kachniček nese minci
+const COIN_DUCK = 3;
+const COIN_ROYAL = 10;
+const COIN_CHEST = 15;
+
+function addCoins(n, sx, sy){
+  coins += n;
+  if(sx !== undefined) addFloater(sx, sy, '+'+n, true);
+}
+
+// zlatá mince — používá se v HUD, nad kachničkami i v truhle
+function drawCoin(x, y, r){
+  ctx.fillStyle = '#c98a12';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#ffd700';
+  ctx.beginPath(); ctx.arc(x, y, r*0.82, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#c98a12';
+  ctx.font = '800 '+Math.max(7, Math.round(r*1.15))+'px Arial, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('C', x, y + r*0.06);
+  ctx.textBaseline = 'alphabetic';
+}
+
 // ---------------------------------------------------------------- duhový režim
 // Sejmi tři královské kachničky → na 10 s se rozjede duhový režim: dvě rotující
 // trysky, dvojnásobné poškození a nespotřebovává se čas ani voda.
@@ -149,7 +176,7 @@ function addRainbowDucks(){
         pos: (anchor.pos + i*step) % trackLen,
         x: 0,
         knocked:false, knockT:0, respawnT:0, dmg:0, ageT: rand(0,4), riseT:0, hitCd:0,
-        focus:0, focusT:0,
+        focus:0, focusT:0, coin: Math.random() < COIN_DUCK_CHANCE,
         wobble: rand(0, Math.PI*2),
       });
     }
@@ -367,13 +394,13 @@ function spawnChest(){
   chests.push({
     lane, pos, x: xStart, wobble: rand(0, Math.PI*2),
     hp: CHEST_HP,
-    reward: Math.random() < 0.5 ? 'time' : 'water',
+    reward: ['time','water','coins'][(Math.random()*3)|0],
     state: 'in', t: 0, hitCd: 0, focus: 0, focusT: 0,
   });
 }
 
 const floaters = [];
-for(let i=0;i<24;i++) floaters.push({alive:false,sx:0,sy:0,t:0,txt:''});
+for(let i=0;i<24;i++) floaters.push({alive:false,sx:0,sy:0,t:0,txt:'',coin:false});
 
 function laneRangeX(lane){
   // světová půl-šířka viditelné plochy v hloubce dráhy + rezerva na sprite
@@ -394,7 +421,7 @@ function resetEntities(){
         pos: (laneOffset + i*(trackLen/L.count)) % trackLen,
         x: 0,
         knocked:false, knockT:0, respawnT:0, dmg:0, ageT: rand(0,3), riseT:1, hitCd:0,
-        focus:0, focusT:0,
+        focus:0, focusT:0, coin: Math.random() < COIN_DUCK_CHANCE,
         wobble: rand(0, Math.PI*2),
       });
     }
@@ -420,9 +447,9 @@ function resetEntities(){
   tierRotateT = TIER_ROTATE_T;
 }
 
-function addFloater(sx,sy,txt){
+function addFloater(sx,sy,txt,coin){
   for(const f of floaters){
-    if(!f.alive){ f.alive=true; f.sx=sx; f.sy=sy; f.t=0; f.txt=txt; return; }
+    if(!f.alive){ f.alive=true; f.sx=sx; f.sy=sy; f.t=0; f.txt=txt; f.coin=!!coin; return; }
   }
 }
 
@@ -837,6 +864,7 @@ function update(dt){
         d.respawnT -= dt;
         if(d.respawnT <= 0){
           d.knocked=false; d.knockT=0; d.dmg=0; d.ageT=0; d.riseT=0; d.focus=0; d.focusT=0;
+          d.coin = Math.random() < COIN_DUCK_CHANCE;
         }
       }
     } else {
@@ -1026,6 +1054,7 @@ function hitDuck(d, p, direct){
     const s = projS(L.z);
     addFloater(projX(d.x,s), projY(L.y+L.duckSize*0.45,s), 'KVÁK!');
     spawnFeathers(d.x, L.y + L.duckSize*0.5, L.z, rainbowOn()?26:16, rainbowOn()?1.7:1);
+    if(d.coin) addCoins(COIN_DUCK, projX(d.x,s), projY(L.y+L.duckSize*0.75,s));
     addScore(duckValue(d), projX(d.x,s), projY(L.y+L.duckSize,s));
     splashAt(d.x, L.y+L.duckSize*0.4, L.z, tune.splash*2, 0);
     spawnRing(d.x, L.y+L.duckSize*0.4, L.z, 0);
@@ -1049,6 +1078,7 @@ function hitSpecial(p, direct){
     const s = projS(L.z);
     addFloater(projX(special.x,s), projY(L.y+L.duckSize*0.45,s), 'KVÁÁK!');
     spawnFeathers(special.x, L.y + L.duckSize*0.5, L.z, rainbowOn()?38:28, rainbowOn()?2:1.4);
+    addCoins(COIN_ROYAL, projX(special.x,s), projY(L.y+L.duckSize*0.75,s));
     addScore(SPECIAL_VAL, projX(special.x,s), projY(L.y+L.duckSize,s));
     collectRoyal();
     splashAt(special.x, L.y+L.duckSize*0.4, L.z, tune.splash*3, 0);
@@ -1074,7 +1104,9 @@ function hitChest(chest, p, direct){
     const L = LANES[chest.lane];
     const s = projS(L.z);
     const sx = projX(chest.x,s), sy = projY(L.y+CHEST_CY,s);
-    if(chest.reward==='time'){
+    if(chest.reward==='coins'){
+      addCoins(COIN_CHEST, sx, sy - 70*s*S);
+    } else if(chest.reward==='time'){
       timeLeft += CHEST_TIME_BONUS;
       addFloater(sx, sy - 70*s*S, '+'+CHEST_TIME_BONUS+' s');
     } else {
@@ -1162,6 +1194,10 @@ function draw(){
       ctx.restore();
 
       // kulatý bar na těle: plní se zásahy, uvnitř aktuální hodnota kachničky
+      if(!d.knocked && sink <= 0 && d.coin){
+        // mince pohupující se nad hlavou = tahle kachnička platí
+        drawCoin(sx - spriteSz*0.2, sy - spriteSz*0.66 + Math.sin(d.wobble*1.3)*2.5*S, spriteSz*0.1);
+      }
       if(!d.knocked && sink <= 0){
         const heat = d.focusT > 0 ? Math.min(d.focus/4, 1) : 0;
         drawDuckBadge(sx, sy - spriteSz*0.12, spriteSz*0.19, d.dmg/duckHpNeeded(d), duckValue(d), false, heat);
@@ -1294,7 +1330,16 @@ function draw(){
   for(const f of floaters){
     if(!f.alive) continue;
     ctx.globalAlpha = 1 - f.t/0.9;
-    ctx.fillText(f.txt, f.sx, f.sy);
+    if(f.coin){
+      ctx.fillStyle = '#ffd700';
+      ctx.fillText(f.txt, f.sx - 9*S, f.sy);
+      drawCoin(f.sx + 14*S, f.sy - 5*S, 8*S);
+      ctx.fillStyle = '#ffe98a';
+      ctx.font = '700 '+Math.round(20*S)+'px Arial, sans-serif';
+      ctx.textAlign = 'center';
+    } else {
+      ctx.fillText(f.txt, f.sx, f.sy);
+    }
   }
   ctx.globalAlpha = 1;
 
@@ -1315,6 +1360,16 @@ function draw(){
   ctx.fillText(Math.ceil(timeLeft)+' s', W - 18*S + 1.5*S, hudY + 1.5*S);
   ctx.fillStyle = 'rgba(255,255,255,0.9)';
   ctx.fillText(Math.ceil(timeLeft)+' s', W - 18*S, hudY);
+  // mince vlevo — zrcadlí čas vpravo
+  const coinR = 11*S, coinX = 20*S + coinR;
+  drawCoin(coinX, hudY, coinR);
+  ctx.font = '700 '+Math.round(22*S)+'px Arial, sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillText(coins, coinX + coinR + 7*S + 1.5*S, hudY + 1.5*S);
+  ctx.fillStyle = '#ffd700';
+  ctx.fillText(coins, coinX + coinR + 7*S, hudY);
+  ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
 
@@ -1462,7 +1517,9 @@ function drawChestOne(chest, l){
     const iy = cy - h*0.3 - k*90*s*S;
     ctx.save();
     ctx.globalAlpha = 1 - Math.max(0, (chest.t-0.9)/0.5);
-    if(chest.reward==='time'){
+    if(chest.reward==='coins'){
+      drawCoin(cx, iy, 32*s*S);
+    } else if(chest.reward==='time'){
       // hodiny
       const r = 34*s*S;
       ctx.fillStyle = '#ffd700';
