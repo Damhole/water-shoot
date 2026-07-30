@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v20';
-const WS_CHECKSUM = 'water-shoot-v20';
+const WS_VERSION = 'v21';
+const WS_CHECKSUM = 'water-shoot-v21';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -1409,10 +1409,14 @@ function endRound(reason){
   cannon.spraying = false;
   _safeGamee(()=>gamee.updateScore(score, playTime, WS_CHECKSUM));
   _safeGamee(()=>gamee.gameOver(undefined, JSON.stringify({score:score}), undefined));
+  // Overlay konce kola — chybějící element nesmí shodit zbytek endRound
+  // (dřív tu byl crash na overlay-title a overlay se vůbec neukázal).
+  const set = (id, txt)=>{ const el = document.getElementById(id); if(el) el.textContent = txt; };
+  set('overlay-title', reason || 'Konec kola');
+  set('overlay-score', score);
+  set('overlay-msg', 'Hráno ' + Math.round(playTime) + ' s');
   const ov = document.getElementById('overlay');
-  document.getElementById('overlay-title').textContent = reason || 'Konec kola';
-  document.getElementById('overlay-msg').textContent = 'Skóre: ' + score;
-  ov.hidden = false;
+  if(ov) ov.hidden = false;
 }
 
 // ---------------------------------------------------------------- init + Gamee lifecycle
