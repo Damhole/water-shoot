@@ -76,3 +76,4 @@ _(neotříděné nápady sem)_
 | v40 | Hra přejmenována na **Golden Ducks** (cedule, titulek, badge, PWA název); nápis se auto-zmenší podle šířky displeje | ef4c515 | 2026-07-30 |
 | v41 | Odstraněna fáborková girlanda (revert v39) — vizuálně nesedla | 6010ec0 | 2026-07-30 |
 | v42 | Rychlejší doplnění řady (prázdno 1,3 s místo 2,3–3,8 s) + sestřel zkracuje čekání na královskou o 1,8 s (min 0,8 s). Simulace: 3,6 královských/kolo v nečinnosti vs 6,0 při 1 sestřelu/s | 66d3e1c | 2026-07-30 |
+| v43 | Odměna za aktivitu zvýšena — sestřel ukrojí 3 s (min 0,6 s); simulace: 3,7 královských v nečinnosti vs 7,0 při 1 sestřelu/s (téměř 2×) | d1bb4ee | 2026-07-30 |

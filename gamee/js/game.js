@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v43';
-const WS_CHECKSUM = 'water-shoot-v43';
+const WS_VERSION = 'v44';
+const WS_CHECKSUM = 'water-shoot-v44';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -401,12 +401,20 @@ const SPECIAL_KILL_CUT = 3.0;   // o kolik sestřel zkrátí čekání na králo
 const SPECIAL_MIN_WAIT = 0.6;   // pod tohle odpočet neklesne, ať nechodí v hejnu
 
 function spawnSpecial(){
+  // Královská se dřív odvozovala od pozice sousední kachničky, takže často
+  // vznikla až u výjezdu a hráč ji nestihl. Teď vjíždí z náhodného místa
+  // VSTUPNÍ části dráhy — vždycky jí zbývá aspoň 65 % průjezdu obrazovkou.
   const lane = (Math.random()*LANES.length)|0;
   const L = LANES[lane];
   const trackLen = 2*laneRangeX(lane);
-  const buddy = ducks.find(d=>d.lane===lane);
-  const pos = ((buddy ? buddy.pos : rand(0,trackLen)) + trackLen/(2*L.count)) % trackLen;
-  special = { lane, pos, x:0, hp:SPECIAL_HP, state:'rise', t:0, hitCd:0, focus:0, focusT:0 };
+  const s = projS(L.z);
+  const visHalf = (W/2)/(s*S);
+  const margin = L.duckSize*0.6;
+  const span = 2*(visHalf + margin);            // celý průjezd obrazovkou
+  const consumed = rand(0, 0.35);               // kolik z něj už má za sebou
+  const x = -L.dir*(visHalf + margin) + L.dir*consumed*span;
+  const pos = L.dir>0 ? x + trackLen/2 : trackLen/2 - x;
+  special = { lane, pos, x, hp:SPECIAL_HP, state:'rise', t:0, hitCd:0, focus:0, focusT:0 };
 }
 
 const POPUP_SLOTS = 3;
