@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v09';
-const WS_CHECKSUM = 'water-shoot-v09';
+const WS_VERSION = 'v10';
+const WS_CHECKSUM = 'water-shoot-v10';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -33,7 +33,7 @@ function unprojY(sy,s){ return (VPY-sy)/(s*S); }
 // ---------------------------------------------------------------- stav
 let canvas, ctx, W=0, H=0, DPR=1, S=1;
 let bgCanvas=null;
-let duckSprite=null;
+let duckSprite=null, duckCrownSprite=null;
 let running=false, paused=false, over=false;
 let score=0, playTime=0, timeLeft=0;
 const ROUND_TIME = 60;
@@ -131,6 +131,24 @@ function duckValue(d){
   return Math.max(5, Math.round(v/5)*5);
 }
 
+// ---- speciální korunková kachnička ----
+// Občas vyplave, má korunku a velký zisk; ve hře je jen krátce a spolkne
+// víc vody než ostatní. Pluje v mezeře mezi sloty vybrané dráhy.
+const SPECIAL_VAL = 300;
+const SPECIAL_HP = 18;
+const SPECIAL_UP_T = 6;       // jak dlouho zůstane vynořená
+let special = null;           // {lane,pos,x,hp,state:'rise'|'up'|'sink',t}
+let specialTimer = 7;
+
+function spawnSpecial(){
+  const lane = (Math.random()*LANES.length)|0;
+  const L = LANES[lane];
+  const trackLen = 2*laneRangeX(lane);
+  const buddy = ducks.find(d=>d.lane===lane);
+  const pos = ((buddy ? buddy.pos : rand(0,trackLen)) + trackLen/(2*L.count)) % trackLen;
+  special = { lane, pos, x:0, hp:SPECIAL_HP, state:'rise', t:0 };
+}
+
 const POPUP_SLOTS = 3;
 let popups = [];              // world: {x,y,z,r,state,t,ttl}
 let popupTimer = 2;
@@ -171,6 +189,8 @@ function resetEntities(){
     });
   }
   popupTimer = 2;
+  special = null;
+  specialTimer = rand(5, 9);
 }
 
 function addFloater(sx,sy,txt){
@@ -299,11 +319,16 @@ function prerenderBackground(){
 
 // Kachnička (míří doleva) — prerender, za běhu jen drawImage.
 function prerenderDuck(){
+  duckSprite = makeDuckSprite(false);
+  duckCrownSprite = makeDuckSprite(true);
+}
+
+function makeDuckSprite(crown){
   const base = 90;
   const sz = Math.ceil(base*S*DPR);
-  duckSprite = document.createElement('canvas');
-  duckSprite.width = sz; duckSprite.height = sz;
-  const g = duckSprite.getContext('2d');
+  const cv = document.createElement('canvas');
+  cv.width = sz; cv.height = sz;
+  const g = cv.getContext('2d');
   g.scale(sz/base, sz/base);
   g.fillStyle = '#ffd21f';
   g.beginPath(); g.ellipse(48, 58, 30, 22, 0, 0, Math.PI*2); g.fill();
@@ -319,6 +344,17 @@ function prerenderDuck(){
   g.beginPath(); g.ellipse(52, 58, 13, 8, -0.35, 0, Math.PI*2); g.fill();
   g.fillStyle = 'rgba(255,255,255,0.25)';
   g.beginPath(); g.ellipse(40, 48, 10, 5, -0.4, 0, Math.PI*2); g.fill();
+  if(crown){
+    // zlatá korunka na hlavě
+    g.fillStyle = '#ffd700'; g.strokeStyle = '#c9930a'; g.lineWidth = 1.5;
+    g.beginPath();
+    g.moveTo(18,21); g.lineTo(21,7); g.lineTo(27,15); g.lineTo(31,4);
+    g.lineTo(35,15); g.lineTo(41,7); g.lineTo(44,21); g.closePath();
+    g.fill(); g.stroke();
+    g.fillStyle = '#ff5a7a';
+    g.beginPath(); g.arc(31, 15, 2.4, 0, Math.PI*2); g.fill();
+  }
+  return cv;
 }
 
 // ---------------------------------------------------------------- vstup
@@ -411,6 +447,15 @@ function update(dt){
         const ddx = nd.x-d.x, ddy = nd.y-cy;
         if(ddx*ddx+ddy*ddy < r*r){ nd.alive=false; break; }
       }
+      if(nd.alive && special && special.state!=='sink'){
+        const L = LANES[special.lane];
+        if(Math.abs(nd.z - L.z) <= 60){
+          const r = L.duckSize*0.48;
+          const cy = L.y + L.duckSize*0.45;
+          const ddx = nd.x-special.x, ddy = nd.y-cy;
+          if(ddx*ddx+ddy*ddy < r*r) nd.alive=false;
+        }
+      }
     }
   }
 
@@ -443,6 +488,21 @@ function update(dt){
       d.ageT += dt;
       d.wobble += dt*3;
     }
+  }
+
+  // speciální korunková kachnička
+  if(!special){
+    specialTimer -= dt;
+    if(specialTimer <= 0) spawnSpecial();
+  } else {
+    const L = LANES[special.lane];
+    const trackLen = 2*laneRangeX(special.lane);
+    special.pos = (special.pos + L.speed*dt) % trackLen;
+    special.x = L.dir>0 ? special.pos - trackLen/2 : trackLen/2 - special.pos;
+    special.t += dt;
+    if(special.state==='rise' && special.t>0.4){ special.state='up'; special.t=0; }
+    else if(special.state==='up' && special.t>SPECIAL_UP_T){ special.state='sink'; special.t=0; }
+    else if(special.state==='sink' && special.t>0.4){ special=null; specialTimer=rand(8,14); }
   }
 
   // pop-up terče
@@ -484,6 +544,15 @@ function update(dt){
           const cy = L.y + L.duckSize*0.45;
           const ddx = p.x-d.x, ddy = p.y-cy;
           if(ddx*ddx+ddy*ddy < r*r){ hitDuck(d, p); dead=true; break; }
+        }
+        if(!dead && special && special.state!=='sink'){
+          const L = LANES[special.lane];
+          if(Math.abs(p.z - L.z) <= 60){
+            const r = L.duckSize*0.48;
+            const cy = L.y + L.duckSize*0.45;
+            const ddx = p.x-special.x, ddy = p.y-cy;
+            if(ddx*ddx+ddy*ddy < r*r){ hitSpecial(p); dead=true; }
+          }
         }
         if(!dead){
           for(const t of popups){
@@ -545,6 +614,19 @@ function hitDuck(d, p){
   }
 }
 
+function hitSpecial(p){
+  const L = LANES[special.lane];
+  splashAt(p.x, p.y, p.z, tune.splash, 0);
+  special.hp--;
+  if(special.hp<=0){
+    const s = projS(L.z);
+    addScore(SPECIAL_VAL, projX(special.x,s), projY(L.y+L.duckSize,s));
+    splashAt(special.x, L.y+L.duckSize*0.4, L.z, tune.splash*3, 0);
+    spawnRing(special.x, L.y+L.duckSize*0.4, L.z, 0);
+    special.state='sink'; special.t=0;
+  }
+}
+
 function hitPopup(t, p){
   splashAt(p.x, p.y, t.z, tune.splash, 0);
   const bonus = Math.round((1 - Math.min(t.t,t.ttl)/t.ttl) * 100);
@@ -579,53 +661,60 @@ function draw(){
     ctx.restore();
   }
 
-  // kachničky — od nejvzdálenější dráhy; po každé dráze přední hrana žlabu
+  // kachničky — od nejvzdálenější dráhy; po každé dráze přední hrana žlabu.
+  // Zasažená kachnička se POTÁPÍ pod hladinu — clip na linii žlabu ji ořízne.
   for(let l=0;l<LANES.length;l++){
     const L = LANES[l], s = projS(L.z);
     const spriteSz = L.duckSize*1.1*s*S;
+    const ly = projY(L.y, s);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, W, ly + 4*S);   // vše pod hladinou žlabu je skryté
+    ctx.clip();
     for(const d of ducks){
       if(d.lane!==l) continue;
+      // potopení/vynoření (0 = na hladině, 1 = celá pod vodou)
+      let sink = 0;
+      if(d.knocked) sink = Math.min(d.knockT/0.4, 1);
+      else if(d.riseT < 0.35) sink = 1 - d.riseT/0.35;
+      if(sink >= 1) continue;
       const sx = projX(d.x,s);
-      const sy = projY(L.y + (d.knocked?0:Math.sin(d.wobble)*8) + 14, s);
-      // převrhnutí/vztyčení: kachnička je vidět pořád, jen se sklápí a zvedá
-      let rot = 0;
-      if(d.knocked) rot = Math.min(d.knockT/0.35, 1) * Math.PI/2;
-      else if(d.riseT < 0.25) rot = (1 - d.riseT/0.25) * Math.PI/2;
+      const sy = projY(L.y + Math.sin(d.wobble)*8 + 14, s) + sink*spriteSz*1.05;
       ctx.save();
-      // pivot dole u dna; sin-zdvih jen kompenzuje šířku ležícího těla,
-      // aby leželo NA polici (bez něj by po rotaci viselo pod hranu žlabu)
-      ctx.translate(sx, sy - Math.sin(rot)*spriteSz*0.42);
+      ctx.translate(sx, sy);
       // sprite míří doleva → při jízdě doprava zrcadlit (zobák dopředu)
       if(L.dir>0) ctx.scale(-1,1);
-      // rotace v lokálním prostoru je pro oba směry stejná — zrcadlení ji
-      // převrátí samo, takže kachnička padá VŽDY na záda (zobáčkem nahoru)
-      if(rot > 0) ctx.rotate(rot);
       ctx.drawImage(duckSprite, -spriteSz*0.53, -spriteSz*0.75, spriteSz, spriteSz);
       ctx.restore();
 
       // kulatý bar na těle: plní se zásahy, uvnitř aktuální hodnota kachničky
-      if(!d.knocked){
-        const ringR = spriteSz*0.19;
-        const ringX = sx, ringY = sy - spriteSz*0.12;
-        const prog = 1 - d.hp/L.hp;
-        ctx.fillStyle = 'rgba(8,16,36,0.55)';
-        ctx.beginPath(); ctx.arc(ringX, ringY, ringR, 0, Math.PI*2); ctx.fill();
-        if(prog > 0){
-          ctx.strokeStyle = '#5ad1ff';
-          ctx.lineWidth = Math.max(2, ringR*0.3);
-          ctx.beginPath();
-          ctx.arc(ringX, ringY, ringR*0.78, -Math.PI/2, -Math.PI/2 + prog*Math.PI*2);
-          ctx.stroke();
-        }
-        ctx.fillStyle = '#fff';
-        ctx.font = '700 '+Math.max(8, Math.round(ringR*0.8))+'px Arial, sans-serif';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(duckValue(d), ringX, ringY);
-        ctx.textBaseline = 'alphabetic';
+      if(!d.knocked && sink <= 0){
+        drawDuckBadge(sx, sy - spriteSz*0.12, spriteSz*0.19, 1 - d.hp/L.hp, duckValue(d), false);
       }
     }
+    // speciální korunková kachnička ve své dráze
+    if(special && special.lane===l){
+      let sink = 0;
+      if(special.state==='rise') sink = 1 - special.t/0.4;
+      else if(special.state==='sink') sink = special.t/0.4;
+      if(sink < 1){
+        const spSz = L.duckSize*1.15*1.1*s*S;
+        const sx = projX(special.x,s);
+        const sy = projY(L.y + 14, s) + sink*spSz*1.05;
+        const blink = special.state==='up' && (SPECIAL_UP_T - special.t < 1.5);
+        ctx.save();
+        if(blink && Math.sin(ribbonTime*10) > 0) ctx.globalAlpha = 0.55;
+        ctx.translate(sx, sy);
+        if(L.dir>0) ctx.scale(-1,1);
+        ctx.drawImage(duckCrownSprite, -spSz*0.53, -spSz*0.75, spSz, spSz);
+        ctx.restore();
+        if(special.state==='up'){
+          drawDuckBadge(sx, sy - spSz*0.12, spSz*0.19, 1 - special.hp/SPECIAL_HP, SPECIAL_VAL, true);
+        }
+      }
+    }
+    ctx.restore();
     // přední hrana žlabu přes nožičky
-    const ly = projY(L.y, s);
     ctx.fillStyle = 'rgba(23,58,99,0.9)';
     ctx.fillRect(0, ly, W, 30*s*S);
     ctx.fillStyle = 'rgba(160,220,255,0.25)';
@@ -740,6 +829,24 @@ function draw(){
   ctx.textBaseline = 'alphabetic';
 
   drawWaterTank();
+}
+
+// Kulatý bar kachničky: prstenec plnění zásahy + hodnota uvnitř.
+function drawDuckBadge(x, y, r, prog, value, gold){
+  ctx.fillStyle = gold ? 'rgba(80,60,4,0.6)' : 'rgba(8,16,36,0.55)';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+  if(prog > 0){
+    ctx.strokeStyle = gold ? '#ffd700' : '#5ad1ff';
+    ctx.lineWidth = Math.max(2, r*0.3);
+    ctx.beginPath();
+    ctx.arc(x, y, r*0.78, -Math.PI/2, -Math.PI/2 + prog*Math.PI*2);
+    ctx.stroke();
+  }
+  ctx.fillStyle = gold ? '#ffe98a' : '#fff';
+  ctx.font = '700 '+Math.max(8, Math.round(r*0.8))+'px Arial, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(value, x, y);
+  ctx.textBaseline = 'alphabetic';
 }
 
 // Nádržka s vodou u děla — stav munice přímo v zorném poli hráče.
