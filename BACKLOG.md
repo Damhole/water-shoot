@@ -44,3 +44,4 @@ _(neotříděné nápady sem)_
 | v11 | Damage cooldown 80 ms (≈12 HP/s) — kachničky vydrží viditelné kropení; HP 14/10/6, královská 36 | 20e9eda | 2026-07-30 |
 | v12 | Truhlička s odměnou: 6 zásahů → otevře se a vyjede +8 s (hodiny) / +25 vody (kapka); okno 5 s | b329ce8 | 2026-07-30 |
 | v13 | HP podle hodnoty (12/8/5, klesá s decay), královská dojíždí řádek (nemizí sama), truhla pluje v dráze, damage jen koncem proudu | d2c2c0c | 2026-07-30 |
+| v14 | Rotace hodnotových tierů mezi drahami (á 15 s, náhodný start), squash&stretch + „KVÁK!" při sestřelu, výraznější houpání truhly | 1b73af1 | 2026-07-30 |

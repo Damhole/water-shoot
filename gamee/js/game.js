@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v14';
-const WS_CHECKSUM = 'water-shoot-v14';
+const WS_VERSION = 'v15';
+const WS_CHECKSUM = 'water-shoot-v15';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -183,13 +183,17 @@ let chestTimer = 9;
 
 function spawnChest(){
   // Truhla pluje v dráze mezi kachničkami a houpe se na vodě jako ony.
+  // Safe zone: vyplouvá na návětrné straně viditelné plochy, takže má před
+  // sebou celý průjezd obrazovkou — nikdy jen nevykoukne u kraje a nezmizí.
   const lane = (Math.random()*LANES.length)|0;
   const L = LANES[lane];
-  const trackLen = 2*laneRangeX(lane);
-  const buddy = ducks.find(d=>d.lane===lane);
-  const pos = ((buddy ? buddy.pos : rand(0,trackLen)) + trackLen/(2*L.count)) % trackLen;
+  const range = laneRangeX(lane);
+  const s = projS(L.z);
+  const visHalf = (W/2)/(s*S);              // viditelná půlka dráhy ve world
+  const xStart = -L.dir * visHalf * 0.6;    // u vstupní hrany, celá na obrazovce
+  const pos = L.dir>0 ? xStart + range : range - xStart;
   chest = {
-    lane, pos, x: 0, wobble: rand(0, Math.PI*2),
+    lane, pos, x: xStart, wobble: rand(0, Math.PI*2),
     hp: CHEST_HP,
     reward: Math.random() < 0.5 ? 'time' : 'water',
     state: 'in', t: 0, hitCd: 0,
@@ -653,7 +657,12 @@ function update(dt){
           const r = L.duckSize*0.42;
           const cy = L.y + L.duckSize*0.45;
           const ddx = p.x-d.x, ddy = p.y-cy;
-          if(ddx*ddx+ddy*ddy < r*r){ hitDuck(d, p); dead=true; break; }
+          const d2 = ddx*ddx+ddy*ddy;
+          if(d2 < r*r){
+            // přímý zásah do kolečka s body = plný bod, zbytek tělíčka půl
+            hitDuck(d, p, d2 < r*r*0.25);
+            dead=true; break;
+          }
         }
         if(armed && !dead && special && special.state!=='sink'){
           const L = LANES[special.lane];
@@ -661,7 +670,8 @@ function update(dt){
             const r = L.duckSize*0.48;
             const cy = L.y + L.duckSize*0.45;
             const ddx = p.x-special.x, ddy = p.y-cy;
-            if(ddx*ddx+ddy*ddy < r*r){ hitSpecial(p); dead=true; }
+            const d2 = ddx*ddx+ddy*ddy;
+            if(d2 < r*r){ hitSpecial(p, d2 < r*r*0.25); dead=true; }
           }
         }
         if(!dead){
@@ -718,12 +728,13 @@ function splashAt(x,y,z,n,mode){
   }
 }
 
-function hitDuck(d, p){
+function hitDuck(d, p, direct){
   const L = LANES[d.lane];
-  splashAt(p.x, p.y, p.z, tune.splash, 0);
+  splashAt(p.x, p.y, p.z, direct ? tune.splash+3 : tune.splash, 0);
+  if(direct) spawnRing(p.x, p.y, p.z, 0);   // feedback kritu (throttled)
   if(d.hitCd > 0) return;      // šplíchá to, ale HP ubývá max 1× za HIT_CD
   d.hitCd = HIT_CD;
-  d.dmg++;
+  d.dmg += direct ? 1 : 0.5;
   if(d.dmg >= duckHpNeeded(d)){
     d.knocked=true; d.knockT=0; d.respawnT=0;
     const s = projS(L.z);
@@ -734,12 +745,13 @@ function hitDuck(d, p){
   }
 }
 
-function hitSpecial(p){
+function hitSpecial(p, direct){
   const L = LANES[special.lane];
-  splashAt(p.x, p.y, p.z, tune.splash, 0);
+  splashAt(p.x, p.y, p.z, direct ? tune.splash+3 : tune.splash, 0);
+  if(direct) spawnRing(p.x, p.y, p.z, 0);
   if(special.hitCd > 0) return;
   special.hitCd = HIT_CD;
-  special.hp--;
+  special.hp -= direct ? 1 : 0.5;
   if(special.hp<=0){
     const s = projS(L.z);
     addFloater(projX(special.x,s), projY(L.y+L.duckSize*0.45,s), 'KVÁÁK!');
