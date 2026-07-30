@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v11';
-const WS_CHECKSUM = 'water-shoot-v11';
+const WS_VERSION = 'v12';
+const WS_CHECKSUM = 'water-shoot-v12';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -156,6 +156,27 @@ const POPUP_SLOTS = 3;
 let popups = [];              // world: {x,y,z,r,state,t,ttl}
 let popupTimer = 2;
 
+// ---- truhlička s odměnou ----
+// Objeví se na stěně, pár zásahů ji otevře a vyjede z ní výhra:
+// hodiny (+čas) nebo kapka (+voda). Neotevřená po chvíli zmizí.
+const CHEST_HP = 6;
+const CHEST_UP_T = 5;         // okno na otevření
+const CHEST_TIME_BONUS = 8;   // s
+const CHEST_WATER_BONUS = 25; // jednotek nádržky
+let chest = null;             // {x,y,z,r,hp,reward:'time'|'water',state:'in'|'closed'|'open'|'out',t,hitCd}
+let chestTimer = 9;
+
+function spawnChest(){
+  const s = projS(WALL_Z);
+  chest = {
+    x: unprojX(W*rand(0.3, 0.7), s),
+    y: -117, z: WALL_Z, r: 80,
+    hp: CHEST_HP,
+    reward: Math.random() < 0.5 ? 'time' : 'water',
+    state: 'in', t: 0, hitCd: 0,
+  };
+}
+
 const floaters = [];
 for(let i=0;i<24;i++) floaters.push({alive:false,sx:0,sy:0,t:0,txt:''});
 
@@ -194,6 +215,8 @@ function resetEntities(){
   popupTimer = 2;
   special = null;
   specialTimer = rand(5, 9);
+  chest = null;
+  chestTimer = rand(6, 10);
 }
 
 function addFloater(sx,sy,txt){
@@ -510,6 +533,19 @@ function update(dt){
     else if(special.state==='sink' && special.t>0.4){ special=null; specialTimer=rand(8,14); }
   }
 
+  // truhlička
+  if(!chest){
+    chestTimer -= dt;
+    if(chestTimer <= 0) spawnChest();
+  } else {
+    chest.t += dt;
+    if(chest.hitCd > 0) chest.hitCd -= dt;
+    if(chest.state==='in' && chest.t>0.25){ chest.state='closed'; chest.t=0; }
+    else if(chest.state==='closed' && chest.t>CHEST_UP_T){ chest.state='out'; chest.t=0; }
+    else if(chest.state==='open' && chest.t>1.4){ chest=null; chestTimer=rand(10,16); }
+    else if(chest && chest.state==='out' && chest.t>0.25){ chest=null; chestTimer=rand(10,16); }
+  }
+
   // pop-up terče
   popupTimer -= dt;
   if(popupTimer <= 0){
@@ -565,6 +601,10 @@ function update(dt){
             const ddx = p.x-t.x, ddy = p.y-t.y;
             if(ddx*ddx+ddy*ddy < t.r*t.r){ hitPopup(t, p); dead=true; break; }
           }
+        }
+        if(!dead && chest && chest.state==='closed' && p.z >= chest.z-70){
+          const ddx = p.x-chest.x, ddy = p.y-chest.y;
+          if(ddx*ddx+ddy*ddy < chest.r*chest.r){ hitChest(p); dead=true; }
         }
       }
       // dopad na zadní stěnu → splash stékající po stěně
@@ -636,6 +676,28 @@ function hitSpecial(p){
   }
 }
 
+function hitChest(p){
+  splashAt(p.x, p.y, p.z, tune.splash, 0);
+  if(chest.hitCd > 0) return;
+  chest.hitCd = HIT_CD;
+  chest.hp--;
+  if(chest.hp<=0){
+    chest.state='open'; chest.t=0;
+    const s = projS(chest.z);
+    const sx = projX(chest.x,s), sy = projY(chest.y,s);
+    if(chest.reward==='time'){
+      timeLeft += CHEST_TIME_BONUS;
+      addFloater(sx, sy - 60*s*S, '+'+CHEST_TIME_BONUS+' s');
+    } else {
+      water = Math.min(WATER_MAX, water + CHEST_WATER_BONUS);
+      updateWaterBar();
+      addFloater(sx, sy - 60*s*S, '+voda');
+    }
+    splashAt(chest.x, chest.y, chest.z, tune.splash*2, 0);
+    spawnRing(chest.x, chest.y, chest.z, 0);
+  }
+}
+
 function hitPopup(t, p){
   splashAt(p.x, p.y, t.z, tune.splash, 0);
   const bonus = Math.round((1 - Math.min(t.t,t.ttl)/t.ttl) * 100);
@@ -669,6 +731,8 @@ function draw(){
     ctx.beginPath(); ctx.arc(0, 0, r*0.14, 0, Math.PI*2); ctx.fill();
     ctx.restore();
   }
+
+  drawChest();
 
   // kachničky — od nejvzdálenější dráhy; po každé dráze přední hrana žlabu.
   // Zasažená kachnička se POTÁPÍ pod hladinu — clip na linii žlabu ji ořízne.
@@ -838,6 +902,99 @@ function draw(){
   ctx.textBaseline = 'alphabetic';
 
   drawWaterTank();
+}
+
+// Truhlička na stěně: zavřená s otazníkem, po otevření vyjede výhra.
+function drawChest(){
+  if(!chest) return;
+  const s = projS(chest.z);
+  let sc = 1;
+  if(chest.state==='in') sc = chest.t/0.25;
+  else if(chest.state==='out') sc = 1 - chest.t/0.25;
+  if(sc <= 0) return;
+  const cx = projX(chest.x,s), cy = projY(chest.y,s);
+  const w = 200*s*S*sc, h = 135*s*S*sc;
+  const open = chest.state==='open';
+  const rr = (x,y,ww,hh,r)=>{
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(x,y,ww,hh,r);
+    else ctx.rect(x,y,ww,hh);
+  };
+
+  // zlatá záře za otevřenou truhlou
+  if(open){
+    const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, w);
+    glow.addColorStop(0,'rgba(255,215,80,0.5)'); glow.addColorStop(1,'rgba(255,215,80,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(cx, cy, w, 0, Math.PI*2); ctx.fill();
+  }
+
+  // víko: zavřené sedí na těle, otevřené odklopené nahoru
+  ctx.save();
+  ctx.translate(cx, cy - h*0.18);
+  if(open) { ctx.translate(0, -h*0.42); ctx.rotate(-0.5); }
+  const lidG = ctx.createLinearGradient(0,-h*0.35,0,0);
+  lidG.addColorStop(0,'#8a5f2e'); lidG.addColorStop(1,'#6b4a24');
+  ctx.fillStyle = lidG;
+  rr(-w/2, -h*0.35, w, h*0.38, 6*S); ctx.fill();
+  ctx.strokeStyle = '#e8a33a'; ctx.lineWidth = 2.5*S;
+  rr(-w/2, -h*0.35, w, h*0.38, 6*S); ctx.stroke();
+  ctx.restore();
+
+  // tělo
+  const bodyG = ctx.createLinearGradient(cx,cy-h*0.2,cx,cy+h*0.55);
+  bodyG.addColorStop(0,'#7a5228'); bodyG.addColorStop(1,'#553a1c');
+  ctx.fillStyle = bodyG;
+  rr(cx-w/2, cy-h*0.18, w, h*0.7, 6*S); ctx.fill();
+  ctx.strokeStyle = '#e8a33a'; ctx.lineWidth = 2.5*S;
+  rr(cx-w/2, cy-h*0.18, w, h*0.7, 6*S); ctx.stroke();
+  // zlaté pásy + zámek
+  ctx.fillStyle = '#e8a33a';
+  ctx.fillRect(cx-w*0.32, cy-h*0.18, 5*S, h*0.7);
+  ctx.fillRect(cx+w*0.32-5*S, cy-h*0.18, 5*S, h*0.7);
+  if(!open){
+    ctx.beginPath(); ctx.arc(cx, cy+h*0.05, 8*s*S*sc*2.2, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#553a1c';
+    ctx.fillRect(cx-2.5*S, cy+h*0.05, 5*S, 9*s*S*sc*2);
+  }
+
+  // odměna vyjíždí z truhly
+  if(open){
+    const k = Math.min(chest.t/1.1, 1);
+    const iy = cy - h*0.3 - k*90*s*S;
+    ctx.save();
+    ctx.globalAlpha = 1 - Math.max(0, (chest.t-0.9)/0.5);
+    if(chest.reward==='time'){
+      // hodiny
+      const r = 34*s*S;
+      ctx.fillStyle = '#ffd700';
+      ctx.beginPath(); ctx.arc(cx, iy, r, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#fff8e0';
+      ctx.beginPath(); ctx.arc(cx, iy, r*0.78, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#553a1c'; ctx.lineWidth = Math.max(2, r*0.12);
+      ctx.beginPath();
+      ctx.moveTo(cx, iy); ctx.lineTo(cx, iy-r*0.55);
+      ctx.moveTo(cx, iy); ctx.lineTo(cx+r*0.4, iy+r*0.15);
+      ctx.stroke();
+    } else {
+      // kapka
+      const r = 30*s*S;
+      ctx.fillStyle = '#5ad1ff';
+      ctx.beginPath();
+      ctx.moveTo(cx, iy-r*1.2);
+      ctx.bezierCurveTo(cx+r, iy-r*0.1, cx+r*0.85, iy+r*0.8, cx, iy+r*0.8);
+      ctx.bezierCurveTo(cx-r*0.85, iy+r*0.8, cx-r, iy-r*0.1, cx, iy-r*1.2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.beginPath(); ctx.arc(cx-r*0.3, iy+r*0.15, r*0.22, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // otazník + progress prstenec dokud je zavřená
+  if(chest.state==='closed'){
+    drawDuckBadge(cx, cy + h*0.12, 34*s*S, 1 - chest.hp/CHEST_HP, '?', true);
+  }
 }
 
 // Kulatý bar kachničky: prstenec plnění zásahy + hodnota uvnitř.

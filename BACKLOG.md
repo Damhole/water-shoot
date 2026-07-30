@@ -41,3 +41,4 @@ _(neotříděné nápady sem)_
 | v08 | Fix převrhnutí: pivot u dna, vždy na záda (zrcadlení řeší směr), sin-zdvih proti levitaci/visení | 1c81e94 | 2026-07-30 |
 | v09 | HUD na plátně: velké skóre uprostřed modré pasáže, čas vpravo, nádržka vody u děla s blikáním | f2bd378 | 2026-07-30 |
 | v10 | Zásah = potopení pod hladinu (clip, bez rotací); speciální korunková kachnička 300 b / 18 zásahů / ~6 s | 9497663 | 2026-07-30 |
+| v11 | Damage cooldown 80 ms (≈12 HP/s) — kachničky vydrží viditelné kropení; HP 14/10/6, královská 36 | 20e9eda | 2026-07-30 |
