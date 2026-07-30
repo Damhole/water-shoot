@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v44';
-const WS_CHECKSUM = 'water-shoot-v44';
+const WS_VERSION = 'v45';
+const WS_CHECKSUM = 'water-shoot-v45';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -428,6 +428,7 @@ const CHEST_HP = 6;
 const CHEST_UP_T = 5;         // okno na otevření
 const CHEST_TIME_BONUS = 8;   // s
 const CHEST_WATER_BONUS = 25; // jednotek nádržky
+const CHEST_SINK_T = 0.75;    // jak dlouho se truhla potápí, než zmizí
 const CHEST_R = 85;           // world kolizní poloměr
 const CHEST_CY = 55;          // world střed truhly nad linkou žlabu
 let chests = [];              // {lane,pos,x,wobble,hp,reward,state:'in'|'closed'|'open'|'out',t,hitCd}
@@ -1007,9 +1008,9 @@ function update(dt){
     if(ch.hitCd > 0) ch.hitCd -= dt;
     if(ch.focusT > 0){ ch.focusT -= dt; if(ch.focusT <= 0) ch.focus = 0; }
     if(ch.state==='in' && ch.t>0.25){ ch.state='closed'; ch.t=0; }
-    else if(ch.state==='closed' && ch.t>CHEST_UP_T){ ch.state='out'; ch.t=0; }
-    else if(ch.state==='open' && ch.t>1.4){ chests.splice(i,1); chestTimer=nextChestDelay(); }
-    else if(ch.state==='out' && ch.t>0.25){ chests.splice(i,1); chestTimer=nextChestDelay(); }
+    else if(ch.state==='closed' && ch.t>CHEST_UP_T){ ch.state='sink'; ch.t=0; }
+    else if(ch.state==='open' && ch.t>1.4){ ch.state='sink'; ch.t=0; }
+    else if(ch.state==='sink' && ch.t>CHEST_SINK_T){ chests.splice(i,1); chestTimer=nextChestDelay(); }
   }
 
   // pop-up terče
@@ -1196,7 +1197,7 @@ function hitChest(chest, p, direct){
     chest.hp -= BODY_DMG * dmgMul();
   }
   if(chest.hp<=0){
-    chest.state='open'; chest.t=0;
+    chest.state='open'; chest.t=0; chest.opened=true;
     const L = LANES[chest.lane];
     const s = projS(L.z);
     const sx = projX(chest.x,s), sy = projY(L.y+CHEST_CY,s);
@@ -1620,13 +1621,14 @@ function drawChestOne(chest, l){
   const L = LANES[l], s = projS(L.z);
   let sc = 1;
   if(chest.state==='in') sc = chest.t/0.25;
-  else if(chest.state==='out') sc = 1 - chest.t/0.25;
   if(sc <= 0) return;
+  const sinkK = chest.state==='sink' ? Math.min(chest.t/CHEST_SINK_T, 1) : 0;
   const cx = projX(chest.x,s);
-  const cy = projY(L.y + CHEST_CY + Math.sin(chest.wobble)*16, s);
+  const cy = projY(L.y + CHEST_CY + Math.sin(chest.wobble)*16, s) + sinkK*190*s*S;
   const rock = Math.sin(chest.wobble*0.8 + 1)*0.1;    // kolébání na vlnkách
   const w = 200*s*S*sc, h = 135*s*S*sc;
-  const open = chest.state==='open';
+  // otevřená truhla si víko drží i cestou pod hladinu
+  const open = chest.state==='open' || (chest.state==='sink' && chest.opened);
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(rock);
