@@ -1,0 +1,73 @@
+/* Water Shoot v01 */
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  width:100%; height:100%;
+  overflow:hidden;
+  background:#0c1226;
+  font-family: Arial, sans-serif;
+  touch-action:none;
+  -webkit-user-select:none; user-select:none;
+}
+#game-canvas { display:block; position:fixed; inset:0; touch-action:none; }
+
+#version-badge {
+  position:fixed; top:4px; right:6px; z-index:20;
+  font-size:11px; color:rgba(255,255,255,0.55);
+  pointer-events:none;
+}
+#version-badge .game-name { font-weight:700; }
+
+#topbar {
+  position:fixed; top:6px; left:10px; z-index:20;
+  display:flex; gap:14px;
+  color:#fff; font-weight:700; font-size:16px;
+  text-shadow:0 1px 3px rgba(0,0,0,0.7);
+  pointer-events:none;
+}
+#topbar .lbl { opacity:0.7; font-weight:400; }
+
+/* ---- perf HUD ---- */
+#hud-toggle {
+  position:fixed; bottom:10px; left:10px; z-index:30;
+  width:38px; height:38px; border-radius:50%;
+  border:1px solid rgba(255,255,255,0.3);
+  background:rgba(10,18,40,0.75); color:#fff; font-size:18px;
+  cursor:pointer;
+}
+#perf-hud {
+  position:fixed; bottom:56px; left:10px; z-index:30;
+  width:230px; padding:10px 12px;
+  background:rgba(8,14,32,0.88);
+  border:1px solid rgba(255,255,255,0.2); border-radius:10px;
+  color:#dfe8ff; font-size:12px;
+}
+#perf-hud .pf-stats {
+  display:grid; grid-template-columns:1fr 1fr; gap:2px 10px;
+  margin-bottom:8px; font-variant-numeric:tabular-nums;
+}
+#perf-hud .pf-stats b { color:#8ecbff; }
+#perf-hud label { display:block; margin-top:6px; }
+#perf-hud .sl-row { display:flex; align-items:center; gap:6px; }
+#perf-hud input[type=range] { flex:1; }
+#perf-hud .sl-val { min-width:38px; text-align:right; font-variant-numeric:tabular-nums; color:#8ecbff; }
+#perf-hud .cb-row { margin-top:8px; display:flex; gap:14px; }
+#perf-hud .cb-row label { display:flex; align-items:center; gap:4px; margin:0; }
+
+/* ---- overlay konce kola ---- */
+#overlay {
+  position:fixed; inset:0; z-index:40;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(5,8,20,0.65);
+}
+#overlay[hidden] { display:none; }
+#overlay-box {
+  background:#16224a; border:2px solid #e8c34a; border-radius:14px;
+  padding:26px 34px; text-align:center; color:#fff;
+}
+#overlay-box h3 { margin-bottom:8px; font-size:22px; }
+#overlay-box p { margin-bottom:16px; font-size:16px; color:#ffe98a; }
+#restart-btn {
+  padding:10px 24px; font-size:16px; font-weight:700;
+  background:#e8a33a; color:#3a2412; border:none; border-radius:8px;
+  cursor:pointer;
+}
