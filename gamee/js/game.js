@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v31';
-const WS_CHECKSUM = 'water-shoot-v31';
+const WS_VERSION = 'v32';
+const WS_CHECKSUM = 'water-shoot-v32';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -127,6 +127,31 @@ function collectRoyal(){
   royalCollected++;
   if(royalCollected >= ROYAL_NEEDED){
     rainbowT = RAINBOW_T;     // ikony zůstanou plné, dokud režim běží
+    addRainbowDucks();
+  }
+}
+
+// V duhovém režimu se scéna zaplní — do každé dráhy přibudou dvě kachničky
+// mezi každé původní (3× hustota), pořád v pravidelných rozestupech.
+function addRainbowDucks(){
+  for(let l=0;l<LANES.length;l++){
+    const L = LANES[l];
+    const anchor = ducks.find(d=>d.lane===l);
+    if(!anchor) continue;
+    const trackLen = 2*laneRangeX(l);
+    const slots = L.count*3;
+    const step = trackLen/slots;
+    for(let i=0;i<slots;i++){
+      if(i % 3 === 0) continue;            // tyhle sloty drží původní kachničky
+      ducks.push({
+        lane:l, bonus:true,
+        pos: (anchor.pos + i*step) % trackLen,
+        x: 0,
+        knocked:false, knockT:0, respawnT:0, dmg:0, ageT: rand(0,4), riseT:0, hitCd:0,
+        focus:0, focusT:0,
+        wobble: rand(0, Math.PI*2),
+      });
+    }
   }
 }
 
@@ -254,7 +279,7 @@ const LANES = [
 ];
 // Hodnotové tiery ROTUJÍ mezi drahami (po TIER_ROTATE_T sekundách), aby se
 // hráč nezakempil na jedné řadě — nejvyšší hodnota není vždy nahoře.
-const VALUE_TIERS = [ {val:150, hp:12}, {val:110, hp:8}, {val:80, hp:5} ];
+const VALUE_TIERS = [ {val:150}, {val:110}, {val:80} ];
 const TIER_ROTATE_T = 15;
 let laneTier = [0,1,2];       // laneTier[lane] = index do VALUE_TIERS
 let tierRotateT = TIER_ROTATE_T;
@@ -280,11 +305,11 @@ function duckValue(d){
   return Math.max(5, Math.round(v/5)*5);
 }
 
-// Potřebná voda kopíruje hodnotu: čerstvá kachnička = plné HP tieru,
-// vydecayovaná na čtvrtinu hodnoty potřebuje ~o čtvrtinu míň zásahů.
+// Výdrž se odvíjí PŘÍMO od aktuální hodnoty: levnou dvacítku stačí obšplíchnout
+// (2 zásahy do středu), čím dražší kachnička, tím víc vody spolkne.
+const HP_PER_VALUE = 12;
 function duckHpNeeded(d){
-  const t = VALUE_TIERS[laneTier[d.lane]];
-  return Math.max(3, Math.round(t.hp * (0.7 + 0.3*duckValue(d)/t.val)));
+  return Math.max(1, Math.round(duckValue(d)/HP_PER_VALUE));
 }
 
 // ---- speciální korunková kachnička ----
@@ -634,7 +659,14 @@ function update(dt){
   // duhový režim: čas kola stojí
   if(rainbowT > 0){
     rainbowT -= dt;
-    if(rainbowT <= 0){ rainbowT = -1; royalCollected = 0; }   // bar se resetuje
+    if(rainbowT <= 0){
+      rainbowT = -1; royalCollected = 0;                      // bar se resetuje
+      // kachničky navíc se potopí a zmizí ze scény
+      for(const d of ducks) if(d.bonus && !d.knocked){ d.knocked = true; d.knockT = 0; d.respawnT = 1e9; }
+    }
+  }
+  if(!rainbowOn() && ducks.some(d=>d.bonus && d.knockT > 0.9)){
+    ducks = ducks.filter(d=>!(d.bonus && d.knockT > 0.9));
   }
   if(!curtainBusy && !rainbowOn()) timeLeft -= dt;
   if(tune.autoSpray){
@@ -1786,6 +1818,7 @@ function startRound(){
   score = 0; playTime = 0; timeLeft = ROUND_TIME; over = false;
   water = WATER_MAX; dryT = -1;
   royalCollected = 0; rainbowT = -1;
+  ducks = ducks.filter(d=>!d.bonus);
   updateWaterBar();
   if(scoreEl) scoreEl.textContent = '0';
   for(const p of pool) p.alive = false;
