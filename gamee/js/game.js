@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v12';
-const WS_CHECKSUM = 'water-shoot-v12';
+const WS_VERSION = 'v13';
+const WS_CHECKSUM = 'water-shoot-v13';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -55,7 +55,7 @@ const cannon = {
 // ---------------------------------------------------------------- particle pool
 const POOL_HARD_MAX = 20000;
 const pool = new Array(POOL_HARD_MAX);
-for(let i=0;i<POOL_HARD_MAX;i++) pool[i] = {alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,life:0,maxLife:0,size:1,type:0};
+for(let i=0;i<POOL_HARD_MAX;i++) pool[i] = {alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,life:0,maxLife:0,size:1,type:0,armZ:0};
 let poolCursor = 0, aliveCount = 0;
 
 const tune = {
@@ -74,7 +74,7 @@ const tune = {
 // v screen-space s šířkou podle hloubky. Kosmetika — nedávají damage.
 const SPINE_MAX = 56;
 const spine = new Array(SPINE_MAX);
-for(let i=0;i<SPINE_MAX;i++) spine[i] = {alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,life:0,gen:0};
+for(let i=0;i<SPINE_MAX;i++) spine[i] = {alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,life:0,gen:0,armZ:0};
 let spineHead = 0;
 let spineGen = 0;             // generace stříkání — stuha se mezi generacemi nespojuje
 let prevSpraying = false;
@@ -117,9 +117,9 @@ function spawnParticle(x,y,z,vx,vy,vz,life,size,type){
 // Dráhy = police se žlabem na zadní stěně v různé hloubce (spodní blíž).
 // hp = kolik zásahů proudem je potřeba — víc hodnotná kachnička spolkne víc vody
 const LANES = [
-  { z:900, y:-240, dir: 1, speed:170, duckSize:165, count:3, baseVal:150, hp:14 },
-  { z:800, y:-429, dir:-1, speed:130, duckSize:182, count:3, baseVal:110, hp:10 },
-  { z:700, y:-589, dir: 1, speed:100, duckSize:200, count:2, baseVal:80,  hp:6 },
+  { z:900, y:-240, dir: 1, speed:170, duckSize:165, count:3, baseVal:150, hp:12 },
+  { z:800, y:-429, dir:-1, speed:130, duckSize:182, count:3, baseVal:110, hp:8 },
+  { z:700, y:-589, dir: 1, speed:100, duckSize:200, count:2, baseVal:80,  hp:5 },
 ];
 // Damage cooldown: kachnička ztratí max 1 HP za HIT_CD sekund (≈12 HP/s),
 // jinak by hustý proud (stovky částic/s) sestřelil cokoli za pár setin.
@@ -134,12 +134,19 @@ function duckValue(d){
   return Math.max(5, Math.round(v/5)*5);
 }
 
+// Potřebná voda kopíruje hodnotu: čerstvá kachnička = plné HP dráhy,
+// vydecayovaná na čtvrtinu hodnoty potřebuje ~o čtvrtinu míň zásahů.
+function duckHpNeeded(d){
+  const L = LANES[d.lane];
+  return Math.max(3, Math.round(L.hp * (0.7 + 0.3*duckValue(d)/L.baseVal)));
+}
+
 // ---- speciální korunková kachnička ----
 // Občas vyplave, má korunku a velký zisk; ve hře je jen krátce a spolkne
 // víc vody než ostatní. Pluje v mezeře mezi sloty vybrané dráhy.
 const SPECIAL_VAL = 300;
 const SPECIAL_HP = 36;        // 2× původních 18 — královna musí něco vydržet
-const SPECIAL_UP_T = 6;       // jak dlouho zůstane vynořená
+// Královská jako jediná NEZMIZÍ sama od sebe — pluje, dokud nedojede na konec řádku.
 let special = null;           // {lane,pos,x,hp,state:'rise'|'up'|'sink',t}
 let specialTimer = 7;
 
@@ -163,14 +170,20 @@ const CHEST_HP = 6;
 const CHEST_UP_T = 5;         // okno na otevření
 const CHEST_TIME_BONUS = 8;   // s
 const CHEST_WATER_BONUS = 25; // jednotek nádržky
-let chest = null;             // {x,y,z,r,hp,reward:'time'|'water',state:'in'|'closed'|'open'|'out',t,hitCd}
+const CHEST_R = 85;           // world kolizní poloměr
+const CHEST_CY = 55;          // world střed truhly nad linkou žlabu
+let chest = null;             // {lane,pos,x,wobble,hp,reward,state:'in'|'closed'|'open'|'out',t,hitCd}
 let chestTimer = 9;
 
 function spawnChest(){
-  const s = projS(WALL_Z);
+  // Truhla pluje v dráze mezi kachničkami a houpe se na vodě jako ony.
+  const lane = (Math.random()*LANES.length)|0;
+  const L = LANES[lane];
+  const trackLen = 2*laneRangeX(lane);
+  const buddy = ducks.find(d=>d.lane===lane);
+  const pos = ((buddy ? buddy.pos : rand(0,trackLen)) + trackLen/(2*L.count)) % trackLen;
   chest = {
-    x: unprojX(W*rand(0.3, 0.7), s),
-    y: -117, z: WALL_Z, r: 80,
+    lane, pos, x: 0, wobble: rand(0, Math.PI*2),
     hp: CHEST_HP,
     reward: Math.random() < 0.5 ? 'time' : 'water',
     state: 'in', t: 0, hitCd: 0,
@@ -198,7 +211,7 @@ function resetEntities(){
         lane:l,
         pos: (laneOffset + i*(trackLen/L.count)) % trackLen,
         x: 0,
-        knocked:false, knockT:0, respawnT:0, hp:L.hp, ageT: rand(0,3), riseT:1, hitCd:0,
+        knocked:false, knockT:0, respawnT:0, dmg:0, ageT: rand(0,3), riseT:1, hitCd:0,
         wobble: rand(0, Math.PI*2),
       });
     }
@@ -401,6 +414,34 @@ let emitAccum = 0;
 const GRAV = 1400;            // world px/s²
 const JET_SPEED = 1500;       // world px/s
 
+// Na co hráč míří? Raycast zaměřovače po drahách od nejbližší — vrací hloubku
+// cíle. Částice smí ubližovat až od ní: damage dává jen KONEC proudu, ne voda
+// letící obloukem nad bližšími kachničkami.
+function computeAimZ(){
+  const order = [2,1,0];               // dráhy od nejbližší (z 700 → 900)
+  for(const l of order){
+    const L = LANES[l], s = projS(L.z);
+    const wx = unprojX(cannon.aimSX,s), wy = unprojY(cannon.aimSY,s);
+    const cy = L.y + L.duckSize*0.45;
+    const r = L.duckSize*0.55;
+    for(const d of ducks){
+      if(d.lane!==l || d.knocked) continue;
+      const dx=wx-d.x, dy=wy-cy;
+      if(dx*dx+dy*dy < r*r) return L.z;
+    }
+    if(special && special.lane===l && special.state!=='sink'){
+      const rr=L.duckSize*0.62, dx=wx-special.x, dy=wy-cy;
+      if(dx*dx+dy*dy < rr*rr) return L.z;
+    }
+    if(chest && chest.lane===l && chest.state==='closed'){
+      const dx=wx-chest.x, dy=wy-(L.y+CHEST_CY);
+      const rr=CHEST_R*1.15;
+      if(dx*dx+dy*dy < rr*rr) return L.z;
+    }
+  }
+  return WALL_Z;
+}
+
 function update(dt){
   playTime += dt;
   timeLeft -= dt;
@@ -436,14 +477,17 @@ function update(dt){
     // kompenzace gravitace, aby proud dopadal ~na pointer
     const vx = dx/tFly, vy = dy/tFly + 0.5*GRAV*tFly, vz = dz/tFly;
 
+    const armZ = computeAimZ() - 80;   // odjištění až u cílové hloubky
+
     emitAccum += tune.emitRate * dt;
     while(emitAccum >= 1){
       emitAccum -= 1;
-      spawnParticle(
+      const pp = spawnParticle(
         m.x, m.y, m.z,
         vx + rand(-55,55), vy + rand(-55,55), vz + rand(-45,45),
         1.4, tune.size*2.2*rand(0.8,1.3), 0
       );
+      if(pp) pp.armZ = armZ;
     }
 
     // uzel páteře proudu — 1× za frame, bez rozptylu
@@ -451,7 +495,7 @@ function update(dt){
       const nd = spine[spineHead];
       spineHead = (spineHead+1)%SPINE_MAX;
       nd.alive=true; nd.x=m.x; nd.y=m.y; nd.z=m.z;
-      nd.vx=vx; nd.vy=vy; nd.vz=vz; nd.life=1.4; nd.gen=spineGen;
+      nd.vx=vx; nd.vy=vy; nd.vz=vz; nd.life=1.4; nd.gen=spineGen; nd.armZ=armZ;
     }
   } else emitAccum = 0;
 
@@ -464,7 +508,7 @@ function update(dt){
     if(nd.life<=0){ nd.alive=false; continue; }
     if(nd.z >= WALL_Z){ spawnRing(nd.x, nd.y, WALL_Z, 0); nd.alive=false; continue; }
     if(nd.y <= FLOOR_Y){ spawnRing(nd.x, FLOOR_Y, nd.z, 1); splashAt(nd.x, FLOOR_Y, nd.z, 3, 1); nd.alive=false; continue; }
-    if(tune.collisions){
+    if(tune.collisions && nd.z >= nd.armZ){
       for(const d of ducks){
         const L = LANES[d.lane];
         if(d.knocked || Math.abs(nd.z - L.z) > 60) continue;
@@ -506,7 +550,7 @@ function update(dt){
       if(d.respawnT > 0){
         d.respawnT -= dt;
         if(d.respawnT <= 0){
-          d.knocked=false; d.knockT=0; d.hp=L.hp; d.ageT=0; d.riseT=0;
+          d.knocked=false; d.knockT=0; d.dmg=0; d.ageT=0; d.riseT=0;
         }
       }
     } else {
@@ -524,13 +568,13 @@ function update(dt){
   } else {
     const L = LANES[special.lane];
     const trackLen = 2*laneRangeX(special.lane);
-    special.pos = (special.pos + L.speed*dt) % trackLen;
+    special.pos += L.speed*dt;             // bez wrapu — dojede na konec řádku a odpluje
     special.x = L.dir>0 ? special.pos - trackLen/2 : trackLen/2 - special.pos;
     special.t += dt;
     if(special.hitCd > 0) special.hitCd -= dt;
     if(special.state==='rise' && special.t>0.4){ special.state='up'; special.t=0; }
-    else if(special.state==='up' && special.t>SPECIAL_UP_T){ special.state='sink'; special.t=0; }
     else if(special.state==='sink' && special.t>0.4){ special=null; specialTimer=rand(8,14); }
+    if(special && special.pos > trackLen + L.duckSize){ special=null; specialTimer=rand(8,14); }
   }
 
   // truhlička
@@ -538,6 +582,11 @@ function update(dt){
     chestTimer -= dt;
     if(chestTimer <= 0) spawnChest();
   } else {
+    const L = LANES[chest.lane];
+    const trackLen = 2*laneRangeX(chest.lane);
+    chest.pos = (chest.pos + L.speed*dt) % trackLen;
+    chest.x = L.dir>0 ? chest.pos - trackLen/2 : trackLen/2 - chest.pos;
+    chest.wobble += dt*2.5;
     chest.t += dt;
     if(chest.hitCd > 0) chest.hitCd -= dt;
     if(chest.state==='in' && chest.t>0.25){ chest.state='closed'; chest.t=0; }
@@ -577,8 +626,10 @@ function update(dt){
     if(p.type===0){
       let dead = false;
       if(tune.collisions){
-        // kolize s kachničkami — jen v hloubkovém pásmu dráhy
-        for(const d of ducks){
+        // damage jen odjištěnou částicí (konec proudu) — voda letící obloukem
+        // nad bližšími kachničkami jim neubližuje
+        const armed = p.z >= p.armZ;
+        if(armed) for(const d of ducks){
           const L = LANES[d.lane];
           if(d.knocked || Math.abs(p.z - L.z) > 60) continue;
           const r = L.duckSize*0.42;
@@ -586,7 +637,7 @@ function update(dt){
           const ddx = p.x-d.x, ddy = p.y-cy;
           if(ddx*ddx+ddy*ddy < r*r){ hitDuck(d, p); dead=true; break; }
         }
-        if(!dead && special && special.state!=='sink'){
+        if(armed && !dead && special && special.state!=='sink'){
           const L = LANES[special.lane];
           if(Math.abs(p.z - L.z) <= 60){
             const r = L.duckSize*0.48;
@@ -602,9 +653,12 @@ function update(dt){
             if(ddx*ddx+ddy*ddy < t.r*t.r){ hitPopup(t, p); dead=true; break; }
           }
         }
-        if(!dead && chest && chest.state==='closed' && p.z >= chest.z-70){
-          const ddx = p.x-chest.x, ddy = p.y-chest.y;
-          if(ddx*ddx+ddy*ddy < chest.r*chest.r){ hitChest(p); dead=true; }
+        if(armed && !dead && chest && chest.state==='closed'){
+          const Lc = LANES[chest.lane];
+          if(Math.abs(p.z - Lc.z) <= 60){
+            const ddx = p.x-chest.x, ddy = p.y-(Lc.y+CHEST_CY);
+            if(ddx*ddx+ddy*ddy < CHEST_R*CHEST_R){ hitChest(p); dead=true; }
+          }
         }
       }
       // dopad na zadní stěnu → splash stékající po stěně
@@ -651,8 +705,8 @@ function hitDuck(d, p){
   splashAt(p.x, p.y, p.z, tune.splash, 0);
   if(d.hitCd > 0) return;      // šplíchá to, ale HP ubývá max 1× za HIT_CD
   d.hitCd = HIT_CD;
-  d.hp--;
-  if(d.hp<=0){
+  d.dmg++;
+  if(d.dmg >= duckHpNeeded(d)){
     d.knocked=true; d.knockT=0; d.respawnT=0;
     const s = projS(L.z);
     addScore(duckValue(d), projX(d.x,s), projY(L.y+L.duckSize,s));
@@ -683,18 +737,19 @@ function hitChest(p){
   chest.hp--;
   if(chest.hp<=0){
     chest.state='open'; chest.t=0;
-    const s = projS(chest.z);
-    const sx = projX(chest.x,s), sy = projY(chest.y,s);
+    const L = LANES[chest.lane];
+    const s = projS(L.z);
+    const sx = projX(chest.x,s), sy = projY(L.y+CHEST_CY,s);
     if(chest.reward==='time'){
       timeLeft += CHEST_TIME_BONUS;
-      addFloater(sx, sy - 60*s*S, '+'+CHEST_TIME_BONUS+' s');
+      addFloater(sx, sy - 70*s*S, '+'+CHEST_TIME_BONUS+' s');
     } else {
       water = Math.min(WATER_MAX, water + CHEST_WATER_BONUS);
       updateWaterBar();
-      addFloater(sx, sy - 60*s*S, '+voda');
+      addFloater(sx, sy - 70*s*S, '+voda');
     }
-    splashAt(chest.x, chest.y, chest.z, tune.splash*2, 0);
-    spawnRing(chest.x, chest.y, chest.z, 0);
+    splashAt(chest.x, L.y+CHEST_CY, L.z, tune.splash*2, 0);
+    spawnRing(chest.x, L.y+CHEST_CY, L.z, 0);
   }
 }
 
@@ -732,8 +787,6 @@ function draw(){
     ctx.restore();
   }
 
-  drawChest();
-
   // kachničky — od nejvzdálenější dráhy; po každé dráze přední hrana žlabu.
   // Zasažená kachnička se POTÁPÍ pod hladinu — clip na linii žlabu ji ořízne.
   for(let l=0;l<LANES.length;l++){
@@ -762,7 +815,7 @@ function draw(){
 
       // kulatý bar na těle: plní se zásahy, uvnitř aktuální hodnota kachničky
       if(!d.knocked && sink <= 0){
-        drawDuckBadge(sx, sy - spriteSz*0.12, spriteSz*0.19, 1 - d.hp/L.hp, duckValue(d), false);
+        drawDuckBadge(sx, sy - spriteSz*0.12, spriteSz*0.19, d.dmg/duckHpNeeded(d), duckValue(d), false);
       }
     }
     // speciální korunková kachnička ve své dráze
@@ -774,9 +827,7 @@ function draw(){
         const spSz = L.duckSize*1.15*1.1*s*S;
         const sx = projX(special.x,s);
         const sy = projY(L.y + 14, s) + sink*spSz*1.05;
-        const blink = special.state==='up' && (SPECIAL_UP_T - special.t < 1.5);
         ctx.save();
-        if(blink && Math.sin(ribbonTime*10) > 0) ctx.globalAlpha = 0.55;
         ctx.translate(sx, sy);
         if(L.dir>0) ctx.scale(-1,1);
         ctx.drawImage(duckCrownSprite, -spSz*0.53, -spSz*0.75, spSz, spSz);
@@ -786,6 +837,7 @@ function draw(){
         }
       }
     }
+    drawChest(l);
     ctx.restore();
     // přední hrana žlabu přes nožičky
     ctx.fillStyle = 'rgba(23,58,99,0.9)';
@@ -904,17 +956,23 @@ function draw(){
   drawWaterTank();
 }
 
-// Truhlička na stěně: zavřená s otazníkem, po otevření vyjede výhra.
-function drawChest(){
-  if(!chest) return;
-  const s = projS(chest.z);
+// Truhlička pluje ve žlabu dráhy: houpe se a kolébá jako kachničky.
+function drawChest(l){
+  if(!chest || chest.lane!==l) return;
+  const L = LANES[l], s = projS(L.z);
   let sc = 1;
   if(chest.state==='in') sc = chest.t/0.25;
   else if(chest.state==='out') sc = 1 - chest.t/0.25;
   if(sc <= 0) return;
-  const cx = projX(chest.x,s), cy = projY(chest.y,s);
+  const cx = projX(chest.x,s);
+  const cy = projY(L.y + CHEST_CY + Math.sin(chest.wobble)*8, s);
+  const rock = Math.sin(chest.wobble*0.8 + 1)*0.06;   // kolébání na vlnkách
   const w = 200*s*S*sc, h = 135*s*S*sc;
   const open = chest.state==='open';
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rock);
+  ctx.translate(-cx, -cy);
   const rr = (x,y,ww,hh,r)=>{
     ctx.beginPath();
     if(ctx.roundRect) ctx.roundRect(x,y,ww,hh,r);
@@ -995,6 +1053,7 @@ function drawChest(){
   if(chest.state==='closed'){
     drawDuckBadge(cx, cy + h*0.12, 34*s*S, 1 - chest.hp/CHEST_HP, '?', true);
   }
+  ctx.restore();
 }
 
 // Kulatý bar kachničky: prstenec plnění zásahy + hodnota uvnitř.
