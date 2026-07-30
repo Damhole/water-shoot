@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v19';
-const WS_CHECKSUM = 'water-shoot-v19';
+const WS_VERSION = 'v20';
+const WS_CHECKSUM = 'water-shoot-v20';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -1161,7 +1161,7 @@ function drawDuckBadge(x, y, r, prog, value, gold){
 // Nádržka s vodou u děla — stav munice přímo v zorném poli hráče.
 function drawWaterTank(){
   const tw = 44*S, th = 100*S;
-  const tx = W/2 + 108*S, ty = H - th - 20*S;
+  const tx = W/2 - 108*S - tw, ty = H - th - 20*S;   // levá strana obrazu
   const frac = water/WATER_MAX;
   const rr = (x,y,w,h,r)=>{
     ctx.beginPath();
