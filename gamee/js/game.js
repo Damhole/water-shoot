@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v42';
-const WS_CHECKSUM = 'water-shoot-v42';
+const WS_VERSION = 'v43';
+const WS_CHECKSUM = 'water-shoot-v43';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -397,8 +397,8 @@ const SPECIAL_HP = 22;        // ~1,8 s přesného kropení (krity) / ~3,7 s po 
 // Královská jako jediná NEZMIZÍ sama od sebe — pluje, dokud nedojede na konec řádku.
 let special = null;           // {lane,pos,x,hp,state:'rise'|'up'|'sink',t}
 let specialTimer = 7;
-const SPECIAL_KILL_CUT = 1.8;   // o kolik sestřel zkrátí čekání na královskou
-const SPECIAL_MIN_WAIT = 0.8;   // pod tohle odpočet neklesne, ať nechodí v hejnu
+const SPECIAL_KILL_CUT = 3.0;   // o kolik sestřel zkrátí čekání na královskou
+const SPECIAL_MIN_WAIT = 0.6;   // pod tohle odpočet neklesne, ať nechodí v hejnu
 
 function spawnSpecial(){
   const lane = (Math.random()*LANES.length)|0;

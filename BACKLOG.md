@@ -75,3 +75,4 @@ _(neotříděné nápady sem)_
 | v39 | Fáborková girlanda nad terči — 15 fáborků, každý kyvadlo s pružinou a tlumením; proud vody je rozhoupe (až ~70°) a samy se vrátí do klidu | 45c6dec | 2026-07-30 |
 | v40 | Hra přejmenována na **Golden Ducks** (cedule, titulek, badge, PWA název); nápis se auto-zmenší podle šířky displeje | ef4c515 | 2026-07-30 |
 | v41 | Odstraněna fáborková girlanda (revert v39) — vizuálně nesedla | 6010ec0 | 2026-07-30 |
+| v42 | Rychlejší doplnění řady (prázdno 1,3 s místo 2,3–3,8 s) + sestřel zkracuje čekání na královskou o 1,8 s (min 0,8 s). Simulace: 3,6 královských/kolo v nečinnosti vs 6,0 při 1 sestřelu/s | 66d3e1c | 2026-07-30 |
