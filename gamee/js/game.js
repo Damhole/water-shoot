@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v04';
-const WS_CHECKSUM = 'water-shoot-v04';
+const WS_VERSION = 'v05';
+const WS_CHECKSUM = 'water-shoot-v05';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -642,18 +642,21 @@ function draw(){
   ctx.moveTo(baseX+nx*wBase*0.82 + (mx-baseX)*0.3, baseY+ny*wBase*0.82 + (my-baseY)*0.3);
   ctx.lineTo(baseX-nx*wBase*0.82 + (mx-baseX)*0.3, baseY-ny*wBase*0.82 + (my-baseY)*0.3);
   ctx.stroke();
-  ctx.fillStyle = '#0c1a36';
+  // konec hlavně: zezadu do ní nevidíme — zavřený zaoblený konec + zlatý prstenec
+  const capG = ctx.createLinearGradient(mx-wMuz, my, mx+wMuz, my);
+  capG.addColorStop(0,'#1d4e9e'); capG.addColorStop(0.5,'#4c8fe0'); capG.addColorStop(1,'#1d4e9e');
+  ctx.fillStyle = capG;
   ctx.beginPath(); ctx.ellipse(mx, my, wMuz*0.82, wMuz*0.6, 0, 0, Math.PI*2); ctx.fill();
-  ctx.strokeStyle = '#e8a33a'; ctx.lineWidth = 4*S;
+  ctx.strokeStyle = '#e8a33a'; ctx.lineWidth = 5*S;
   ctx.beginPath(); ctx.ellipse(mx, my, wMuz*0.82, wMuz*0.6, 0, 0, Math.PI*2); ctx.stroke();
-  // pěna u ústí při stříkání — malý chomáč na horní hraně otvoru, ne přes celé ústí
+  // pěna u výstupu vody — malé chomáčky kousek nad koncem hlavně
   if(cannon.spraying && !over && water > 0){
     const foam = 1 + 0.2*Math.sin(ribbonTime*22);
-    ctx.fillStyle = 'rgba(235,250,255,0.45)';
+    ctx.fillStyle = 'rgba(235,250,255,0.4)';
     ctx.beginPath();
-    ctx.ellipse(mx, my - wMuz*0.5, wMuz*0.42*foam, wMuz*0.26*foam, 0, 0, Math.PI*2);
-    ctx.ellipse(mx - wMuz*0.3, my - wMuz*0.35, wMuz*0.2*foam, wMuz*0.14*foam, 0, 0, Math.PI*2);
-    ctx.ellipse(mx + wMuz*0.32, my - wMuz*0.33, wMuz*0.17*foam, wMuz*0.12*foam, 0, 0, Math.PI*2);
+    ctx.ellipse(mx, my - wMuz*0.9, wMuz*0.34*foam, wMuz*0.2*foam, 0, 0, Math.PI*2);
+    ctx.ellipse(mx - wMuz*0.35, my - wMuz*0.72, wMuz*0.16*foam, wMuz*0.11*foam, 0, 0, Math.PI*2);
+    ctx.ellipse(mx + wMuz*0.36, my - wMuz*0.7, wMuz*0.14*foam, wMuz*0.1*foam, 0, 0, Math.PI*2);
     ctx.fill();
   }
 
