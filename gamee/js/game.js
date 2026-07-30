@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v05';
-const WS_CHECKSUM = 'water-shoot-v05';
+const WS_VERSION = 'v06';
+const WS_CHECKSUM = 'water-shoot-v06';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -116,12 +116,20 @@ function spawnParticle(x,y,z,vx,vy,vz,life,size,type){
 // ---------------------------------------------------------------- scéna: dráhy, kachničky, terče
 // Dráhy = police se žlabem na zadní stěně v různé hloubce (spodní blíž).
 const LANES = [
-  { z:900, y:-240, dir: 1, speed:170, duckSize:165, count:3 },
-  { z:800, y:-429, dir:-1, speed:130, duckSize:182, count:3 },
-  { z:700, y:-589, dir: 1, speed:100, duckSize:200, count:2 },
+  { z:900, y:-240, dir: 1, speed:170, duckSize:165, count:3, baseVal:150 },
+  { z:800, y:-429, dir:-1, speed:130, duckSize:182, count:3, baseVal:110 },
+  { z:700, y:-589, dir: 1, speed:100, duckSize:200, count:2, baseVal:80 },
 ];
 const DUCK_HP = 8;
-let ducks = [];               // world coords: {lane,x,knocked,knockT,respawnT,hp,wobble}
+// hodnota kachničky klesá s časem bez zásahu: baseVal → 25 % za VALUE_DECAY_T sekund
+const VALUE_DECAY_T = 12;
+let ducks = [];               // {lane,pos,x,knocked,knockT,respawnT,hp,ageT,wobble}
+
+function duckValue(d){
+  const b = LANES[d.lane].baseVal;
+  const v = b * (1 - 0.75*Math.min(d.ageT, VALUE_DECAY_T)/VALUE_DECAY_T);
+  return Math.max(5, Math.round(v/5)*5);
+}
 
 const POPUP_SLOTS = 3;
 let popups = [];              // world: {x,y,z,r,state,t,ttl}
@@ -140,11 +148,15 @@ function resetEntities(){
   ducks = [];
   for(let l=0;l<LANES.length;l++){
     const L = LANES[l], range = laneRangeX(l);
+    const trackLen = 2*range;
+    const laneOffset = rand(0, trackLen);
     for(let i=0;i<L.count;i++){
+      // kolotoč: pevné sloty po trackLen/count → kachničky se nikdy nepřekryjí
       ducks.push({
         lane:l,
-        x: -range + (2*range/L.count)*i + rand(0, range/L.count),
-        knocked:false, knockT:0, respawnT:0, hp:DUCK_HP,
+        pos: (laneOffset + i*(trackLen/L.count)) % trackLen,
+        x: 0,
+        knocked:false, knockT:0, respawnT:0, hp:DUCK_HP, ageT: rand(0,3),
         wobble: rand(0, Math.PI*2),
       });
     }
@@ -409,25 +421,25 @@ function update(dt){
     if(r.t >= r.dur) r.alive=false;
   }
 
-  // kachničky (světové x)
+  // kachničky — kolotoč: slot jede pořád (i u sestřelené), takže rozestupy drží
   for(const d of ducks){
     const L = LANES[d.lane];
     const range = laneRangeX(d.lane);
+    const trackLen = 2*range;
+    d.pos = (d.pos + L.speed*dt) % trackLen;
+    d.x = L.dir>0 ? d.pos - range : range - d.pos;
     if(d.knocked){
       d.knockT += dt;
       if(d.knockT > 0.6 && d.respawnT <= 0) d.respawnT = rand(1.5, 3);
       if(d.respawnT > 0){
         d.respawnT -= dt;
         if(d.respawnT <= 0){
-          d.knocked=false; d.knockT=0; d.hp=DUCK_HP;
-          d.x = L.dir>0 ? -range : range;
+          d.knocked=false; d.knockT=0; d.hp=DUCK_HP; d.ageT=0;
         }
       }
     } else {
-      d.x += L.dir * L.speed * dt;
+      d.ageT += dt;
       d.wobble += dt*3;
-      if(L.dir>0 && d.x > range) d.x = -range;
-      if(L.dir<0 && d.x < -range) d.x = range;
     }
   }
 
@@ -438,7 +450,7 @@ function update(dt){
     const hidden = popups.filter(p=>p.state==='hidden');
     if(hidden.length){
       const p = hidden[(Math.random()*hidden.length)|0];
-      p.state='in'; p.t=0; p.ttl=2.5;
+      p.state='in'; p.t=0; p.ttl=rand(1.5, 2.2);   // jen krátké okno na zásah
     }
   }
   for(const p of popups){
@@ -525,7 +537,7 @@ function hitDuck(d, p){
   if(d.hp<=0){
     d.knocked=true; d.knockT=0; d.respawnT=0;
     const s = projS(L.z);
-    addScore(50 + Math.round(L.speed/10)*5, projX(d.x,s), projY(L.y+L.duckSize,s));
+    addScore(duckValue(d), projX(d.x,s), projY(L.y+L.duckSize,s));
     splashAt(d.x, L.y+L.duckSize*0.4, L.z, tune.splash*2, 0);
     spawnRing(d.x, L.y+L.duckSize*0.4, L.z, 0);
   }
@@ -585,6 +597,27 @@ function draw(){
       }
       ctx.drawImage(duckSprite, -spriteSz*0.53, -spriteSz*0.75, spriteSz, spriteSz);
       ctx.restore();
+
+      // kulatý bar na těle: plní se zásahy, uvnitř aktuální hodnota kachničky
+      if(!d.knocked){
+        const ringR = spriteSz*0.19;
+        const ringX = sx, ringY = sy - spriteSz*0.12;
+        const prog = 1 - d.hp/DUCK_HP;
+        ctx.fillStyle = 'rgba(8,16,36,0.55)';
+        ctx.beginPath(); ctx.arc(ringX, ringY, ringR, 0, Math.PI*2); ctx.fill();
+        if(prog > 0){
+          ctx.strokeStyle = '#5ad1ff';
+          ctx.lineWidth = Math.max(2, ringR*0.3);
+          ctx.beginPath();
+          ctx.arc(ringX, ringY, ringR*0.78, -Math.PI/2, -Math.PI/2 + prog*Math.PI*2);
+          ctx.stroke();
+        }
+        ctx.fillStyle = '#fff';
+        ctx.font = '700 '+Math.max(8, Math.round(ringR*0.8))+'px Arial, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(duckValue(d), ringX, ringY);
+        ctx.textBaseline = 'alphabetic';
+      }
     }
     // přední hrana žlabu přes nožičky
     const ly = projY(L.y, s);
