@@ -32,3 +32,4 @@ _(neotříděné nápady sem)_
 | Verze | Popis | Commit | Datum |
 |---|---|---|---|
 | v01 | Prototyp — 2D particle vodní dělo (boční pohled), kachničky 3 dráhy, pop-up terče, perf HUD | c1a7bc1 | 2026-07-30 |
+| v02 | First-person perspektiva (fake 3D projekce x/y/z), zásoba vody jako druhý limit kola | 6067477 | 2026-07-30 |

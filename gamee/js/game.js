@@ -3,8 +3,13 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v02';
-const WS_CHECKSUM = 'water-shoot-v02';
+const WS_VERSION = 'v03';
+const WS_CHECKSUM = 'water-shoot-v03';
+
+// Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
+// nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
+const WS_PARAMS = new URLSearchParams(location.search);
+const STRESS = WS_PARAMS.get('stress') === '1';
 
 // ---------------------------------------------------------------- util
 function _safeGamee(fn){ try{ fn(); }catch(e){ console.warn('[gamee]', e); } }
@@ -59,8 +64,35 @@ const tune = {
   size: 3,                    // world size ~ size*2.2
   splash: 7,
   collisions: true,
-  additive: true,
+  additive: false,            // jen pro basic mód
+  cartoon: true,              // kreslený proud (stuha + dvoubarevné kapky + kroužky)
 };
+
+// ---- páteř proudu (spine) — uzly pro kreslenou vodní stuhu ----
+// Uzly letí stejnou balistikou jako částice; stuha se přes ně natahuje
+// v screen-space s šířkou podle hloubky. Kosmetika — nedávají damage.
+const SPINE_MAX = 56;
+const spine = new Array(SPINE_MAX);
+for(let i=0;i<SPINE_MAX;i++) spine[i] = {alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,life:0};
+let spineHead = 0;
+// pracovní buffery pro stuhu (žádné alokace za běhu)
+const ribX=new Float32Array(SPINE_MAX), ribY=new Float32Array(SPINE_MAX), ribW=new Float32Array(SPINE_MAX);
+const ribLX=new Float32Array(SPINE_MAX), ribLY=new Float32Array(SPINE_MAX);
+const ribRX=new Float32Array(SPINE_MAX), ribRY=new Float32Array(SPINE_MAX);
+
+// ---- rozstřikové kroužky ----
+const RING_MAX = 24;
+const rings = new Array(RING_MAX);
+for(let i=0;i<RING_MAX;i++) rings[i] = {alive:false,x:0,y:0,z:0,t:0,dur:0.4,mode:0};
+let lastRingAt = -1;
+function spawnRing(x,y,z,mode){
+  // throttle — proud generuje dopady 60×/s, kroužek stačí ~10×/s
+  if(ribbonTime - lastRingAt < 0.09) return;
+  lastRingAt = ribbonTime;
+  for(const r of rings){
+    if(!r.alive){ r.alive=true; r.x=x; r.y=y; r.z=z; r.t=0; r.mode=mode; return; }
+  }
+}
 
 function spawnParticle(x,y,z,vx,vy,vz,life,size,type){
   if(aliveCount >= tune.maxParticles) return null;
@@ -295,6 +327,14 @@ const JET_SPEED = 1500;       // world px/s
 function update(dt){
   playTime += dt;
   timeLeft -= dt;
+  if(STRESS){
+    // auto-spray: míření krouží přes dráhy, zdroje se nevyčerpávají
+    cannon.spraying = true;
+    cannon.aimSX = W*(0.5 + 0.4*Math.sin(playTime*0.7));
+    cannon.aimSY = H*(0.45 + 0.18*Math.sin(playTime*1.13));
+    water = WATER_MAX;
+    timeLeft = ROUND_TIME;
+  }
   if(timeEl) timeEl.textContent = Math.ceil(timeLeft);
   if(timeLeft <= 0){ timeLeft = 0; endRound('Čas vypršel!'); }
 
@@ -325,7 +365,43 @@ function update(dt){
         1.4, tune.size*2.2*rand(0.8,1.3), 0
       );
     }
+
+    // uzel páteře proudu — 1× za frame, bez rozptylu
+    if(tune.cartoon){
+      const nd = spine[spineHead];
+      spineHead = (spineHead+1)%SPINE_MAX;
+      nd.alive=true; nd.x=m.x; nd.y=m.y; nd.z=m.z;
+      nd.vx=vx; nd.vy=vy; nd.vz=vz; nd.life=1.4;
+    }
   } else emitAccum = 0;
+
+  // fyzika uzlů páteře (kosmetika — kolize je zhasnou, ale nedávají damage)
+  for(const nd of spine){
+    if(!nd.alive) continue;
+    nd.life -= dt;
+    nd.vy -= GRAV*dt;
+    nd.x += nd.vx*dt; nd.y += nd.vy*dt; nd.z += nd.vz*dt;
+    if(nd.life<=0){ nd.alive=false; continue; }
+    if(nd.z >= WALL_Z){ spawnRing(nd.x, nd.y, WALL_Z, 0); nd.alive=false; continue; }
+    if(nd.y <= FLOOR_Y){ spawnRing(nd.x, FLOOR_Y, nd.z, 1); splashAt(nd.x, FLOOR_Y, nd.z, 3, 1); nd.alive=false; continue; }
+    if(tune.collisions){
+      for(const d of ducks){
+        const L = LANES[d.lane];
+        if(d.knocked || Math.abs(nd.z - L.z) > 60) continue;
+        const r = L.duckSize*0.42;
+        const cy = L.y + L.duckSize*0.45;
+        const ddx = nd.x-d.x, ddy = nd.y-cy;
+        if(ddx*ddx+ddy*ddy < r*r){ nd.alive=false; break; }
+      }
+    }
+  }
+
+  // rozstřikové kroužky
+  for(const r of rings){
+    if(!r.alive) continue;
+    r.t += dt;
+    if(r.t >= r.dur) r.alive=false;
+  }
 
   // kachničky (světové x)
   for(const d of ducks){
@@ -445,6 +521,7 @@ function hitDuck(d, p){
     const s = projS(L.z);
     addScore(50 + Math.round(L.speed/10)*5, projX(d.x,s), projY(L.y+L.duckSize,s));
     splashAt(d.x, L.y+L.duckSize*0.4, L.z, tune.splash*2, 0);
+    spawnRing(d.x, L.y+L.duckSize*0.4, L.z, 0);
   }
 }
 
@@ -454,6 +531,7 @@ function hitPopup(t, p){
   t.state='out'; t.t=0;
   const s = projS(t.z);
   addScore(100 + bonus, projX(t.x,s), projY(t.y+t.r,s));
+  spawnRing(t.x, t.y, t.z, 0);
 }
 
 // ---------------------------------------------------------------- draw
@@ -510,23 +588,30 @@ function draw(){
     ctx.fillRect(0, ly, W, 2.5*S);
   }
 
-  // částice vody (perspektivně)
-  ctx.save();
-  if(tune.additive) ctx.globalCompositeOperation = 'lighter';
-  ctx.fillStyle = 'rgba(110,190,255,0.55)';
-  ctx.beginPath();
-  for(let i=0;i<POOL_HARD_MAX;i++){
-    const p = pool[i];
-    if(!p.alive) continue;
-    const s = projS(p.z);
-    const base = p.type===1 ? p.size*(p.life/p.maxLife) : p.size;
-    const sz = Math.max(0.6, base*s*S);
-    const sx = projX(p.x,s), sy = projY(p.y,s);
-    ctx.moveTo(sx+sz, sy);
-    ctx.arc(sx, sy, sz, 0, Math.PI*2);
+  // voda
+  if(tune.cartoon){
+    drawJetRibbon();
+    drawDropletsCartoon();
+    drawRings();
+  } else {
+    // basic mód (perf baseline): jednobarevná kolečka v jednom passu
+    ctx.save();
+    if(tune.additive) ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = 'rgba(110,190,255,0.55)';
+    ctx.beginPath();
+    for(let i=0;i<POOL_HARD_MAX;i++){
+      const p = pool[i];
+      if(!p.alive) continue;
+      const s = projS(p.z);
+      const base = p.type===1 ? p.size*(p.life/p.maxLife) : p.size;
+      const sz = Math.max(0.6, base*s*S);
+      const sx = projX(p.x,s), sy = projY(p.y,s);
+      ctx.moveTo(sx+sz, sy);
+      ctx.arc(sx, sy, sz, 0, Math.PI*2);
+    }
+    ctx.fill();
+    ctx.restore();
   }
-  ctx.fill();
-  ctx.restore();
 
   // dělo v podhledu — základna dole, hlaveň se naklání za pointerem
   const baseX = W/2, baseY = H + 30*S;
@@ -555,6 +640,16 @@ function draw(){
   ctx.beginPath(); ctx.ellipse(mx, my, wMuz*0.82, wMuz*0.6, 0, 0, Math.PI*2); ctx.fill();
   ctx.strokeStyle = '#e8a33a'; ctx.lineWidth = 4*S;
   ctx.beginPath(); ctx.ellipse(mx, my, wMuz*0.82, wMuz*0.6, 0, 0, Math.PI*2); ctx.stroke();
+  // pěna u ústí při stříkání — malý chomáč na horní hraně otvoru, ne přes celé ústí
+  if(cannon.spraying && !over && water > 0){
+    const foam = 1 + 0.2*Math.sin(ribbonTime*22);
+    ctx.fillStyle = 'rgba(235,250,255,0.45)';
+    ctx.beginPath();
+    ctx.ellipse(mx, my - wMuz*0.5, wMuz*0.42*foam, wMuz*0.26*foam, 0, 0, Math.PI*2);
+    ctx.ellipse(mx - wMuz*0.3, my - wMuz*0.35, wMuz*0.2*foam, wMuz*0.14*foam, 0, 0, Math.PI*2);
+    ctx.ellipse(mx + wMuz*0.32, my - wMuz*0.33, wMuz*0.17*foam, wMuz*0.12*foam, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
 
   // zaměřovač
   ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 2*S;
@@ -574,6 +669,109 @@ function draw(){
     if(!f.alive) continue;
     ctx.globalAlpha = 1 - f.t/0.9;
     ctx.fillText(f.txt, f.sx, f.sy);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---------------------------------------------------------------- kreslená voda
+// Stuha proudu: postavena přes živé uzly páteře (od nejnovějšího k nejstaršímu),
+// šířka podle hloubky + zúžení ke konci + jemné vlnění. Tři vrstvy = obrys,
+// tělo, světlé jádro. Mrtvý uzel řetěz přeruší (mezeru zakryjí kapky).
+let ribbonTime = 0;
+
+function ribbonLayer(n, wMul, ox, oy, color){
+  for(let i=0;i<n;i++){
+    const i0 = Math.max(i-1,0), i1 = Math.min(i+1,n-1);
+    const dx = ribX[i1]-ribX[i0], dy = ribY[i1]-ribY[i0];
+    const len = Math.hypot(dx,dy) || 1;
+    const nx = -dy/len, ny = dx/len, w = ribW[i]*wMul;
+    ribLX[i]=ribX[i]+nx*w+ox; ribLY[i]=ribY[i]+ny*w+oy;
+    ribRX[i]=ribX[i]-nx*w+ox; ribRY[i]=ribY[i]-ny*w+oy;
+  }
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(ribLX[0], ribLY[0]);
+  for(let i=1;i<n;i++) ctx.lineTo(ribLX[i], ribLY[i]);
+  for(let i=n-1;i>=0;i--) ctx.lineTo(ribRX[i], ribRY[i]);
+  ctx.closePath();
+  // kulaté konce
+  ctx.moveTo(ribX[0]+ribW[0]*wMul, ribY[0]);
+  ctx.arc(ribX[0]+ox, ribY[0]+oy, ribW[0]*wMul, 0, Math.PI*2);
+  ctx.moveTo(ribX[n-1]+ribW[n-1]*wMul, ribY[n-1]);
+  ctx.arc(ribX[n-1]+ox, ribY[n-1]+oy, ribW[n-1]*wMul, 0, Math.PI*2);
+  ctx.fill();
+}
+
+function fillRibbon(n){
+  if(n<2) return;
+  ribbonLayer(n, 1.3, 0, 0, 'rgba(16,58,104,0.85)');   // obrys
+  ribbonLayer(n, 1.0, 0, 0, '#3f9be6');                 // tělo
+  ribbonLayer(n, 0.45, -2.2*S, -2.2*S, 'rgba(155,217,255,0.9)'); // jádro/lesk
+}
+
+function drawJetRibbon(){
+  let n = 0;
+  for(let k=0;k<SPINE_MAX;k++){
+    const nd = spine[(spineHead-1-k+SPINE_MAX)%SPINE_MAX];
+    if(nd.alive){
+      const s = projS(nd.z);
+      ribX[n] = projX(nd.x,s);
+      ribY[n] = projY(nd.y,s);
+      const taper = 1 - 0.45*(k/SPINE_MAX);
+      const pulse = 0.88 + 0.12*Math.sin(ribbonTime*14 + k*0.7);
+      ribW[n] = Math.max(1.4, 15*s*S*taper*pulse);
+      n++;
+    } else {
+      if(n>=2) fillRibbon(n);
+      n = 0;
+    }
+  }
+  if(n>=2) fillRibbon(n);
+}
+
+// kapky: hlavní pass + bílé odlesky na každé čtvrté
+function drawDropletsCartoon(){
+  ctx.fillStyle = 'rgba(90,175,235,0.8)';
+  ctx.beginPath();
+  for(let i=0;i<POOL_HARD_MAX;i++){
+    const p = pool[i];
+    if(!p.alive) continue;
+    const s = projS(p.z);
+    const base = p.type===1 ? p.size*(p.life/p.maxLife) : p.size;
+    const sz = Math.max(0.6, base*s*S);
+    const sx = projX(p.x,s), sy = projY(p.y,s);
+    ctx.moveTo(sx+sz, sy);
+    ctx.arc(sx, sy, sz, 0, Math.PI*2);
+  }
+  ctx.fill();
+  ctx.fillStyle = 'rgba(235,250,255,0.8)';
+  ctx.beginPath();
+  for(let i=0;i<POOL_HARD_MAX;i+=4){
+    const p = pool[i];
+    if(!p.alive) continue;
+    const s = projS(p.z);
+    const base = p.type===1 ? p.size*(p.life/p.maxLife) : p.size;
+    const sz = Math.max(0.6, base*s*S)*0.4;
+    const sx = projX(p.x,s)-sz*0.9, sy = projY(p.y,s)-sz*0.9;
+    ctx.moveTo(sx+sz, sy);
+    ctx.arc(sx, sy, sz, 0, Math.PI*2);
+  }
+  ctx.fill();
+}
+
+function drawRings(){
+  ctx.strokeStyle = '#bfe6ff';
+  for(const r of rings){
+    if(!r.alive) continue;
+    const k = r.t/r.dur;
+    const s = projS(r.z);
+    const rad = (26 + 120*k)*s*S;
+    ctx.globalAlpha = (1-k)*0.65;
+    ctx.lineWidth = Math.max(1, 3.5*S*(1-k));
+    ctx.beginPath();
+    if(r.mode===1) ctx.ellipse(projX(r.x,s), projY(r.y,s), rad, rad*0.32, 0, 0, Math.PI*2);
+    else ctx.arc(projX(r.x,s), projY(r.y,s), rad, 0, Math.PI*2);
+    ctx.stroke();
   }
   ctx.globalAlpha = 1;
 }
@@ -601,6 +799,12 @@ function perfTick(dt, frameMs){
 }
 
 function setupHUD(){
+  if(STRESS){
+    if(WS_PARAMS.get('max'))  tune.maxParticles = +WS_PARAMS.get('max');
+    if(WS_PARAMS.get('rate')) tune.emitRate = +WS_PARAMS.get('rate');
+    if(WS_PARAMS.get('size')) tune.size = +WS_PARAMS.get('size');
+    document.getElementById('perf-hud').hidden = false;
+  }
   scoreEl = document.getElementById('score-val');
   timeEl = document.getElementById('time-val');
   waterBarEl = document.getElementById('water-fill');
@@ -630,6 +834,9 @@ function setupHUD(){
   const cba = document.getElementById('cb-add');
   cba.checked = tune.additive;
   cba.addEventListener('change', ()=>{ tune.additive = cba.checked; });
+  const cbc = document.getElementById('cb-cartoon');
+  cbc.checked = tune.cartoon;
+  cbc.addEventListener('change', ()=>{ tune.cartoon = cbc.checked; });
 }
 
 // ---------------------------------------------------------------- smyčka
@@ -639,6 +846,7 @@ function loop(t){
   if(paused){ lastT = t; return; }
   const dt = Math.min((t-lastT)/1000 || 0, 0.033);
   lastT = t;
+  ribbonTime += dt;
   const t0 = performance.now();
   if(running && !over) update(dt);
   draw();
@@ -654,6 +862,8 @@ function startRound(){
   for(const p of pool) p.alive = false;
   aliveCount = 0;
   for(const f of floaters) f.alive = false;
+  for(const nd of spine) nd.alive = false;
+  for(const r of rings) r.alive = false;
   resetEntities();
   document.getElementById('overlay').hidden = true;
   running = true;
