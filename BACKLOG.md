@@ -64,3 +64,4 @@ _(neotříděné nápady sem)_
 | v30 | Náběh trysky konečně vidět: slabší start (dolet ~¼) + náběh 0,7 s (delší než doba letu vody), proud se zvedá zdola k zaměřovači | bbc0319 | 2026-07-30 |
 | v31 | Peří při sestřelu (vlastní pool, třepotavý pád); duhové dělo: 3× poškození, tiky 45 ms, okamžitý tlak + **fix** konvergence dvou trysek (stříkaly vedle středu) — život ubývá 6× rychleji | 6f4238b | 2026-07-30 |
 | v32 | Výdrž = hodnota/12 (20 → 2 zásahy, 150 → 13); duhový režim ztrojnásobí počet kachniček na scéně (8 → 24, rovnoměrné rozestupy), po doběhnutí se potopí | 35aa27a | 2026-07-30 |
+| v33 | FPS counter v levém horním rohu — zelená ≥55, žlutá ≥30, červená níž; kreslí se nad vším včetně opony | 6eb0a9d | 2026-07-30 |

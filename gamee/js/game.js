@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v33';
-const WS_CHECKSUM = 'water-shoot-v33';
+const WS_VERSION = 'v34';
+const WS_CHECKSUM = 'water-shoot-v34';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -128,6 +128,7 @@ function collectRoyal(){
   if(royalCollected >= ROYAL_NEEDED){
     rainbowT = RAINBOW_T;     // ikony zůstanou plné, dokud režim běží
     addRainbowDucks();
+    chestTimer = 0.3;         // truhly ať naskočí hned, ne až doběhne starý časovač
   }
 }
 
@@ -343,26 +344,32 @@ const CHEST_TIME_BONUS = 8;   // s
 const CHEST_WATER_BONUS = 25; // jednotek nádržky
 const CHEST_R = 85;           // world kolizní poloměr
 const CHEST_CY = 55;          // world střed truhly nad linkou žlabu
-let chest = null;             // {lane,pos,x,wobble,hp,reward,state:'in'|'closed'|'open'|'out',t,hitCd}
+let chests = [];              // {lane,pos,x,wobble,hp,reward,state:'in'|'closed'|'open'|'out',t,hitCd}
 let chestTimer = 9;
+// v duhovém režimu smí být na scéně víc truhel naráz a chodí častěji
+function maxChests(){ return rainbowOn() ? 3 : 1; }
+function nextChestDelay(){ return rainbowOn() ? rand(0.8, 2.2) : rand(10, 16); }
 
 function spawnChest(){
   // Truhla pluje v dráze mezi kachničkami a houpe se na vodě jako ony.
   // Safe zone: vyplouvá na návětrné straně viditelné plochy, takže má před
   // sebou celý průjezd obrazovkou — nikdy jen nevykoukne u kraje a nezmizí.
-  const lane = (Math.random()*LANES.length)|0;
+  // přednostně dráha, kde ještě žádná truhla není — ať se nepřekrývají
+  const free = [0,1,2].filter(l => !chests.some(c => c.lane === l));
+  const lane = free.length ? free[(Math.random()*free.length)|0]
+                           : (Math.random()*LANES.length)|0;
   const L = LANES[lane];
   const range = laneRangeX(lane);
   const s = projS(L.z);
   const visHalf = (W/2)/(s*S);              // viditelná půlka dráhy ve world
   const xStart = -L.dir * visHalf * 0.6;    // u vstupní hrany, celá na obrazovce
   const pos = L.dir>0 ? xStart + range : range - xStart;
-  chest = {
+  chests.push({
     lane, pos, x: xStart, wobble: rand(0, Math.PI*2),
     hp: CHEST_HP,
     reward: Math.random() < 0.5 ? 'time' : 'water',
     state: 'in', t: 0, hitCd: 0, focus: 0, focusT: 0,
-  };
+  });
 }
 
 const floaters = [];
@@ -404,7 +411,7 @@ function resetEntities(){
   popupTimer = 2;
   special = null;
   specialTimer = rand(5, 9);
-  chest = null;
+  chests = [];
   chestTimer = rand(6, 10);
   // náhodné počáteční rozdělení tierů (nejvyšší hodnota ne vždy nahoře)
   laneTier = [0,1,2];
@@ -643,8 +650,9 @@ function computeAimZ(){
       const rr=L.duckSize*0.62, dx=wx-special.x, dy=wy-cy;
       if(dx*dx+dy*dy < rr*rr) return L.z;
     }
-    if(chest && chest.lane===l && chest.state==='closed'){
-      const dx=wx-chest.x, dy=wy-(L.y+CHEST_CY);
+    for(const ch of chests){
+      if(ch.lane!==l || ch.state!=='closed') continue;
+      const dx=wx-ch.x, dy=wy-(L.y+CHEST_CY);
       const rr=CHEST_R*1.15;
       if(dx*dx+dy*dy < rr*rr) return L.z;
     }
@@ -866,22 +874,24 @@ function update(dt){
   }
 
   // truhlička
-  if(!chest){
+  if(chests.length < maxChests()){
     chestTimer -= dt;
-    if(chestTimer <= 0) spawnChest();
-  } else {
-    const L = LANES[chest.lane];
-    const trackLen = 2*laneRangeX(chest.lane);
-    chest.pos = (chest.pos + L.speed*dt) % trackLen;
-    chest.x = L.dir>0 ? chest.pos - trackLen/2 : trackLen/2 - chest.pos;
-    chest.wobble += dt*2.5;
-    chest.t += dt;
-    if(chest.hitCd > 0) chest.hitCd -= dt;
-    if(chest.focusT > 0){ chest.focusT -= dt; if(chest.focusT <= 0) chest.focus = 0; }
-    if(chest.state==='in' && chest.t>0.25){ chest.state='closed'; chest.t=0; }
-    else if(chest.state==='closed' && chest.t>CHEST_UP_T){ chest.state='out'; chest.t=0; }
-    else if(chest.state==='open' && chest.t>1.4){ chest=null; chestTimer=rand(10,16); }
-    else if(chest && chest.state==='out' && chest.t>0.25){ chest=null; chestTimer=rand(10,16); }
+    if(chestTimer <= 0){ spawnChest(); chestTimer = nextChestDelay(); }
+  }
+  for(let i=chests.length-1; i>=0; i--){
+    const ch = chests[i];
+    const L = LANES[ch.lane];
+    const trackLen = 2*laneRangeX(ch.lane);
+    ch.pos = (ch.pos + L.speed*dt) % trackLen;
+    ch.x = L.dir>0 ? ch.pos - trackLen/2 : trackLen/2 - ch.pos;
+    ch.wobble += dt*2.5;
+    ch.t += dt;
+    if(ch.hitCd > 0) ch.hitCd -= dt;
+    if(ch.focusT > 0){ ch.focusT -= dt; if(ch.focusT <= 0) ch.focus = 0; }
+    if(ch.state==='in' && ch.t>0.25){ ch.state='closed'; ch.t=0; }
+    else if(ch.state==='closed' && ch.t>CHEST_UP_T){ ch.state='out'; ch.t=0; }
+    else if(ch.state==='open' && ch.t>1.4){ chests.splice(i,1); chestTimer=nextChestDelay(); }
+    else if(ch.state==='out' && ch.t>0.25){ chests.splice(i,1); chestTimer=nextChestDelay(); }
   }
 
   // pop-up terče
@@ -950,13 +960,13 @@ function update(dt){
             if(d2 < t.r*t.r){ hitPopup(t, p, d2 < t.r*t.r*0.16); dead=true; break; }
           }
         }
-        if(armed && !dead && chest && chest.state==='closed'){
-          const Lc = LANES[chest.lane];
-          if(Math.abs(p.z - Lc.z) <= 60){
-            const ddx = p.x-chest.x, ddy = p.y-(Lc.y+CHEST_CY);
-            const d2 = ddx*ddx+ddy*ddy;
-            if(d2 < CHEST_R*CHEST_R){ hitChest(p, d2 < CHEST_R*CHEST_R*0.25); dead=true; }
-          }
+        if(armed && !dead) for(const ch of chests){
+          if(ch.state!=='closed') continue;
+          const Lc = LANES[ch.lane];
+          if(Math.abs(p.z - Lc.z) > 60) continue;
+          const ddx = p.x-ch.x, ddy = p.y-(Lc.y+CHEST_CY);
+          const d2 = ddx*ddx+ddy*ddy;
+          if(d2 < CHEST_R*CHEST_R){ hitChest(ch, p, d2 < CHEST_R*CHEST_R*0.25); dead=true; break; }
         }
       }
       // dopad na zadní stěnu → splash stékající po stěně
@@ -1047,7 +1057,7 @@ function hitSpecial(p, direct){
   }
 }
 
-function hitChest(p, direct){
+function hitChest(chest, p, direct){
   splashAt(p.x, p.y, p.z, direct ? tune.splash+3 : tune.splash, 0);
   if(direct) spawnRing(p.x, p.y, p.z, 0);
   if(chest.hitCd > 0) return;
@@ -1385,7 +1395,10 @@ function drawRoyalTracker(){
 
 // Truhlička pluje ve žlabu dráhy: houpe se a kolébá jako kachničky.
 function drawChest(l){
-  if(!chest || chest.lane!==l) return;
+  for(const ch of chests) if(ch.lane===l) drawChestOne(ch, l);
+}
+
+function drawChestOne(chest, l){
   const L = LANES[l], s = projS(L.z);
   let sc = 1;
   if(chest.state==='in') sc = chest.t/0.25;
