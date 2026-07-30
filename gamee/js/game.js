@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v37';
-const WS_CHECKSUM = 'water-shoot-v37';
+const WS_VERSION = 'v38';
+const WS_CHECKSUM = 'water-shoot-v38';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -1540,46 +1540,50 @@ function drawCannonBarrel(baseX, baseY, mx, my, ang){
   }
   ctx.restore();
 
-  // zlaté pásy
-  const band = (t, h, over) => {
-    const w = widthAt(t)*over;
-    const y = -len*t;
+  // Zlaté obruče: hrany se prohýbají k divákovi, protože válec vidíme
+  // shora — obruč tedy není rovný pásek, ale kus elipsy.
+  const goldGrad = (w) => {
     const g = ctx.createLinearGradient(-w, 0, w, 0);
     g.addColorStop(0.00,'#8a5410');
     g.addColorStop(0.22,'#e8a33a');
     g.addColorStop(0.42,'#ffdd94');
     g.addColorStop(0.65,'#e0952c');
     g.addColorStop(1.00,'#8a5410');
-    ctx.fillStyle = g;
+    return g;
+  };
+  const band = (t, h, over) => {
+    const w = widthAt(t)*over;
+    const y = -len*t;
+    const bow = w*0.2;                       // prohnutí k divákovi
+    ctx.fillStyle = goldGrad(w);
     ctx.beginPath();
-    ctx.moveTo(-w, y+h/2); ctx.lineTo(-w*0.97, y-h/2);
-    ctx.lineTo(w*0.97, y-h/2); ctx.lineTo(w, y+h/2);
+    ctx.moveTo(-w, y-h/2);
+    ctx.quadraticCurveTo(0, y-h/2 + bow*2, w, y-h/2);   // horní hrana
+    ctx.lineTo(w, y+h/2);
+    ctx.quadraticCurveTo(0, y+h/2 + bow*2, -w, y+h/2);  // spodní hrana
     ctx.closePath(); ctx.fill();
   };
   band(0.30, 18*S, 1.10);      // spodní obruč
   band(0.78, 20*S, 1.14);      // obruč pod ústím
 
-  // ústí: rozšířený nálevkovitý konec + zavřené čelo (dovnitř nevidíme)
-  const rimW = wMuz*1.34, rimH = wMuz*0.62;
-  const rimG = ctx.createLinearGradient(-rimW, 0, rimW, 0);
-  rimG.addColorStop(0.00,'#8a5410');
-  rimG.addColorStop(0.25,'#e8a33a');
-  rimG.addColorStop(0.45,'#ffdd94');
-  rimG.addColorStop(0.70,'#e0952c');
-  rimG.addColorStop(1.00,'#8a5410');
-  ctx.fillStyle = rimG;
-  ctx.beginPath(); ctx.ellipse(0, -len, rimW, rimH, 0, 0, Math.PI*2); ctx.fill();
-  const capG = ctx.createLinearGradient(-rimW, 0, rimW, 0);
-  capG.addColorStop(0.00,'#0a2a60');
-  capG.addColorStop(0.30,'#2472cf');
-  capG.addColorStop(0.48,'#5aa8f0');
-  capG.addColorStop(1.00,'#0a2a60');
-  ctx.fillStyle = capG;
-  ctx.beginPath(); ctx.ellipse(0, -len, rimW*0.7, rimH*0.66, 0, 0, Math.PI*2); ctx.fill();
-  // lesk na horní hraně ústí
-  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  // Ústí: z nadhledu koukáme na okraj hlavně skoro z boku, takže žádná díra —
+  // vidíme jen silně zkrácený prstenec, a to hlavně jeho vnější horní plochu.
+  const rimW = wMuz*1.3, rimH = wMuz*0.34;
+  const bowR = rimW*0.2;
+  ctx.fillStyle = goldGrad(rimW);
+  ctx.beginPath();
+  ctx.moveTo(-rimW, -len);
+  ctx.quadraticCurveTo(0, -len - rimH*1.5, rimW, -len);          // vnější hrana ústí
+  ctx.lineTo(rimW*0.98, -len + rimH);
+  ctx.quadraticCurveTo(0, -len + rimH + bowR*1.6, -rimW*0.98, -len + rimH);
+  ctx.closePath(); ctx.fill();
+  // lesk na horní (přivrácené) hraně
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
   ctx.lineWidth = 2.5*S;
-  ctx.beginPath(); ctx.ellipse(0, -len, rimW*0.7, rimH*0.66, 0, Math.PI*1.15, Math.PI*1.85); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-rimW*0.9, -len - rimH*0.15);
+  ctx.quadraticCurveTo(0, -len - rimH*1.5, rimW*0.9, -len - rimH*0.15);
+  ctx.stroke();
 
   ctx.restore();
 }
