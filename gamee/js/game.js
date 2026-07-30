@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v13';
-const WS_CHECKSUM = 'water-shoot-v13';
+const WS_VERSION = 'v14';
+const WS_CHECKSUM = 'water-shoot-v14';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -117,10 +117,16 @@ function spawnParticle(x,y,z,vx,vy,vz,life,size,type){
 // Dráhy = police se žlabem na zadní stěně v různé hloubce (spodní blíž).
 // hp = kolik zásahů proudem je potřeba — víc hodnotná kachnička spolkne víc vody
 const LANES = [
-  { z:900, y:-240, dir: 1, speed:170, duckSize:165, count:3, baseVal:150, hp:12 },
-  { z:800, y:-429, dir:-1, speed:130, duckSize:182, count:3, baseVal:110, hp:8 },
-  { z:700, y:-589, dir: 1, speed:100, duckSize:200, count:2, baseVal:80,  hp:5 },
+  { z:900, y:-240, dir: 1, speed:170, duckSize:165, count:3 },
+  { z:800, y:-429, dir:-1, speed:130, duckSize:182, count:3 },
+  { z:700, y:-589, dir: 1, speed:100, duckSize:200, count:2 },
 ];
+// Hodnotové tiery ROTUJÍ mezi drahami (po TIER_ROTATE_T sekundách), aby se
+// hráč nezakempil na jedné řadě — nejvyšší hodnota není vždy nahoře.
+const VALUE_TIERS = [ {val:150, hp:12}, {val:110, hp:8}, {val:80, hp:5} ];
+const TIER_ROTATE_T = 15;
+let laneTier = [0,1,2];       // laneTier[lane] = index do VALUE_TIERS
+let tierRotateT = TIER_ROTATE_T;
 // Damage cooldown: kachnička ztratí max 1 HP za HIT_CD sekund (≈12 HP/s),
 // jinak by hustý proud (stovky částic/s) sestřelil cokoli za pár setin.
 const HIT_CD = 0.08;
@@ -129,16 +135,16 @@ const VALUE_DECAY_T = 12;
 let ducks = [];               // {lane,pos,x,knocked,knockT,respawnT,hp,ageT,wobble}
 
 function duckValue(d){
-  const b = LANES[d.lane].baseVal;
+  const b = VALUE_TIERS[laneTier[d.lane]].val;
   const v = b * (1 - 0.75*Math.min(d.ageT, VALUE_DECAY_T)/VALUE_DECAY_T);
   return Math.max(5, Math.round(v/5)*5);
 }
 
-// Potřebná voda kopíruje hodnotu: čerstvá kachnička = plné HP dráhy,
+// Potřebná voda kopíruje hodnotu: čerstvá kachnička = plné HP tieru,
 // vydecayovaná na čtvrtinu hodnoty potřebuje ~o čtvrtinu míň zásahů.
 function duckHpNeeded(d){
-  const L = LANES[d.lane];
-  return Math.max(3, Math.round(L.hp * (0.7 + 0.3*duckValue(d)/L.baseVal)));
+  const t = VALUE_TIERS[laneTier[d.lane]];
+  return Math.max(3, Math.round(t.hp * (0.7 + 0.3*duckValue(d)/t.val)));
 }
 
 // ---- speciální korunková kachnička ----
@@ -230,6 +236,11 @@ function resetEntities(){
   specialTimer = rand(5, 9);
   chest = null;
   chestTimer = rand(6, 10);
+  // náhodné počáteční rozdělení tierů (nejvyšší hodnota ne vždy nahoře)
+  laneTier = [0,1,2];
+  const rot = (Math.random()*3)|0;
+  for(let i=0;i<rot;i++) laneTier.unshift(laneTier.pop());
+  tierRotateT = TIER_ROTATE_T;
 }
 
 function addFloater(sx,sy,txt){
@@ -546,7 +557,7 @@ function update(dt){
     if(d.knocked){
       // kachnička NEMIZÍ — leží převrhnutá ve svém slotu, pak se zase postaví
       d.knockT += dt;
-      if(d.knockT > 0.4 && d.respawnT <= 0) d.respawnT = rand(1.5, 3);
+      if(d.knockT > 0.8 && d.respawnT <= 0) d.respawnT = rand(1.5, 3);
       if(d.respawnT > 0){
         d.respawnT -= dt;
         if(d.respawnT <= 0){
@@ -561,6 +572,13 @@ function update(dt){
     }
   }
 
+  // rotace hodnotových tierů mezi drahami
+  tierRotateT -= dt;
+  if(tierRotateT <= 0){
+    tierRotateT = TIER_ROTATE_T;
+    laneTier.unshift(laneTier.pop());
+  }
+
   // speciální korunková kachnička
   if(!special){
     specialTimer -= dt;
@@ -573,7 +591,7 @@ function update(dt){
     special.t += dt;
     if(special.hitCd > 0) special.hitCd -= dt;
     if(special.state==='rise' && special.t>0.4){ special.state='up'; special.t=0; }
-    else if(special.state==='sink' && special.t>0.4){ special=null; specialTimer=rand(8,14); }
+    else if(special.state==='sink' && special.t>0.75){ special=null; specialTimer=rand(8,14); }
     if(special && special.pos > trackLen + L.duckSize){ special=null; specialTimer=rand(8,14); }
   }
 
@@ -709,6 +727,7 @@ function hitDuck(d, p){
   if(d.dmg >= duckHpNeeded(d)){
     d.knocked=true; d.knockT=0; d.respawnT=0;
     const s = projS(L.z);
+    addFloater(projX(d.x,s), projY(L.y+L.duckSize*0.45,s), 'KVÁK!');
     addScore(duckValue(d), projX(d.x,s), projY(L.y+L.duckSize,s));
     splashAt(d.x, L.y+L.duckSize*0.4, L.z, tune.splash*2, 0);
     spawnRing(d.x, L.y+L.duckSize*0.4, L.z, 0);
@@ -723,6 +742,7 @@ function hitSpecial(p){
   special.hp--;
   if(special.hp<=0){
     const s = projS(L.z);
+    addFloater(projX(special.x,s), projY(L.y+L.duckSize*0.45,s), 'KVÁÁK!');
     addScore(SPECIAL_VAL, projX(special.x,s), projY(L.y+L.duckSize,s));
     splashAt(special.x, L.y+L.duckSize*0.4, L.z, tune.splash*3, 0);
     spawnRing(special.x, L.y+L.duckSize*0.4, L.z, 0);
@@ -799,17 +819,25 @@ function draw(){
     ctx.clip();
     for(const d of ducks){
       if(d.lane!==l) continue;
-      // potopení/vynoření (0 = na hladině, 1 = celá pod vodou)
-      let sink = 0;
-      if(d.knocked) sink = Math.min(d.knockT/0.4, 1);
+      // smrtelný zásah: nejdřív squash&stretch hop (je poznat, že jsme trefili),
+      // teprve pak potopení pod hladinu; vynoření = zvednutí zpět
+      let sink = 0, sqX = 1, sqY = 1, hop = 0;
+      if(d.knocked){
+        const k = Math.min(d.knockT/0.35, 1);
+        const sq = Math.sin(k*Math.PI);
+        sqX = 1 + 0.45*sq;
+        sqY = 1 - 0.4*sq;
+        hop = -12*S*sq;
+        sink = clamp((d.knockT-0.35)/0.45, 0, 1);
+      }
       else if(d.riseT < 0.35) sink = 1 - d.riseT/0.35;
       if(sink >= 1) continue;
       const sx = projX(d.x,s);
-      const sy = projY(L.y + Math.sin(d.wobble)*8 + 14, s) + sink*spriteSz*1.05;
+      const sy = projY(L.y + Math.sin(d.wobble)*8 + 14, s) + sink*spriteSz*1.05 + hop;
       ctx.save();
       ctx.translate(sx, sy);
       // sprite míří doleva → při jízdě doprava zrcadlit (zobák dopředu)
-      if(L.dir>0) ctx.scale(-1,1);
+      ctx.scale((L.dir>0 ? -1 : 1)*sqX, sqY);
       ctx.drawImage(duckSprite, -spriteSz*0.53, -spriteSz*0.75, spriteSz, spriteSz);
       ctx.restore();
 
@@ -820,16 +848,21 @@ function draw(){
     }
     // speciální korunková kachnička ve své dráze
     if(special && special.lane===l){
-      let sink = 0;
+      let sink = 0, sqX = 1, sqY = 1, hop = 0;
       if(special.state==='rise') sink = 1 - special.t/0.4;
-      else if(special.state==='sink') sink = special.t/0.4;
+      else if(special.state==='sink'){
+        const k = Math.min(special.t/0.35, 1);
+        const sq = Math.sin(k*Math.PI);
+        sqX = 1 + 0.45*sq; sqY = 1 - 0.4*sq; hop = -12*S*sq;
+        sink = clamp((special.t-0.35)/0.4, 0, 1);
+      }
       if(sink < 1){
         const spSz = L.duckSize*1.15*1.1*s*S;
         const sx = projX(special.x,s);
-        const sy = projY(L.y + 14, s) + sink*spSz*1.05;
+        const sy = projY(L.y + 14, s) + sink*spSz*1.05 + hop;
         ctx.save();
         ctx.translate(sx, sy);
-        if(L.dir>0) ctx.scale(-1,1);
+        ctx.scale((L.dir>0 ? -1 : 1)*sqX, sqY);
         ctx.drawImage(duckCrownSprite, -spSz*0.53, -spSz*0.75, spSz, spSz);
         ctx.restore();
         if(special.state==='up'){
@@ -965,8 +998,8 @@ function drawChest(l){
   else if(chest.state==='out') sc = 1 - chest.t/0.25;
   if(sc <= 0) return;
   const cx = projX(chest.x,s);
-  const cy = projY(L.y + CHEST_CY + Math.sin(chest.wobble)*8, s);
-  const rock = Math.sin(chest.wobble*0.8 + 1)*0.06;   // kolébání na vlnkách
+  const cy = projY(L.y + CHEST_CY + Math.sin(chest.wobble)*16, s);
+  const rock = Math.sin(chest.wobble*0.8 + 1)*0.1;    // kolébání na vlnkách
   const w = 200*s*S*sc, h = 135*s*S*sc;
   const open = chest.state==='open';
   ctx.save();
