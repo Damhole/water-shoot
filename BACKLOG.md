@@ -61,3 +61,4 @@ _(neotříděné nápady sem)_
 | v27 | Skill-based zásahy: užší proud (rozptyl 55→26), střed 1,2× focus (růst 1,32, strop ×5) vs okraj 0,4; střed i u truhly, bullseye u terčů (+150). Naměřeno 3× rychlejší sestřel při přesném míření | 66736d7 | 2026-07-30 |
 | v28 | Náběh trysky po každém stisku (0,45 s do plného tlaku a dostřelu), slider v HUD — připraveno jako hook pro budoucí upgrady děla | f033233 | 2026-07-30 |
 | v29 | Special mód (přepínatelný): 3 sejmuté královské kachny → duhový režim na 10 s — dvě rotující trysky, duhová voda, 2× poškození, nespotřebovává vodu ani čas; tracker korunek v UI, po doběhnutí se resetuje | 995aecc | 2026-07-30 |
+| v30 | Náběh trysky konečně vidět: slabší start (dolet ~¼) + náběh 0,7 s (delší než doba letu vody), proud se zvedá zdola k zaměřovači | bbc0319 | 2026-07-30 |

@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v30';
-const WS_CHECKSUM = 'water-shoot-v30';
+const WS_VERSION = 'v31';
+const WS_CHECKSUM = 'water-shoot-v31';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -114,11 +114,13 @@ let rampT = 0;                // jak dlouho už tryska nabíhá
 // trysky, dvojnásobné poškození a nespotřebovává se čas ani voda.
 const ROYAL_NEEDED = 3;
 const RAINBOW_T = 10;
-const RAINBOW_DMG_MUL = 2;
+const RAINBOW_DMG_MUL = 3;
+const RAINBOW_HIT_CD = 0.045;   // duhové dělo bije i rychleji, ne jen silněji
 let royalCollected = 0;
 let rainbowT = -1;            // -1 = neaktivní
 function rainbowOn(){ return rainbowT > 0; }
 function dmgMul(){ return rainbowOn() ? RAINBOW_DMG_MUL : 1; }
+function hitCd(){ return rainbowOn() ? RAINBOW_HIT_CD : HIT_CD; }
 
 function collectRoyal(){
   if(!tune.specialMode) return;
@@ -141,6 +143,75 @@ let prevSpraying = false;
 const ribX=new Float32Array(SPINE_MAX), ribY=new Float32Array(SPINE_MAX), ribW=new Float32Array(SPINE_MAX);
 const ribLX=new Float32Array(SPINE_MAX), ribLY=new Float32Array(SPINE_MAX);
 const ribRX=new Float32Array(SPINE_MAX), ribRY=new Float32Array(SPINE_MAX);
+
+// ---- pírka ----
+// Sestřelená kachnička se rozletí v peří: pírka mají vlastní malý pool,
+// protože se každé kreslí zvlášť (rotace) a padají pomalu s třepotáním.
+const FEATHER_MAX = 160;
+const feathers = new Array(FEATHER_MAX);
+for(let i=0;i<FEATHER_MAX;i++) feathers[i] = {alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,rot:0,rotV:0,life:0,maxLife:1,size:1,tone:0,seed:0};
+let featherCursor = 0;
+
+function spawnFeathers(x, y, z, n, power){
+  for(let i=0;i<n;i++){
+    const f = feathers[featherCursor];
+    featherCursor = (featherCursor+1) % FEATHER_MAX;
+    const a = rand(0, Math.PI*2);
+    const sp = rand(120, 420) * (power || 1);
+    f.alive = true;
+    f.x = x + rand(-25,25); f.y = y + rand(-25,25); f.z = z + rand(-30,30);
+    f.vx = Math.cos(a)*sp;
+    f.vy = Math.abs(Math.sin(a))*sp*rand(0.6,1.4) + 120*(power||1);   // nahoru
+    f.vz = rand(-90,90);
+    f.rot = rand(0, Math.PI*2);
+    f.rotV = rand(-7, 7);
+    f.life = f.maxLife = rand(1.1, 2.0);
+    f.size = rand(11, 20);
+    f.tone = (Math.random()*3)|0;      // 0 žlutá, 1 oranžová, 2 bílá
+    f.seed = rand(0, Math.PI*2);
+  }
+}
+
+function updateFeathers(dt){
+  for(const f of feathers){
+    if(!f.alive) continue;
+    f.life -= dt;
+    if(f.life <= 0 || f.y < FLOOR_Y - 80){ f.alive = false; continue; }
+    f.vy -= GRAV*0.16*dt;                       // pírko padá pomalu
+    f.vx *= (1 - 2.2*dt); f.vz *= (1 - 2.2*dt); // odpor vzduchu
+    f.vy *= (1 - 1.1*dt);
+    // třepotání do stran
+    f.x += (f.vx + Math.sin(ribbonTime*7 + f.seed)*110) * dt;
+    f.y += f.vy*dt;
+    f.z += f.vz*dt;
+    f.rot += f.rotV*dt;
+  }
+}
+
+function drawFeathers(){
+  const TONES = ['#ffd21f', '#ff9c1a', '#fff6d5'];
+  for(const f of feathers){
+    if(!f.alive) continue;
+    const s = projS(f.z);
+    const sx = projX(f.x, s), sy = projY(f.y, s);
+    const r = f.size * s * S;
+    if(r < 0.5) continue;
+    const fade = Math.min(1, f.life/0.45);
+    ctx.save();
+    ctx.globalAlpha = fade;
+    ctx.translate(sx, sy);
+    ctx.rotate(f.rot);
+    ctx.fillStyle = TONES[f.tone];
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r*0.42, r, 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+    ctx.lineWidth = Math.max(0.6, r*0.09);
+    ctx.beginPath(); ctx.moveTo(0, -r*0.85); ctx.lineTo(0, r*0.85); ctx.stroke();
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
 
 // ---- rozstřikové kroužky ----
 const RING_MAX = 24;
@@ -618,7 +689,9 @@ function update(dt){
     // Náběh trysky: slabý tlak = kratší dostřel, proud padá pod zaměřovač
     // a jak tlak roste, zvedá se k němu. Dolet ~ druhá mocnina rychlosti,
     // takže q=0.5 znamená zhruba čtvrtinovou vzdálenost.
-    const spin = Math.min(rampT/Math.max(0.01, tune.jetRampT), 1);
+    // duhové dělo je natlakované hned — žádné zdlouhavé roztáčení
+    const rampDur = Math.max(0.01, tune.jetRampT * (rainbowOn() ? 0.18 : 1));
+    const spin = Math.min(rampT/rampDur, 1);
     const spinP = 0.15 + 0.85*Math.pow(spin, 1.5);
     if(spinP < 1){ const q = 0.45 + 0.55*spinP; vx *= q; vy *= q; vz *= q; }
     if(dryT >= 0){
@@ -640,14 +713,16 @@ function update(dt){
     let twinIdx = 0;
     while(emitAccum >= 1){
       emitAccum -= 1;
-      let ox = 0, oy = 0;
+      let ox = 0, oy = 0, evx = vx, evy = vy;
       if(rainbowOn()){
         const a = twinAng + (twinIdx++ % 2) * Math.PI;
         ox = Math.cos(a)*twinR; oy = Math.sin(a)*twinR;
+        // obě trysky musí konvergovat do cíle, jinak stříkají vedle středu
+        evx = vx - ox/tFly; evy = vy - oy/tFly;
       }
       const pp = spawnParticle(
         m.x + ox, m.y + oy, m.z,
-        vx + rand(-spread,spread), vy + rand(-spread,spread), vz + rand(-22,22),
+        evx + rand(-spread,spread), evy + rand(-spread,spread), vz + rand(-22,22),
         1.4, tune.size*2.2*rand(0.8,1.3), 0
       );
       if(pp){ pp.armZ = armZ; pp.hue = rainbowOn() ? (ribbonTime*220 + pp.z*0.4) % 360 : -1; }
@@ -697,6 +772,8 @@ function update(dt){
       }
     }
   }
+
+  updateFeathers(dt);
 
   // rozstřikové kroužky
   for(const r of rings){
@@ -894,7 +971,7 @@ function hitDuck(d, p, direct){
   splashAt(p.x, p.y, p.z, direct ? tune.splash+3 : tune.splash, 0);
   if(direct) spawnRing(p.x, p.y, p.z, 0);   // feedback kritu (throttled)
   if(d.hitCd > 0) return;      // šplíchá to, ale HP ubývá max 1× za HIT_CD
-  d.hitCd = HIT_CD;
+  d.hitCd = hitCd();
   if(direct){
     d.dmg += CENTER_DMG * focusMul(d.focus) * dmgMul();   // držená linie = exponenciální nárůst
     d.focus++;
@@ -906,6 +983,7 @@ function hitDuck(d, p, direct){
     d.knocked=true; d.knockT=0; d.respawnT=0;
     const s = projS(L.z);
     addFloater(projX(d.x,s), projY(L.y+L.duckSize*0.45,s), 'KVÁK!');
+    spawnFeathers(d.x, L.y + L.duckSize*0.5, L.z, rainbowOn()?26:16, rainbowOn()?1.7:1);
     addScore(duckValue(d), projX(d.x,s), projY(L.y+L.duckSize,s));
     splashAt(d.x, L.y+L.duckSize*0.4, L.z, tune.splash*2, 0);
     spawnRing(d.x, L.y+L.duckSize*0.4, L.z, 0);
@@ -917,7 +995,7 @@ function hitSpecial(p, direct){
   splashAt(p.x, p.y, p.z, direct ? tune.splash+3 : tune.splash, 0);
   if(direct) spawnRing(p.x, p.y, p.z, 0);
   if(special.hitCd > 0) return;
-  special.hitCd = HIT_CD;
+  special.hitCd = hitCd();
   if(direct){
     special.hp -= CENTER_DMG * focusMul(special.focus) * dmgMul();
     special.focus++;
@@ -928,6 +1006,7 @@ function hitSpecial(p, direct){
   if(special.hp<=0){
     const s = projS(L.z);
     addFloater(projX(special.x,s), projY(L.y+L.duckSize*0.45,s), 'KVÁÁK!');
+    spawnFeathers(special.x, L.y + L.duckSize*0.5, L.z, rainbowOn()?38:28, rainbowOn()?2:1.4);
     addScore(SPECIAL_VAL, projX(special.x,s), projY(L.y+L.duckSize,s));
     collectRoyal();
     splashAt(special.x, L.y+L.duckSize*0.4, L.z, tune.splash*3, 0);
@@ -940,7 +1019,7 @@ function hitChest(p, direct){
   splashAt(p.x, p.y, p.z, direct ? tune.splash+3 : tune.splash, 0);
   if(direct) spawnRing(p.x, p.y, p.z, 0);
   if(chest.hitCd > 0) return;
-  chest.hitCd = HIT_CD;
+  chest.hitCd = hitCd();
   if(direct){
     chest.hp -= CENTER_DMG * focusMul(chest.focus) * dmgMul();   // zámek uprostřed povolí rychleji
     chest.focus++;
@@ -1079,6 +1158,8 @@ function draw(){
     ctx.fillStyle = 'rgba(160,220,255,0.25)';
     ctx.fillRect(0, ly, W, 2.5*S);
   }
+
+  drawFeathers();
 
   // voda
   if(tune.cartoon){
@@ -1712,6 +1793,7 @@ function startRound(){
   for(const f of floaters) f.alive = false;
   for(const nd of spine) nd.alive = false;
   for(const r of rings) r.alive = false;
+  for(const f of feathers) f.alive = false;
   resetEntities();
   document.getElementById('overlay').hidden = true;
   // opona se rozhrne; dokud jede, čas neběží a dělo nestříká
