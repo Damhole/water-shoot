@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v29';
-const WS_CHECKSUM = 'water-shoot-v29';
+const WS_VERSION = 'v30';
+const WS_CHECKSUM = 'water-shoot-v30';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -102,7 +102,9 @@ const tune = {
   aimGain: 1.8,               // základní citlivost relativního míření
   // Náběh trysky: po každém stisku chvíli trvá, než je proud v plném tlaku.
   // Budoucí upgrady děla/pistole tuhle dobu budou zkracovat.
-  jetRampT: 0.45,
+  // Musí být delší než doba letu vody k terči (~0,6 s), jinak se náběh schová
+  // za dolet a hráč ho vůbec nezaregistruje.
+  jetRampT: 0.7,
   specialMode: true,          // sběr královských kachen → duhový režim
 };
 let rampT = 0;                // jak dlouho už tryska nabíhá
@@ -613,10 +615,12 @@ function update(dt){
     const tFly = dist/JET_SPEED;
     // kompenzace gravitace, aby proud dopadal ~na pointer
     let vx = dx/tFly, vy = dy/tFly + 0.5*GRAV*tFly, vz = dz/tFly;
-    // náběh trysky: proud se nejdřív jen vyvalí u ústí a teprve pak dostřelí
+    // Náběh trysky: slabý tlak = kratší dostřel, proud padá pod zaměřovač
+    // a jak tlak roste, zvedá se k němu. Dolet ~ druhá mocnina rychlosti,
+    // takže q=0.5 znamená zhruba čtvrtinovou vzdálenost.
     const spin = Math.min(rampT/Math.max(0.01, tune.jetRampT), 1);
-    const spinP = 0.28 + 0.72*spin*spin;
-    if(spinP < 1){ const q = 0.5 + 0.5*spinP; vx *= q; vy *= q; vz *= q; }
+    const spinP = 0.15 + 0.85*Math.pow(spin, 1.5);
+    if(spinP < 1){ const q = 0.45 + 0.55*spinP; vx *= q; vy *= q; vz *= q; }
     if(dryT >= 0){
       // slábnoucí tlak = proud nedoletí a padá čím dál blíž k dělu
       const p = 0.25 + 0.75*pressure;
