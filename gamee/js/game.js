@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v35';
-const WS_CHECKSUM = 'water-shoot-v35';
+const WS_VERSION = 'v36';
+const WS_CHECKSUM = 'water-shoot-v36';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -118,9 +118,58 @@ const COIN_DUCK = 3;
 const COIN_ROYAL = 10;
 const COIN_CHEST = 15;
 
+// Letící mince: z místa zásahu se po oblouku snesou k ikoně v HUD a teprve
+// tam se připíšou — hráč vidí, odkud mu peníze přiletěly.
+const FLY_MAX = 48;
+const flyCoins = new Array(FLY_MAX);
+for(let i=0;i<FLY_MAX;i++) flyCoins[i] = {alive:false,x0:0,y0:0,cx:0,cy:0,t:0,dur:0.7,val:0};
+let flyCursor = 0;
+let coinPop = 0;              // pružné cuknutí HUD ikony při dopadu
+
+function coinHudPos(){ return { x: 20*S + 11*S, y: H*0.215 }; }
+
 function addCoins(n, sx, sy){
-  coins += n;
-  if(sx !== undefined) addFloater(sx, sy, '+'+n, true);
+  if(sx === undefined){ coins += n; return; }
+  const pieces = Math.max(1, Math.min(6, n));
+  const base = Math.floor(n/pieces);
+  for(let i=0;i<pieces;i++){
+    const f = flyCoins[flyCursor];
+    flyCursor = (flyCursor+1) % FLY_MAX;
+    const dst = coinHudPos();
+    f.alive = true;
+    f.x0 = sx + rand(-18*S, 18*S); f.y0 = sy + rand(-14*S, 14*S);
+    // řídicí bod nad spojnicí = mince letí obloukem, ne po přímce
+    f.cx = (f.x0 + dst.x)/2 + rand(-60*S, 60*S);
+    f.cy = Math.min(f.y0, dst.y) - rand(60*S, 130*S);
+    f.t = -i*0.07;            // drobné rozestupy, ať neletí v chuchvalci
+    f.dur = rand(0.55, 0.8);
+    f.val = base + (i < n - base*pieces ? 1 : 0);
+  }
+}
+
+function updateFlyCoins(dt){
+  if(coinPop > 0) coinPop = Math.max(0, coinPop - dt*4);
+  for(const f of flyCoins){
+    if(!f.alive) continue;
+    f.t += dt;
+    if(f.t >= f.dur){
+      f.alive = false;
+      coins += f.val;         // připsat až při dopadu do HUD
+      coinPop = 1;
+    }
+  }
+}
+
+function drawFlyCoins(){
+  const dst = coinHudPos();
+  for(const f of flyCoins){
+    if(!f.alive || f.t < 0) continue;
+    const k = f.t/f.dur, ik = 1-k;
+    // kvadratická bezier: start → řídicí bod → ikona v HUD
+    const x = ik*ik*f.x0 + 2*ik*k*f.cx + k*k*dst.x;
+    const y = ik*ik*f.y0 + 2*ik*k*f.cy + k*k*dst.y;
+    drawCoin(x, y, (12 - 4*k)*S);
+  }
 }
 
 // zlatá mince — používá se v HUD, nad kachničkami i v truhle
@@ -387,10 +436,34 @@ function spawnChest(){
                            : (Math.random()*LANES.length)|0;
   const L = LANES[lane];
   const range = laneRangeX(lane);
+  const trackLen = 2*range;
   const s = projS(L.z);
   const visHalf = (W/2)/(s*S);              // viditelná půlka dráhy ve world
-  const xStart = -L.dir * visHalf * 0.6;    // u vstupní hrany, celá na obrazovce
-  const pos = L.dir>0 ? xStart + range : range - xStart;
+  // Truhla pluje stejnou rychlostí jako kachničky, takže rozestup zůstává —
+  // stačí ji usadit doprostřed mezery a už se s nimi nikdy nepotká.
+  const laneDucks = ducks.filter(d => d.lane === lane).map(d => d.pos).sort((a,b)=>a-b);
+  const cands = [];
+  for(let i=0;i<laneDucks.length;i++){
+    const a = laneDucks[i];
+    const b = (i+1 < laneDucks.length) ? laneDucks[i+1] : laneDucks[0] + trackLen;
+    cands.push({ pos: ((a+b)/2) % trackLen, gap: b-a });
+  }
+  if(!cands.length) cands.push({ pos: rand(0, trackLen), gap: trackLen });
+  // Z mezer vybrat tu, kde má truhla před sebou nejdelší cestu po obrazovce.
+  // Priorita: dost místa kolem sebe > delší cesta. Nikdy nesmí skončit
+  // na kachničce, takže fallback je vždycky největší mezera, ne okraj dráhy.
+  const clearance = CHEST_R + L.duckSize*0.42;
+  let best = null, widest = null;
+  for(const c of cands){
+    const x = L.dir>0 ? c.pos - trackLen/2 : trackLen/2 - c.pos;
+    if(!widest || c.gap > widest.gap) widest = { pos:c.pos, x, gap:c.gap };
+    if(c.gap/2 < clearance) continue;                         // úzká mezera
+    if(Math.abs(x) > visHalf) continue;                       // mimo obraz
+    const remaining = L.dir>0 ? (visHalf - x) : (x + visHalf);
+    if(!best || remaining > best.remaining) best = { pos:c.pos, x, remaining };
+  }
+  if(!best) best = widest;
+  const pos = best.pos, xStart = best.x;
   chests.push({
     lane, pos, x: xStart, wobble: rand(0, Math.PI*2),
     hp: CHEST_HP,
@@ -1169,6 +1242,7 @@ function draw(){
     ctx.beginPath();
     ctx.rect(0, 0, W, ly + 4*S);   // vše pod hladinou žlabu je skryté
     ctx.clip();
+    drawChest(l);          // truhla patří ZA kachničky, ať je nikdy nepřekryje
     for(const d of ducks){
       if(d.lane!==l) continue;
       // smrtelný zásah: nejdřív squash&stretch hop (je poznat, že jsme trefili),
@@ -1194,10 +1268,6 @@ function draw(){
       ctx.restore();
 
       // kulatý bar na těle: plní se zásahy, uvnitř aktuální hodnota kachničky
-      if(!d.knocked && sink <= 0 && d.coin){
-        // mince pohupující se nad hlavou = tahle kachnička platí
-        drawCoin(sx - spriteSz*0.2, sy - spriteSz*0.66 + Math.sin(d.wobble*1.3)*2.5*S, spriteSz*0.1);
-      }
       if(!d.knocked && sink <= 0){
         const heat = d.focusT > 0 ? Math.min(d.focus/4, 1) : 0;
         drawDuckBadge(sx, sy - spriteSz*0.12, spriteSz*0.19, d.dmg/duckHpNeeded(d), duckValue(d), false, heat);
@@ -1228,7 +1298,6 @@ function draw(){
         }
       }
     }
-    drawChest(l);
     ctx.restore();
     // přední hrana žlabu přes nožičky
     ctx.fillStyle = 'rgba(23,58,99,0.9)';
@@ -1361,7 +1430,7 @@ function draw(){
   ctx.fillStyle = 'rgba(255,255,255,0.9)';
   ctx.fillText(Math.ceil(timeLeft)+' s', W - 18*S, hudY);
   // mince vlevo — zrcadlí čas vpravo
-  const coinR = 11*S, coinX = 20*S + coinR;
+  const coinR = 11*S * (1 + 0.35*coinPop), coinX = 20*S + 11*S;
   drawCoin(coinX, hudY, coinR);
   ctx.font = '700 '+Math.round(22*S)+'px Arial, sans-serif';
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
@@ -1375,6 +1444,7 @@ function draw(){
 
   drawWaterTank();
   if(tune.specialMode) drawRoyalTracker();
+  drawFlyCoins();
   drawCurtain();
   drawFps();          // nad vším včetně opony — kvůli měření na mobilech
 }
@@ -1894,6 +1964,7 @@ function loop(t){
   lastT = t;
   ribbonTime += dt;
   updateCurtain(dt);            // běží i po konci kola (zatahování)
+  updateFlyCoins(dt);
   const t0 = performance.now();
   if(running && !over) update(dt);
   draw();
@@ -1914,6 +1985,8 @@ function startRound(){
   for(const nd of spine) nd.alive = false;
   for(const r of rings) r.alive = false;
   for(const f of feathers) f.alive = false;
+  for(const f of flyCoins) f.alive = false;
+  coinPop = 0;
   resetEntities();
   document.getElementById('overlay').hidden = true;
   // opona se rozhrne; dokud jede, čas neběží a dělo nestříká
