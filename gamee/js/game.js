@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v16';
-const WS_CHECKSUM = 'water-shoot-v16';
+const WS_VERSION = 'v17';
+const WS_CHECKSUM = 'water-shoot-v17';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -151,7 +151,7 @@ function duckHpNeeded(d){
 // Občas vyplave, má korunku a velký zisk; ve hře je jen krátce a spolkne
 // víc vody než ostatní. Pluje v mezeře mezi sloty vybrané dráhy.
 const SPECIAL_VAL = 300;
-const SPECIAL_HP = 36;        // 2× původních 18 — královna musí něco vydržet
+const SPECIAL_HP = 22;        // ~1,8 s přesného kropení (krity) / ~3,7 s po tělíčku
 // Královská jako jediná NEZMIZÍ sama od sebe — pluje, dokud nedojede na konec řádku.
 let special = null;           // {lane,pos,x,hp,state:'rise'|'up'|'sink',t}
 let specialTimer = 7;
