@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v36';
-const WS_CHECKSUM = 'water-shoot-v36';
+const WS_VERSION = 'v37';
+const WS_CHECKSUM = 'water-shoot-v37';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -1339,30 +1339,8 @@ function draw(){
   const my = H*0.84 + (cannon.aimSY - H*0.45)*0.06;
   cannon.muzzleSX = mx; cannon.muzzleSY = my;
   const ang = Math.atan2(my-baseY, mx-baseX);
-  const nx = Math.cos(ang+Math.PI/2), ny = Math.sin(ang+Math.PI/2);
-  const wBase = 74*S, wMuz = 34*S;
-  const grad = ctx.createLinearGradient(baseX-wBase, baseY, baseX+wBase, baseY);
-  grad.addColorStop(0,'#123468'); grad.addColorStop(0.5,'#3d7edb'); grad.addColorStop(1,'#123468');
-  ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.moveTo(baseX+nx*wBase, baseY+ny*wBase);
-  ctx.lineTo(mx+nx*wMuz, my+ny*wMuz);
-  ctx.lineTo(mx-nx*wMuz, my-ny*wMuz);
-  ctx.lineTo(baseX-nx*wBase, baseY-ny*wBase);
-  ctx.closePath(); ctx.fill();
-  // zlatý prstenec + ústí
-  ctx.strokeStyle = '#e8a33a'; ctx.lineWidth = 7*S;
-  ctx.beginPath();
-  ctx.moveTo(baseX+nx*wBase*0.82 + (mx-baseX)*0.3, baseY+ny*wBase*0.82 + (my-baseY)*0.3);
-  ctx.lineTo(baseX-nx*wBase*0.82 + (mx-baseX)*0.3, baseY-ny*wBase*0.82 + (my-baseY)*0.3);
-  ctx.stroke();
-  // konec hlavně: zezadu do ní nevidíme — zavřený zaoblený konec + zlatý prstenec
-  const capG = ctx.createLinearGradient(mx-wMuz, my, mx+wMuz, my);
-  capG.addColorStop(0,'#1d4e9e'); capG.addColorStop(0.5,'#4c8fe0'); capG.addColorStop(1,'#1d4e9e');
-  ctx.fillStyle = capG;
-  ctx.beginPath(); ctx.ellipse(mx, my, wMuz*0.82, wMuz*0.6, 0, 0, Math.PI*2); ctx.fill();
-  ctx.strokeStyle = '#e8a33a'; ctx.lineWidth = 5*S;
-  ctx.beginPath(); ctx.ellipse(mx, my, wMuz*0.82, wMuz*0.6, 0, 0, Math.PI*2); ctx.stroke();
+  drawCannonBarrel(baseX, baseY, mx, my, ang);
+  const wMuz = 34*S;
   // pěna u výstupu vody — malé chomáčky kousek nad koncem hlavně
   if(cannon.spraying && !over && water > 0){
     const foam = 1 + 0.2*Math.sin(ribbonTime*22);
@@ -1516,6 +1494,94 @@ function drawRoyalTracker(){
       ctx.stroke(); ctx.lineCap = 'butt';
     }
   }
+}
+
+// Pouťové vodní dělo. Kreslí se v lokální soustavě (hlaveň míří po -Y),
+// takže pásy, válcové stínování i zubatý vzor jdou popsat přímočaře.
+function drawCannonBarrel(baseX, baseY, mx, my, ang){
+  const len = Math.hypot(mx-baseX, my-baseY);
+  const wBase = 78*S, wMuz = 40*S;
+  const widthAt = t => wBase + (wMuz-wBase)*t;
+
+  ctx.save();
+  ctx.translate(baseX, baseY);
+  ctx.rotate(ang + Math.PI/2);          // lokální -Y = směr hlavně
+
+  // válcové stínování: tmavé okraje, světlý pruh mírně vlevo od osy
+  const body = ctx.createLinearGradient(-wBase, 0, wBase, 0);
+  body.addColorStop(0.00,'#0a2a60');
+  body.addColorStop(0.20,'#1d5db4');
+  body.addColorStop(0.40,'#5aa8f0');
+  body.addColorStop(0.62,'#2472cf');
+  body.addColorStop(1.00,'#0a2a60');
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.moveTo(-wBase, 0); ctx.lineTo(-wMuz, -len);
+  ctx.lineTo(wMuz, -len); ctx.lineTo(wBase, 0);
+  ctx.closePath(); ctx.fill();
+
+  // zubatý vzor pod ústím (tmavé trojúhelníky vzhůru)
+  const patT0 = 0.52, patT1 = 0.74;
+  const yTop = -len*patT1, yBot = -len*patT0;
+  const wTop = widthAt(patT1), wBot = widthAt(patT0);
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(-wBot, yBot); ctx.lineTo(-wTop, yTop);
+  ctx.lineTo(wTop, yTop); ctx.lineTo(wBot, yBot);
+  ctx.closePath(); ctx.clip();
+  ctx.fillStyle = '#123a7a';
+  const teeth = 5;
+  for(let i=0;i<teeth;i++){
+    const x0 = -wBot + (2*wBot)*(i/teeth);
+    const x1 = -wBot + (2*wBot)*((i+1)/teeth);
+    ctx.beginPath();
+    ctx.moveTo(x0, yBot); ctx.lineTo((x0+x1)/2, yTop - 4*S); ctx.lineTo(x1, yBot);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+
+  // zlaté pásy
+  const band = (t, h, over) => {
+    const w = widthAt(t)*over;
+    const y = -len*t;
+    const g = ctx.createLinearGradient(-w, 0, w, 0);
+    g.addColorStop(0.00,'#8a5410');
+    g.addColorStop(0.22,'#e8a33a');
+    g.addColorStop(0.42,'#ffdd94');
+    g.addColorStop(0.65,'#e0952c');
+    g.addColorStop(1.00,'#8a5410');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-w, y+h/2); ctx.lineTo(-w*0.97, y-h/2);
+    ctx.lineTo(w*0.97, y-h/2); ctx.lineTo(w, y+h/2);
+    ctx.closePath(); ctx.fill();
+  };
+  band(0.30, 18*S, 1.10);      // spodní obruč
+  band(0.78, 20*S, 1.14);      // obruč pod ústím
+
+  // ústí: rozšířený nálevkovitý konec + zavřené čelo (dovnitř nevidíme)
+  const rimW = wMuz*1.34, rimH = wMuz*0.62;
+  const rimG = ctx.createLinearGradient(-rimW, 0, rimW, 0);
+  rimG.addColorStop(0.00,'#8a5410');
+  rimG.addColorStop(0.25,'#e8a33a');
+  rimG.addColorStop(0.45,'#ffdd94');
+  rimG.addColorStop(0.70,'#e0952c');
+  rimG.addColorStop(1.00,'#8a5410');
+  ctx.fillStyle = rimG;
+  ctx.beginPath(); ctx.ellipse(0, -len, rimW, rimH, 0, 0, Math.PI*2); ctx.fill();
+  const capG = ctx.createLinearGradient(-rimW, 0, rimW, 0);
+  capG.addColorStop(0.00,'#0a2a60');
+  capG.addColorStop(0.30,'#2472cf');
+  capG.addColorStop(0.48,'#5aa8f0');
+  capG.addColorStop(1.00,'#0a2a60');
+  ctx.fillStyle = capG;
+  ctx.beginPath(); ctx.ellipse(0, -len, rimW*0.7, rimH*0.66, 0, 0, Math.PI*2); ctx.fill();
+  // lesk na horní hraně ústí
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = 2.5*S;
+  ctx.beginPath(); ctx.ellipse(0, -len, rimW*0.7, rimH*0.66, 0, Math.PI*1.15, Math.PI*1.85); ctx.stroke();
+
+  ctx.restore();
 }
 
 // Truhlička pluje ve žlabu dráhy: houpe se a kolébá jako kachničky.

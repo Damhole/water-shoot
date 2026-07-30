@@ -69,3 +69,4 @@ _(neotříděné nápady sem)_
 | v33 | FPS counter v levém horním rohu — zelená ≥55, žlutá ≥30, červená níž; kreslí se nad vším včetně opony | 6eb0a9d | 2026-07-30 |
 | v34 | Truhly přepsány na pole; v duhovém režimu až 3 naráz (každá v jiné dráze, spawn co 0,8–2,2 s) → víc času a vody k nasbírání, normálně zůstává jedna | e97b443 | 2026-07-30 |
 | v35 | Mince: počítadlo v HUD vlevo nahoře, mincové kachničky (14 %, +3), královská +10, truhla má třetí odměnu (+15). Přežívají restart kola | aeae5a1 | 2026-07-30 |
+| v36 | Mince letí obloukem do HUD ikony (připsání až při dopadu, cuknutí ikony); ukazatel mince nad kachničkami skryt — hráč neví předem, která platí; truhla se kreslí za kachničkami + spawn doprostřed mezery (0 kolizí ze 40) | f089517 | 2026-07-30 |
