@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v21';
-const WS_CHECKSUM = 'water-shoot-v21';
+const WS_VERSION = 'v22';
+const WS_CHECKSUM = 'water-shoot-v22';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -51,6 +51,34 @@ const cannon = {
   muzzleSX:0, muzzleSY:0,     // ústí hlavně na obrazovce (dopočítává se)
   muzzle:{x:0,y:-540,z:70},   // ústí ve světě
 };
+
+// ---------------------------------------------------------------- opona
+// Divadelní opona: na startu kola se rozhrne, na konci (čas / voda) zatáhne.
+// Overlay se skóre čeká, až je zatažená — jinak by přebil efekt.
+const CURTAIN_OPEN_T = 1.15;
+const CURTAIN_CLOSE_T = 0.85;
+let curtain = 0;                 // 0 = zatažená, 1 = rozhrnutá
+let curtainState = 'closed';     // 'closed' | 'opening' | 'open' | 'closing'
+let curtainT = 0;
+let pendingEndReason = null;     // důvod konce — ukáže se po zatažení
+
+function updateCurtain(dt){
+  if(curtainState === 'opening'){
+    curtainT += dt;
+    const t = Math.min(curtainT/CURTAIN_OPEN_T, 1);
+    curtain = 1 - Math.pow(1-t, 3);              // ease-out: trhne a doplyne
+    if(t >= 1){ curtain = 1; curtainState = 'open'; }
+  } else if(curtainState === 'closing'){
+    curtainT += dt;
+    const t = Math.min(curtainT/CURTAIN_CLOSE_T, 1);
+    curtain = 1 - (t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2);   // ease-in-out
+    if(t >= 1){
+      curtain = 0; curtainState = 'closed';
+      showEndOverlay(pendingEndReason);
+      pendingEndReason = null;
+    }
+  }
+}
 
 // ---------------------------------------------------------------- particle pool
 const POOL_HARD_MAX = 20000;
@@ -489,8 +517,10 @@ function computeAimZ(){
 }
 
 function update(dt){
+  // dokud se opona rozhrnuje, kolo ještě „neběží" — čas stojí, dělo nestříká
+  const curtainBusy = curtainState === 'opening';
   playTime += dt;
-  timeLeft -= dt;
+  if(!curtainBusy) timeLeft -= dt;
   if(tune.autoSpray){
     // auto-spray: míření krouží přes dráhy, zdroje se nevyčerpávají
     cannon.spraying = true;
@@ -503,10 +533,10 @@ function update(dt){
   if(timeLeft <= 0){ timeLeft = 0; endRound('Čas vypršel!'); }
 
   // emise proudu — spotřebovává vodu
-  const sprayingNow = cannon.spraying && !over && water > 0;
+  const sprayingNow = cannon.spraying && !over && water > 0 && !curtainBusy;
   if(sprayingNow && !prevSpraying) spineGen++;   // nový proud = nová generace stuhy
   prevSpraying = sprayingNow;
-  if(cannon.spraying && !over && water > 0){
+  if(sprayingNow){
     water -= WATER_PER_SEC * dt;
     updateWaterBar();
     if(water <= 0){ water = 0; cannon.spraying = false; endRound('Došla voda!'); }
@@ -1038,6 +1068,7 @@ function draw(){
   ctx.textBaseline = 'alphabetic';
 
   drawWaterTank();
+  drawCurtain();
 }
 
 // Truhlička pluje ve žlabu dráhy: houpe se a kolébá jako kachničky.
@@ -1138,6 +1169,46 @@ function drawChest(l){
     drawDuckBadge(cx, cy + h*0.12, 34*s*S, 1 - chest.hp/CHEST_HP, '?', true);
   }
   ctx.restore();
+}
+
+// Sametová opona — dvě půlky se rozjíždějí do stran. Kreslí se nad vším,
+// takže při zatažení schová celou scénu i HUD.
+function drawCurtain(){
+  if(curtain >= 1) return;
+  const halfW = (W/2) * (1 - curtain);
+  if(halfW < 0.5) return;
+  drawCurtainHalf(0, halfW, 1);
+  drawCurtainHalf(W - halfW, halfW, -1);
+}
+
+function drawCurtainHalf(x0, w, dir){
+  const folds = 7;
+  // samet: střídavé svislé pruhy = záhyby
+  const g = ctx.createLinearGradient(x0, 0, x0 + w, 0);
+  for(let i=0;i<=folds;i++){
+    g.addColorStop(i/folds, i%2 ? '#a81c2e' : '#67101d');
+  }
+  ctx.fillStyle = g;
+  ctx.fillRect(x0, 0, w, H);
+  // hloubka: tmavší nahoře a dole
+  const vg = ctx.createLinearGradient(0, 0, 0, H);
+  vg.addColorStop(0, 'rgba(0,0,0,0.35)');
+  vg.addColorStop(0.35, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.45)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(x0, 0, w, H);
+  // vnitřní hrana: zlatý lem + stín do scény
+  const ix = dir > 0 ? x0 + w : x0;          // hrana směrem doprostřed
+  const lemW = 9*S;
+  ctx.fillStyle = '#e8c34a';
+  ctx.fillRect(dir > 0 ? ix - lemW : ix, 0, lemW, H);
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.fillRect(dir > 0 ? ix - lemW : ix + lemW - 2.5*S, 0, 2.5*S, H);
+  const sg = ctx.createLinearGradient(ix, 0, ix + dir*26*S, 0);
+  sg.addColorStop(0, 'rgba(0,0,0,0.45)');
+  sg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(dir > 0 ? ix : ix - 26*S, 0, 26*S, H);
 }
 
 // Kulatý bar kachničky: prstenec plnění zásahy + hodnota uvnitř.
@@ -1380,6 +1451,7 @@ function loop(t){
   const dt = Math.min((t-lastT)/1000 || 0, 0.033);
   lastT = t;
   ribbonTime += dt;
+  updateCurtain(dt);            // běží i po konci kola (zatahování)
   const t0 = performance.now();
   if(running && !over) update(dt);
   draw();
@@ -1399,6 +1471,9 @@ function startRound(){
   for(const r of rings) r.alive = false;
   resetEntities();
   document.getElementById('overlay').hidden = true;
+  // opona se rozhrne; dokud jede, čas neběží a dělo nestříká
+  curtain = 0; curtainState = 'opening'; curtainT = 0;
+  pendingEndReason = null;
   running = true;
   _safeGamee(()=>gamee.gameStart());
 }
@@ -1409,8 +1484,14 @@ function endRound(reason){
   cannon.spraying = false;
   _safeGamee(()=>gamee.updateScore(score, playTime, WS_CHECKSUM));
   _safeGamee(()=>gamee.gameOver(undefined, JSON.stringify({score:score}), undefined));
-  // Overlay konce kola — chybějící element nesmí shodit zbytek endRound
-  // (dřív tu byl crash na overlay-title a overlay se vůbec neukázal).
+  // nejdřív zatáhnout oponu, overlay se skóre přijde až po ní
+  pendingEndReason = reason || 'Konec kola';
+  curtainState = 'closing'; curtainT = 0;
+}
+
+function showEndOverlay(reason){
+  // Chybějící element nesmí shodit zbytek funkce (dřív tu byl crash
+  // na overlay-title a overlay se vůbec neukázal).
   const set = (id, txt)=>{ const el = document.getElementById(id); if(el) el.textContent = txt; };
   set('overlay-title', reason || 'Konec kola');
   set('overlay-score', score);

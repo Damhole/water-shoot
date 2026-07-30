@@ -51,3 +51,4 @@ _(neotříděné nápady sem)_
 | v18 | Odstraněn combo multiplikátor (revert v16) — skóre zpět na prosté hodnoty | 9832ef6 | 2026-07-30 |
 | v19 | GitHub Pages entry + mobilní PWA metas; relativní míření pro dotyk (trackpad s akcelerací), výraznější zaměřovač, citlivost v HUD | c959843, 209e39e | 2026-07-30 |
 | v20 | Ukazatel vodní nádrže přesunut na levou stranu obrazu | cba2320 | 2026-07-30 |
+| v21 | **Fix:** overlay konce kola se nikdy nezobrazil (crash na chybějícím `overlay-title`); nový vzhled — důvod konce, velké skóre, čas, tlačítko Hrát znovu | 14f7e82 | 2026-07-30 |
