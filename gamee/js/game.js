@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v24';
-const WS_CHECKSUM = 'water-shoot-v24';
+const WS_VERSION = 'v25';
+const WS_CHECKSUM = 'water-shoot-v25';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -41,6 +41,8 @@ const ROUND_TIME = 60;
 // zásoba vody — druhý limit kola (končí čas NEBO voda)
 const WATER_MAX = 100;
 const WATER_PER_SEC = 3.2;    // spotřeba při stisku (≈31 s souvislého stříkání)
+const DRY_T = 1.4;            // jak dlouho proud zakuckává a dokapává, než je konec
+let dryT = -1;                // -1 = nádrž má vodu; >=0 = běží dokapávání
 let water = WATER_MAX;
 let waterBarEl = null;
 
@@ -540,14 +542,29 @@ function update(dt){
   if(timeEl) timeEl.textContent = Math.ceil(timeLeft);
   if(timeLeft <= 0){ timeLeft = 0; endRound('Čas vypršel!'); }
 
-  // emise proudu — spotřebovává vodu
-  const sprayingNow = cannon.spraying && !over && water > 0 && !curtainBusy;
+  // Docházející voda: nádrž se nevypne rázem — proud ztrácí tlak, zakuckává se,
+  // spadne k dělu, dokape a teprve pak je konec kola.
+  if(water <= 0 && dryT < 0 && !over){ water = 0; dryT = 0; }
+  let pressure = 1;
+  if(dryT >= 0){
+    dryT += dt;
+    const k = Math.min(dryT/DRY_T, 1);
+    pressure = Math.max(0, 1 - k) * (1 - k);            // rychlý propad tlaku
+    pressure *= 0.55 + 0.45*Math.sin(dryT*22);          // zakuckávání
+    pressure = Math.max(0, pressure);
+    if(dryT >= DRY_T) endRound('Došla voda!');
+  }
+
+  // emise proudu — spotřebovává vodu; při dokapávání jede i bez držení prstu
+  const sprayingNow = !over && !curtainBusy && ((cannon.spraying && water > 0) || dryT >= 0);
   if(sprayingNow && !prevSpraying) spineGen++;   // nový proud = nová generace stuhy
   prevSpraying = sprayingNow;
   if(sprayingNow){
-    water -= WATER_PER_SEC * dt;
-    updateWaterBar();
-    if(water <= 0){ water = 0; cannon.spraying = false; endRound('Došla voda!'); }
+    if(water > 0){
+      water -= WATER_PER_SEC * dt;
+      if(water < 0) water = 0;
+      updateWaterBar();
+    }
 
     // cíl ve světě: pointer promítnutý na zadní stěnu
     const ws = projS(WALL_Z);
@@ -559,23 +576,35 @@ function update(dt){
     const dist = Math.sqrt(dx*dx+dy*dy+dz*dz);
     const tFly = dist/JET_SPEED;
     // kompenzace gravitace, aby proud dopadal ~na pointer
-    const vx = dx/tFly, vy = dy/tFly + 0.5*GRAV*tFly, vz = dz/tFly;
+    let vx = dx/tFly, vy = dy/tFly + 0.5*GRAV*tFly, vz = dz/tFly;
+    if(dryT >= 0){
+      // slábnoucí tlak = proud nedoletí a padá čím dál blíž k dělu
+      const p = 0.25 + 0.75*pressure;
+      vx *= p; vy *= p; vz *= p;
+    }
 
     const armZ = computeAimZ() - 80;   // odjištění až u cílové hloubky
+    const spread = dryT >= 0 ? 55 + 90*(1-pressure) : 55;
 
-    emitAccum += tune.emitRate * dt;
+    emitAccum += tune.emitRate * (dryT >= 0 ? pressure : 1) * dt;
     while(emitAccum >= 1){
       emitAccum -= 1;
       const pp = spawnParticle(
         m.x, m.y, m.z,
-        vx + rand(-55,55), vy + rand(-55,55), vz + rand(-45,45),
+        vx + rand(-spread,spread), vy + rand(-spread,spread), vz + rand(-45,45),
         1.4, tune.size*2.2*rand(0.8,1.3), 0
       );
       if(pp) pp.armZ = armZ;
     }
 
+    // poslední kapky stékající z ústí, když už tlak není skoro žádný
+    if(dryT >= 0 && pressure < 0.18 && Math.random() < 0.35){
+      spawnParticle(m.x + rand(-8,8), m.y, m.z, rand(-25,25), rand(-40,10), rand(10,60),
+                    1.1, tune.size*2.6*rand(0.9,1.4), 1);
+    }
+
     // uzel páteře proudu — 1× za frame, bez rozptylu
-    if(tune.cartoon){
+    if(tune.cartoon && (dryT < 0 || pressure > 0.06)){
       const nd = spine[spineHead];
       spineHead = (spineHead+1)%SPINE_MAX;
       nd.alive=true; nd.x=m.x; nd.y=m.y; nd.z=m.z;
@@ -861,6 +890,7 @@ function hitChest(p){
       addFloater(sx, sy - 70*s*S, '+'+CHEST_TIME_BONUS+' s');
     } else {
       water = Math.min(WATER_MAX, water + CHEST_WATER_BONUS);
+      dryT = -1;                    // kapka na poslední chvíli zachrání dokapávající proud
       updateWaterBar();
       addFloater(sx, sy - 70*s*S, '+voda');
     }
@@ -1504,7 +1534,7 @@ function loop(t){
 // ---------------------------------------------------------------- kolo
 function startRound(){
   score = 0; playTime = 0; timeLeft = ROUND_TIME; over = false;
-  water = WATER_MAX;
+  water = WATER_MAX; dryT = -1;
   updateWaterBar();
   if(scoreEl) scoreEl.textContent = '0';
   for(const p of pool) p.alive = false;
