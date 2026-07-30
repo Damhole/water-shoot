@@ -17,9 +17,11 @@ html, body {
 }
 #version-badge .game-name { font-weight:700; }
 
+/* skóre/čas/voda se kreslí přímo na canvas (v10) — DOM lišta skrytá */
 #topbar {
+  display:none;
   position:fixed; top:6px; left:10px; z-index:20;
-  display:flex; gap:14px;
+  gap:14px;
   color:#fff; font-weight:700; font-size:16px;
   text-shadow:0 1px 3px rgba(0,0,0,0.7);
   pointer-events:none;

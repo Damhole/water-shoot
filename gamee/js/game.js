@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v08';
-const WS_CHECKSUM = 'water-shoot-v08';
+const WS_VERSION = 'v09';
+const WS_CHECKSUM = 'water-shoot-v09';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -718,6 +718,63 @@ function draw(){
     ctx.fillText(f.txt, f.sx, f.sy);
   }
   ctx.globalAlpha = 1;
+
+  // ---- herní HUD na plátně ----
+  // skóre: velké, uprostřed modré pasáže nad terči
+  const hudY = H*0.215;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.font = '800 '+Math.round(46*S)+'px "Arial Black", Arial, sans-serif';
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillText(score, W/2 + 2.5*S, hudY + 2.5*S);
+  ctx.fillStyle = '#ffe98a';
+  ctx.fillText(score, W/2, hudY);
+  // čas: menší, vpravo ve stejné lince
+  ctx.font = '700 '+Math.round(22*S)+'px Arial, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillText(Math.ceil(timeLeft)+' s', W - 18*S + 1.5*S, hudY + 1.5*S);
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillText(Math.ceil(timeLeft)+' s', W - 18*S, hudY);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  drawWaterTank();
+}
+
+// Nádržka s vodou u děla — stav munice přímo v zorném poli hráče.
+function drawWaterTank(){
+  const tw = 44*S, th = 100*S;
+  const tx = W/2 + 108*S, ty = H - th - 20*S;
+  const frac = water/WATER_MAX;
+  const rr = (x,y,w,h,r)=>{
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(x,y,w,h,r);
+    else ctx.rect(x,y,w,h);
+  };
+  // sklo
+  ctx.fillStyle = 'rgba(255,255,255,0.10)';
+  rr(tx,ty,tw,th,8*S); ctx.fill();
+  // voda
+  if(frac > 0.02){
+    const wh = (th-6*S)*frac;
+    const wg = ctx.createLinearGradient(tx,0,tx+tw,0);
+    wg.addColorStop(0,'#3d9be0'); wg.addColorStop(0.5,'#7fd4ff'); wg.addColorStop(1,'#3d9be0');
+    ctx.fillStyle = wg;
+    rr(tx+3*S, ty+th-3*S-wh, tw-6*S, wh, 4*S); ctx.fill();
+    // hladina
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillRect(tx+3*S, ty+th-3*S-wh, tw-6*S, 2*S);
+  }
+  // obrys skla — při docházející vodě bliká červeně
+  const low = frac < 0.25 && Math.sin(ribbonTime*9) > 0;
+  ctx.strokeStyle = low ? 'rgba(255,90,90,0.95)' : 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = 2.5*S;
+  rr(tx,ty,tw,th,8*S); ctx.stroke();
+  // zlaté objímky (ladí s prstenci děla)
+  ctx.fillStyle = '#e8a33a';
+  ctx.fillRect(tx-3*S, ty+th*0.16, tw+6*S, 5*S);
+  ctx.fillRect(tx-3*S, ty+th*0.74, tw+6*S, 5*S);
 }
 
 // ---------------------------------------------------------------- kreslená voda
