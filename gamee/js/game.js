@@ -1,51 +1,75 @@
 'use strict';
 // Water Shoot — prototyp vodního děla pro Gamee.
-// Účel: test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v01';
-const WS_CHECKSUM = 'water-shoot-v01';
+// v02: first-person pohled — dělo před námi, stříkáme "do scény".
+// Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
+// na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
+const WS_VERSION = 'v02';
+const WS_CHECKSUM = 'water-shoot-v02';
 
 // ---------------------------------------------------------------- util
 function _safeGamee(fn){ try{ fn(); }catch(e){ console.warn('[gamee]', e); } }
 function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
 function rand(a,b){ return a + Math.random()*(b-a); }
 
+// ---------------------------------------------------------------- projekce
+// Svět: x doprava, y nahoru (0 = úroveň kamery/oka), z od kamery do hloubky.
+// Jednotky = design px (referenční výška 800); na obrazovku se násobí S.
+const FOCAL = 600;
+const WALL_Z = 1000;          // zadní stěna budky
+const FLOOR_Y = -680;         // hladina bazénku pod terči
+let VPX = 0, VPY = 0;         // úběžník na obrazovce (px)
+
+function projS(z){ return FOCAL/(FOCAL+z); }
+function projX(x,s){ return VPX + x*s*S; }
+function projY(y,s){ return VPY - y*s*S; }
+function unprojX(sx,s){ return (sx-VPX)/(s*S); }
+function unprojY(sy,s){ return (VPY-sy)/(s*S); }
+
 // ---------------------------------------------------------------- stav
-let canvas, ctx, W=0, H=0, DPR=1, S=1;        // S = scale faktor (design výška 800)
-let bgCanvas=null;                            // prerenderované pozadí (střelnice)
-let duckSprite=null, duckSpriteScale=1;       // prerenderovaná kachnička (míří doleva)
+let canvas, ctx, W=0, H=0, DPR=1, S=1;
+let bgCanvas=null;
+let duckSprite=null;
 let running=false, paused=false, over=false;
 let score=0, playTime=0, timeLeft=0;
 const ROUND_TIME = 60;
 
-// dělo
-const cannon = { x:0, y:0, angle:-Math.PI/2, barrel:0, spraying:false, aimX:0, aimY:0 };
+// zásoba vody — druhý limit kola (končí čas NEBO voda)
+const WATER_MAX = 100;
+const WATER_PER_SEC = 3.2;    // spotřeba při stisku (≈31 s souvislého stříkání)
+let water = WATER_MAX;
+let waterBarEl = null;
 
-// ---------------------------------------------------------------- particle pool
-// Prealokovaný pool, žádné alokace za běhu. type: 0 = proud (koliduje), 1 = splash.
-const POOL_HARD_MAX = 20000;
-const pool = new Array(POOL_HARD_MAX);
-for(let i=0;i<POOL_HARD_MAX;i++) pool[i] = {alive:false,x:0,y:0,vx:0,vy:0,life:0,maxLife:0,size:1,type:0};
-let poolCursor = 0, aliveCount = 0;
-
-// laditelné parametry (perf HUD)
-const tune = {
-  maxParticles: 3000,
-  emitRate: 400,        // částic/s při stisku
-  size: 3,              // základní poloměr částice (design px)
-  splash: 7,            // splash částic na zásah
-  collisions: true,
-  additive: true,       // 'lighter' blending
+// dělo (first-person, dole uprostřed)
+const cannon = {
+  spraying:false,
+  aimSX:0, aimSY:0,           // cíl na obrazovce (pointer)
+  muzzleSX:0, muzzleSY:0,     // ústí hlavně na obrazovce (dopočítává se)
+  muzzle:{x:0,y:-540,z:70},   // ústí ve světě
 };
 
-function spawnParticle(x,y,vx,vy,life,size,type){
+// ---------------------------------------------------------------- particle pool
+const POOL_HARD_MAX = 20000;
+const pool = new Array(POOL_HARD_MAX);
+for(let i=0;i<POOL_HARD_MAX;i++) pool[i] = {alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,life:0,maxLife:0,size:1,type:0};
+let poolCursor = 0, aliveCount = 0;
+
+const tune = {
+  maxParticles: 3000,
+  emitRate: 400,
+  size: 3,                    // world size ~ size*2.2
+  splash: 7,
+  collisions: true,
+  additive: true,
+};
+
+function spawnParticle(x,y,z,vx,vy,vz,life,size,type){
   if(aliveCount >= tune.maxParticles) return null;
-  // najdi mrtvý slot od kurzoru
   for(let n=0;n<POOL_HARD_MAX;n++){
     const i = (poolCursor+n) % POOL_HARD_MAX;
     const p = pool[i];
     if(!p.alive){
       poolCursor = i+1;
-      p.alive=true; p.x=x; p.y=y; p.vx=vx; p.vy=vy;
+      p.alive=true; p.x=x; p.y=y; p.z=z; p.vx=vx; p.vy=vy; p.vz=vz;
       p.life=life; p.maxLife=life; p.size=size; p.type=type;
       aliveCount++;
       return p;
@@ -54,115 +78,146 @@ function spawnParticle(x,y,vx,vy,life,size,type){
   return null;
 }
 
-// ---------------------------------------------------------------- kachničky + terče
-// 3 dráhy (police s vodním žlabem), hloubka = menší/rychlejší nahoře.
+// ---------------------------------------------------------------- scéna: dráhy, kachničky, terče
+// Dráhy = police se žlabem na zadní stěně v různé hloubce (spodní blíž).
 const LANES = [
-  { yFrac:0.335, dir: 1, speed:110, scale:0.62, count:3 },
-  { yFrac:0.445, dir:-1, speed: 85, scale:0.78, count:3 },
-  { yFrac:0.565, dir: 1, speed: 65, scale:0.95, count:2 },
+  { z:900, y:-240, dir: 1, speed:170, duckSize:165, count:3 },
+  { z:800, y:-429, dir:-1, speed:130, duckSize:182, count:3 },
+  { z:700, y:-589, dir: 1, speed:100, duckSize:200, count:2 },
 ];
-const DUCK_HP = 8;            // počet zásahů proudem na sestřelení
-let ducks = [];               // {lane,x,knocked,knockT,respawnT,hp,wobble}
+const DUCK_HP = 8;
+let ducks = [];               // world coords: {lane,x,knocked,knockT,respawnT,hp,wobble}
 
-// pop-up terče (kruhové, objeví se na čas)
 const POPUP_SLOTS = 3;
-let popups = [];              // {x,y,state:'hidden'|'in'|'up'|'out',t,ttl}
+let popups = [];              // world: {x,y,z,r,state,t,ttl}
 let popupTimer = 2;
 
-// plovoucí skóre texty (malý pool)
 const floaters = [];
-for(let i=0;i<24;i++) floaters.push({alive:false,x:0,y:0,t:0,txt:''});
+for(let i=0;i<24;i++) floaters.push({alive:false,sx:0,sy:0,t:0,txt:''});
 
-function laneY(lane){ return H * LANES[lane].yFrac; }
-function duckRadius(lane){ return 34 * LANES[lane].scale * S; }
+function laneRangeX(lane){
+  // světová půl-šířka viditelné plochy v hloubce dráhy + rezerva na sprite
+  const s = projS(LANES[lane].z);
+  return (W/2)/(s*S) + LANES[lane].duckSize;
+}
 
 function resetEntities(){
   ducks = [];
   for(let l=0;l<LANES.length;l++){
-    const L = LANES[l];
+    const L = LANES[l], range = laneRangeX(l);
     for(let i=0;i<L.count;i++){
       ducks.push({
         lane:l,
-        x: (W/L.count)*i + rand(0, W/L.count*0.5),
+        x: -range + (2*range/L.count)*i + rand(0, range/L.count),
         knocked:false, knockT:0, respawnT:0, hp:DUCK_HP,
         wobble: rand(0, Math.PI*2),
       });
     }
   }
   popups = [];
+  const ps = projS(WALL_Z);
   for(let i=0;i<POPUP_SLOTS;i++){
-    popups.push({ x: W*(0.22 + i*0.28), y: H*0.235, state:'hidden', t:0, ttl:0, r: 30*S });
+    popups.push({
+      x: unprojX(W*(0.22+i*0.28), ps),
+      y: -117, z: WALL_Z, r: 80,
+      state:'hidden', t:0, ttl:0,
+    });
   }
   popupTimer = 2;
 }
 
-function addFloater(x,y,txt){
+function addFloater(sx,sy,txt){
   for(const f of floaters){
-    if(!f.alive){ f.alive=true; f.x=x; f.y=y; f.t=0; f.txt=txt; return; }
+    if(!f.alive){ f.alive=true; f.sx=sx; f.sy=sy; f.t=0; f.txt=txt; return; }
   }
 }
 
-// ---------------------------------------------------------------- skóre
+// ---------------------------------------------------------------- skóre + voda
 let scoreEl=null, timeEl=null;
-function addScore(n, x, y){
+function addScore(n, sx, sy){
   score += n;
   if(scoreEl) scoreEl.textContent = score;
-  if(x!==undefined) addFloater(x, y, '+'+n);
+  if(sx!==undefined) addFloater(sx, sy, '+'+n);
   _safeGamee(()=>gamee.updateScore(score, playTime, WS_CHECKSUM));
 }
+function updateWaterBar(){
+  if(waterBarEl) waterBarEl.style.width = Math.max(0, water/WATER_MAX*100).toFixed(1)+'%';
+}
 
-// ---------------------------------------------------------------- resize + prerender pozadí
+// ---------------------------------------------------------------- resize + prerender
 function resize(){
-  DPR = Math.min(window.devicePixelRatio||1, 2);   // cap kvůli mobilnímu fill-rate
+  DPR = Math.min(window.devicePixelRatio||1, 2);
   W = window.innerWidth; H = window.innerHeight;
   S = H/800;
   canvas.width = Math.round(W*DPR); canvas.height = Math.round(H*DPR);
   canvas.style.width = W+'px'; canvas.style.height = H+'px';
   ctx.setTransform(DPR,0,0,DPR,0,0);
-  cannon.x = W/2; cannon.y = H*0.94; cannon.barrel = 70*S;
-  cannon.aimX = W/2; cannon.aimY = H*0.4;
+  VPX = W/2; VPY = H*0.30;
+  cannon.aimSX = W/2; cannon.aimSY = H*0.45;
   prerenderBackground();
   prerenderDuck();
   if(running) resetEntities();
 }
 
-// Tmavá pouťová vodní střelnice — statická, kreslí se jednou do offscreen canvasu.
+// Tmavá pouťová vodní střelnice v podhledu — statická, jednou do offscreen.
 function prerenderBackground(){
   bgCanvas = document.createElement('canvas');
   bgCanvas.width = Math.round(W*DPR); bgCanvas.height = Math.round(H*DPR);
   const g = bgCanvas.getContext('2d');
   g.setTransform(DPR,0,0,DPR,0,0);
 
-  // zadní stěna budky — tmavě modrý gradient
-  const wall = g.createLinearGradient(0,0,0,H);
-  wall.addColorStop(0,'#101830'); wall.addColorStop(0.55,'#16224a'); wall.addColorStop(1,'#0c1226');
-  g.fillStyle = wall; g.fillRect(0,0,W,H);
+  const floorTopY = projY(FLOOR_Y, projS(WALL_Z));   // kde stěna potkává bazének
 
-  // svislá tmavá prkna (jemná textura stěny)
-  g.fillStyle = 'rgba(0,0,0,0.14)';
-  const plankW = 46*S;
-  for(let x=plankW; x<W; x+=plankW) g.fillRect(x,0,2,H);
+  // zadní stěna
+  const wall = g.createLinearGradient(0,0,0,floorTopY);
+  wall.addColorStop(0,'#101830'); wall.addColorStop(0.6,'#16224a'); wall.addColorStop(1,'#0d1430');
+  g.fillStyle = wall; g.fillRect(0,0,W,floorTopY+2);
+
+  // svislá prkna stěny (hustší = působí vzdáleněji)
+  g.fillStyle = 'rgba(0,0,0,0.16)';
+  const plankW = 20*S;
+  for(let x=plankW; x<W; x+=plankW) g.fillRect(x,0,1.5,floorTopY);
+
+  // bazének / voda dole (podlaha scény) s perspektivními liniemi k úběžníku
+  const pool = g.createLinearGradient(0,floorTopY,0,H);
+  pool.addColorStop(0,'#173a63'); pool.addColorStop(1,'#0a1c36');
+  g.fillStyle = pool; g.fillRect(0,floorTopY,W,H-floorTopY);
+  g.strokeStyle = 'rgba(120,190,255,0.12)'; g.lineWidth = 2*S;
+  for(let k=-6;k<=6;k++){
+    g.beginPath();
+    g.moveTo(VPX + k*90*S*projS(WALL_Z), floorTopY);
+    g.lineTo(VPX + k*90*S*2.4, H);
+    g.stroke();
+  }
+  // vlnky v bazénku
+  g.strokeStyle = 'rgba(140,205,255,0.18)';
+  for(let i=1;i<=4;i++){
+    const y = floorTopY + (H-floorTopY)*i/5;
+    g.beginPath();
+    for(let x=0;x<=W;x+=26*S){
+      g.moveTo(x,y); g.quadraticCurveTo(x+13*S, y-4*S, x+26*S, y);
+    }
+    g.stroke();
+  }
 
   // markýza / cedule nahoře
-  const signH = H*0.13;
+  const signH = H*0.115;
   const sg = g.createLinearGradient(0,0,0,signH);
   sg.addColorStop(0,'#7a1220'); sg.addColorStop(1,'#a41c2c');
   g.fillStyle = sg; g.fillRect(0,0,W,signH);
-  // zubaté lemování markýzy
   g.fillStyle = '#e8c34a';
   const teeth = 12, tw = W/teeth;
   for(let i=0;i<teeth;i++){
     g.beginPath();
-    g.moveTo(i*tw, signH); g.lineTo(i*tw+tw/2, signH+14*S); g.lineTo((i+1)*tw, signH);
+    g.moveTo(i*tw, signH); g.lineTo(i*tw+tw/2, signH+13*S); g.lineTo((i+1)*tw, signH);
     g.closePath(); g.fill();
   }
-  // nápis
   g.fillStyle = '#fdf3d0';
-  g.font = '700 '+Math.round(34*S)+'px "Arial Black", Arial, sans-serif';
+  g.font = '700 '+Math.round(32*S)+'px "Arial Black", Arial, sans-serif';
   g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillText('WATER SHOOT', W/2, signH*0.52);
 
-  // barevné žárovky po obvodu (okraj obrazovky + pod cedulí)
+  // žárovky: řada pod cedulí + svislé okraje
   const bulbCols = ['#ffd54a','#ff6b6b','#5ad1ff','#7dff8a','#ff9ff3'];
   function bulb(x,y,i,r){
     g.fillStyle = bulbCols[i%bulbCols.length];
@@ -171,67 +226,50 @@ function prerenderBackground(){
     g.beginPath(); g.arc(x-r*0.3,y-r*0.3,r*0.35,0,Math.PI*2); g.fill();
   }
   const br = 5*S; let bi=0;
-  for(let x=br*3; x<W-br; x+=br*5.2){ bulb(x, signH+22*S, bi++, br); }        // pod markýzou
-  for(let y=signH+44*S; y<H*0.86; y+=br*6){ bulb(br*2.2, y, bi++, br); bulb(W-br*2.2, y, bi+3, br); bi++; } // boky
+  for(let x=br*3; x<W-br; x+=br*5.2){ bulb(x, signH+22*S, bi++, br); }
+  for(let y=signH+44*S; y<H*0.88; y+=br*6){ bulb(br*2.2, y, bi++, br); bulb(W-br*2.2, y, bi+3, br); bi++; }
 
-  // police / vodní žlaby pro dráhy kachniček
+  // police/žlaby drah — tloušťka podle hloubky (perspektiva)
   for(let l=0;l<LANES.length;l++){
-    const y = H*LANES[l].yFrac, sc = LANES[l].scale;
-    const shelfH = 26*sc*S;
-    // stín pod žlabem
+    const L = LANES[l], s = projS(L.z);
+    const y = projY(L.y, s);
+    const shelfH = 62*s*S;
     g.fillStyle = 'rgba(0,0,0,0.35)';
-    g.fillRect(0, y+shelfH*0.4, W, 6*S);
-    // žlab s vodou
+    g.fillRect(0, y+shelfH*0.5, W, 5*S);
     const wg = g.createLinearGradient(0,y-4*S,0,y+shelfH);
     wg.addColorStop(0,'#2e6fb2'); wg.addColorStop(1,'#173a63');
     g.fillStyle = wg;
-    g.fillRect(0, y-4*S, W, shelfH);
-    // vlnky na hladině
-    g.strokeStyle = 'rgba(160,220,255,0.5)'; g.lineWidth = 2*S;
+    g.fillRect(0, y-3*S, W, shelfH);
+    g.strokeStyle = 'rgba(160,220,255,0.5)'; g.lineWidth = 2*s*S;
     g.beginPath();
-    for(let x=0;x<=W;x+=18*sc*S){
+    for(let x=0;x<=W;x+=44*s*S){
       g.moveTo(x, y);
-      g.quadraticCurveTo(x+9*sc*S, y-5*sc*S, x+18*sc*S, y);
+      g.quadraticCurveTo(x+22*s*S, y-10*s*S, x+44*s*S, y);
     }
     g.stroke();
   }
-
-  // pult dole (za dělem)
-  const counterY = H*0.86;
-  const cg = g.createLinearGradient(0,counterY,0,H);
-  cg.addColorStop(0,'#5a3a1e'); cg.addColorStop(1,'#3a2412');
-  g.fillStyle = cg; g.fillRect(0,counterY,W,H-counterY);
-  g.fillStyle = 'rgba(255,255,255,0.06)'; g.fillRect(0,counterY,W,4*S);
 }
 
-// Kachnička (gumová, míří doleva) — prerender do sprite, za běhu jen drawImage.
+// Kachnička (míří doleva) — prerender, za běhu jen drawImage.
 function prerenderDuck(){
-  const base = 90;                       // design velikost spritu
-  duckSpriteScale = S*DPR;
-  const sz = Math.ceil(base*duckSpriteScale);
+  const base = 90;
+  const sz = Math.ceil(base*S*DPR);
   duckSprite = document.createElement('canvas');
   duckSprite.width = sz; duckSprite.height = sz;
   const g = duckSprite.getContext('2d');
   g.scale(sz/base, sz/base);
-  // tělo
   g.fillStyle = '#ffd21f';
   g.beginPath(); g.ellipse(48, 58, 30, 22, 0, 0, Math.PI*2); g.fill();
-  // ocásek
   g.beginPath(); g.moveTo(74,52); g.quadraticCurveTo(86,42,80,58); g.quadraticCurveTo(78,62,72,60); g.fill();
-  // hlava
   g.beginPath(); g.arc(30, 34, 17, 0, Math.PI*2); g.fill();
-  // zobák
   g.fillStyle = '#ff8c1a';
   g.beginPath(); g.ellipse(13, 38, 9, 5, -0.15, 0, Math.PI*2); g.fill();
-  // oko
   g.fillStyle = '#1c1c1c';
   g.beginPath(); g.arc(25, 29, 3.2, 0, Math.PI*2); g.fill();
   g.fillStyle = 'rgba(255,255,255,0.9)';
   g.beginPath(); g.arc(24, 28, 1.2, 0, Math.PI*2); g.fill();
-  // křídlo
   g.fillStyle = '#f0b400';
   g.beginPath(); g.ellipse(52, 58, 13, 8, -0.35, 0, Math.PI*2); g.fill();
-  // lesk na těle
   g.fillStyle = 'rgba(255,255,255,0.25)';
   g.beginPath(); g.ellipse(40, 48, 10, 5, -0.4, 0, Math.PI*2); g.fill();
 }
@@ -240,45 +278,59 @@ function prerenderDuck(){
 function setupInput(){
   const aim = (e)=>{
     const r = canvas.getBoundingClientRect();
-    cannon.aimX = e.clientX - r.left;
-    cannon.aimY = e.clientY - r.top;
+    cannon.aimSX = e.clientX - r.left;
+    cannon.aimSY = clamp(e.clientY - r.top, H*0.12, H*0.78);
   };
   canvas.addEventListener('pointerdown', e=>{ e.preventDefault(); aim(e); cannon.spraying=true; canvas.setPointerCapture(e.pointerId); });
   canvas.addEventListener('pointermove', e=>{ aim(e); });
-  canvas.addEventListener('pointerup',   e=>{ cannon.spraying=false; });
+  canvas.addEventListener('pointerup',   ()=>{ cannon.spraying=false; });
   canvas.addEventListener('pointercancel', ()=>{ cannon.spraying=false; });
 }
 
 // ---------------------------------------------------------------- update
 let emitAccum = 0;
+const GRAV = 1400;            // world px/s²
+const JET_SPEED = 1500;       // world px/s
 
 function update(dt){
   playTime += dt;
   timeLeft -= dt;
-  if(timeLeft <= 0){ timeLeft = 0; endRound(); }
   if(timeEl) timeEl.textContent = Math.ceil(timeLeft);
+  if(timeLeft <= 0){ timeLeft = 0; endRound('Čas vypršel!'); }
 
-  // úhel děla za cílem (jen nahoru)
-  const dx = cannon.aimX - cannon.x, dy = cannon.aimY - cannon.y;
-  cannon.angle = clamp(Math.atan2(dy,dx), -Math.PI+0.18, -0.18);
+  // emise proudu — spotřebovává vodu
+  if(cannon.spraying && !over && water > 0){
+    water -= WATER_PER_SEC * dt;
+    updateWaterBar();
+    if(water <= 0){ water = 0; cannon.spraying = false; endRound('Došla voda!'); }
 
-  // emise proudu
-  if(cannon.spraying && !over){
+    // cíl ve světě: pointer promítnutý na zadní stěnu
+    const ws = projS(WALL_Z);
+    const tx = unprojX(cannon.aimSX, ws);
+    const ty = unprojY(cannon.aimSY, ws);
+    const m = cannon.muzzle;
+    m.x = tx*0.08;            // ústí lehce uhýbá za cílem
+    const dx = tx-m.x, dy = ty-m.y, dz = WALL_Z-m.z;
+    const dist = Math.sqrt(dx*dx+dy*dy+dz*dz);
+    const tFly = dist/JET_SPEED;
+    // kompenzace gravitace, aby proud dopadal ~na pointer
+    const vx = dx/tFly, vy = dy/tFly + 0.5*GRAV*tFly, vz = dz/tFly;
+
     emitAccum += tune.emitRate * dt;
-    const mx = cannon.x + Math.cos(cannon.angle)*cannon.barrel;
-    const my = cannon.y + Math.sin(cannon.angle)*cannon.barrel;
-    const speed = 950*S;
     while(emitAccum >= 1){
       emitAccum -= 1;
-      const a = cannon.angle + rand(-0.045, 0.045);
-      const sp = speed * rand(0.92, 1.08);
-      spawnParticle(mx, my, Math.cos(a)*sp, Math.sin(a)*sp, 1.6, tune.size*S*rand(0.8,1.3), 0);
+      spawnParticle(
+        m.x, m.y, m.z,
+        vx + rand(-55,55), vy + rand(-55,55), vz + rand(-45,45),
+        1.4, tune.size*2.2*rand(0.8,1.3), 0
+      );
     }
   } else emitAccum = 0;
 
-  // kachničky
+  // kachničky (světové x)
   for(const d of ducks){
     const L = LANES[d.lane];
+    const range = laneRangeX(d.lane);
     if(d.knocked){
       d.knockT += dt;
       if(d.knockT > 0.6 && d.respawnT <= 0) d.respawnT = rand(1.5, 3);
@@ -286,15 +338,14 @@ function update(dt){
         d.respawnT -= dt;
         if(d.respawnT <= 0){
           d.knocked=false; d.knockT=0; d.hp=DUCK_HP;
-          d.x = L.dir>0 ? -duckRadius(d.lane)*2 : W+duckRadius(d.lane)*2;
+          d.x = L.dir>0 ? -range : range;
         }
       }
     } else {
-      d.x += L.dir * L.speed * S * dt;
+      d.x += L.dir * L.speed * dt;
       d.wobble += dt*3;
-      const r = duckRadius(d.lane)*1.6;
-      if(L.dir>0 && d.x > W+r) d.x = -r;
-      if(L.dir<0 && d.x < -r) d.x = W+r;
+      if(L.dir>0 && d.x > range) d.x = -range;
+      if(L.dir<0 && d.x < -range) d.x = range;
     }
   }
 
@@ -316,88 +367,110 @@ function update(dt){
     else if(p.state==='out' && p.t>0.25){ p.state='hidden'; }
   }
 
-  // částice + kolize
-  const grav = 640*S;
+  // částice: integrace + kolize + dopady
   for(let i=0;i<POOL_HARD_MAX;i++){
     const p = pool[i];
     if(!p.alive) continue;
     p.life -= dt;
-    p.vy += grav*dt;
-    p.x += p.vx*dt; p.y += p.vy*dt;
-    if(p.life<=0 || p.x<-60 || p.x>W+60 || p.y>H+60 || p.y<-120){ p.alive=false; aliveCount--; continue; }
+    p.vy -= GRAV*dt;
+    p.x += p.vx*dt; p.y += p.vy*dt; p.z += p.vz*dt;
 
-    if(p.type===0 && tune.collisions){
-      // kolize s kachničkami
-      let hit = false;
-      for(const d of ducks){
-        if(d.knocked) continue;
-        const r = duckRadius(d.lane);
-        const ddx = p.x-d.x, ddy = p.y-(laneY(d.lane)-r*0.55);
-        if(ddx*ddx+ddy*ddy < r*r){
-          hitDuck(d, p);
-          hit = true; break;
+    if(p.life<=0){ p.alive=false; aliveCount--; continue; }
+
+    if(p.type===0){
+      let dead = false;
+      if(tune.collisions){
+        // kolize s kachničkami — jen v hloubkovém pásmu dráhy
+        for(const d of ducks){
+          const L = LANES[d.lane];
+          if(d.knocked || Math.abs(p.z - L.z) > 60) continue;
+          const r = L.duckSize*0.42;
+          const cy = L.y + L.duckSize*0.45;
+          const ddx = p.x-d.x, ddy = p.y-cy;
+          if(ddx*ddx+ddy*ddy < r*r){ hitDuck(d, p); dead=true; break; }
         }
-      }
-      if(!hit){
-        for(const t of popups){
-          if(t.state!=='up') continue;
-          const ddx = p.x-t.x, ddy = p.y-t.y;
-          if(ddx*ddx+ddy*ddy < t.r*t.r){
-            hitPopup(t, p);
-            hit = true; break;
+        if(!dead){
+          for(const t of popups){
+            if(t.state!=='up' || p.z < t.z-70) continue;
+            const ddx = p.x-t.x, ddy = p.y-t.y;
+            if(ddx*ddx+ddy*ddy < t.r*t.r){ hitPopup(t, p); dead=true; break; }
           }
         }
       }
-      if(hit){ p.alive=false; aliveCount--; }
+      // dopad na zadní stěnu → splash stékající po stěně
+      if(!dead && p.z >= WALL_Z){
+        splashAt(p.x, p.y, WALL_Z, Math.min(2, tune.splash), 0);
+        dead = true;
+      }
+      // dopad do bazénku
+      if(!dead && p.y <= FLOOR_Y && p.vy < 0){
+        splashAt(p.x, FLOOR_Y, p.z, 2, 1);
+        dead = true;
+      }
+      if(dead){ p.alive=false; aliveCount--; }
+    } else {
+      // splash: zánik pod podlahou
+      if(p.y < FLOOR_Y-60){ p.alive=false; aliveCount--; }
     }
   }
 
-  // plovoucí texty
   for(const f of floaters){
     if(!f.alive) continue;
-    f.t += dt; f.y -= 40*S*dt;
+    f.t += dt; f.sy -= 40*S*dt;
     if(f.t>0.9) f.alive=false;
   }
 }
 
-function splashAt(x,y,n){
+// splash burst; mode 0 = na stěně (z fixní), 1 = na hladině (odskok nahoru)
+function splashAt(x,y,z,n,mode){
   for(let i=0;i<n;i++){
-    const a = rand(-Math.PI*0.9, -Math.PI*0.1);
-    const sp = rand(60,260)*S;
-    spawnParticle(x, y, Math.cos(a)*sp, Math.sin(a)*sp, rand(0.25,0.5), tune.size*S*rand(0.5,0.9), 1);
+    const a = rand(0, Math.PI*2);
+    const sp = rand(60,240);
+    spawnParticle(
+      x, y, z,
+      Math.cos(a)*sp,
+      mode===1 ? rand(120,320) : rand(20,200),
+      mode===1 ? rand(-60,-10) : rand(-40,0),
+      rand(0.25,0.5), tune.size*2.2*rand(0.5,0.9), 1
+    );
   }
 }
 
 function hitDuck(d, p){
-  splashAt(p.x, p.y, tune.splash);
+  const L = LANES[d.lane];
+  splashAt(p.x, p.y, p.z, tune.splash, 0);
   d.hp--;
   if(d.hp<=0){
     d.knocked=true; d.knockT=0; d.respawnT=0;
-    addScore(50 + Math.round(LANES[d.lane].speed/10)*5, d.x, laneY(d.lane)-60*S);
-    splashAt(d.x, laneY(d.lane)-20*S, tune.splash*2);
+    const s = projS(L.z);
+    addScore(50 + Math.round(L.speed/10)*5, projX(d.x,s), projY(L.y+L.duckSize,s));
+    splashAt(d.x, L.y+L.duckSize*0.4, L.z, tune.splash*2, 0);
   }
 }
 
 function hitPopup(t, p){
-  splashAt(p.x, p.y, tune.splash);
-  const bonus = Math.round((1 - Math.min(t.t,t.ttl)/t.ttl) * 100);  // rychlejší zásah = víc
+  splashAt(p.x, p.y, t.z, tune.splash, 0);
+  const bonus = Math.round((1 - Math.min(t.t,t.ttl)/t.ttl) * 100);
   t.state='out'; t.t=0;
-  addScore(100 + bonus, t.x, t.y - 40*S);
+  const s = projS(t.z);
+  addScore(100 + bonus, projX(t.x,s), projY(t.y+t.r,s));
 }
 
 // ---------------------------------------------------------------- draw
 function draw(){
   ctx.drawImage(bgCanvas, 0, 0, W, H);
 
-  // pop-up terče
+  // pop-up terče (na stěně)
   for(const t of popups){
     if(t.state==='hidden') continue;
     let sc = 1;
     if(t.state==='in') sc = t.t/0.25;
     else if(t.state==='out') sc = 1 - t.t/0.25;
-    const r = t.r * sc;
+    const s = projS(t.z);
+    const r = t.r*sc*s*S;
     if(r<1) continue;
-    ctx.save(); ctx.translate(t.x, t.y);
+    const sx = projX(t.x,s), sy = projY(t.y,s);
+    ctx.save(); ctx.translate(sx, sy);
     const rings = ['#e33', '#fff', '#e33', '#fff'];
     for(let i=0;i<rings.length;i++){
       ctx.fillStyle = rings[i];
@@ -408,35 +481,36 @@ function draw(){
     ctx.restore();
   }
 
-  // kachničky
-  const base = 90*S;
-  for(const d of ducks){
-    if(d.knocked && d.knockT>0.6) continue;
-    const L = LANES[d.lane];
-    const sc = L.scale;
-    const y = laneY(d.lane);
-    ctx.save();
-    ctx.translate(d.x, y - 8*sc*S + (d.knocked?0:Math.sin(d.wobble)*3*sc*S));
-    // sprite míří doleva → při jízdě doprava zrcadlit (zobák vždy dopředu)
-    if(L.dir>0) ctx.scale(-1,1);
-    if(d.knocked){
-      const k = Math.min(d.knockT/0.6, 1);
-      ctx.rotate((L.dir>0?1:-1) * k * Math.PI/2);
-      ctx.globalAlpha = 1-k*0.8;
-    }
-    ctx.drawImage(duckSprite, -base*sc*0.53, -base*sc*0.75, base*sc, base*sc);
-    ctx.restore();
-  }
-  // přední hrana žlabu přes nožičky kachniček
+  // kachničky — od nejvzdálenější dráhy; po každé dráze přední hrana žlabu
   for(let l=0;l<LANES.length;l++){
-    const y = laneY(l), sc = LANES[l].scale;
-    ctx.fillStyle = 'rgba(23,58,99,0.85)';
-    ctx.fillRect(0, y, W, 14*sc*S);
+    const L = LANES[l], s = projS(L.z);
+    const spriteSz = L.duckSize*1.1*s*S;
+    for(const d of ducks){
+      if(d.lane!==l) continue;
+      if(d.knocked && d.knockT>0.6) continue;
+      const sx = projX(d.x,s);
+      const sy = projY(L.y + (d.knocked?0:Math.sin(d.wobble)*8) + 14, s);
+      ctx.save();
+      ctx.translate(sx, sy);
+      // sprite míří doleva → při jízdě doprava zrcadlit (zobák dopředu)
+      if(L.dir>0) ctx.scale(-1,1);
+      if(d.knocked){
+        const k = Math.min(d.knockT/0.6, 1);
+        ctx.rotate((L.dir>0?1:-1) * k * Math.PI/2);
+        ctx.globalAlpha = 1-k*0.8;
+      }
+      ctx.drawImage(duckSprite, -spriteSz*0.53, -spriteSz*0.75, spriteSz, spriteSz);
+      ctx.restore();
+    }
+    // přední hrana žlabu přes nožičky
+    const ly = projY(L.y, s);
+    ctx.fillStyle = 'rgba(23,58,99,0.9)';
+    ctx.fillRect(0, ly, W, 30*s*S);
     ctx.fillStyle = 'rgba(160,220,255,0.25)';
-    ctx.fillRect(0, y, W, 2.5*S);
+    ctx.fillRect(0, ly, W, 2.5*S);
   }
 
-  // částice vody
+  // částice vody (perspektivně)
   ctx.save();
   if(tune.additive) ctx.globalCompositeOperation = 'lighter';
   ctx.fillStyle = 'rgba(110,190,255,0.55)';
@@ -444,37 +518,53 @@ function draw(){
   for(let i=0;i<POOL_HARD_MAX;i++){
     const p = pool[i];
     if(!p.alive) continue;
-    const sz = p.type===1 ? p.size*(p.life/p.maxLife) : p.size;
-    ctx.moveTo(p.x+sz, p.y);
-    ctx.arc(p.x, p.y, sz, 0, Math.PI*2);
+    const s = projS(p.z);
+    const base = p.type===1 ? p.size*(p.life/p.maxLife) : p.size;
+    const sz = Math.max(0.6, base*s*S);
+    const sx = projX(p.x,s), sy = projY(p.y,s);
+    ctx.moveTo(sx+sz, sy);
+    ctx.arc(sx, sy, sz, 0, Math.PI*2);
   }
   ctx.fill();
   ctx.restore();
 
-  // dělo
-  ctx.save();
-  ctx.translate(cannon.x, cannon.y);
-  // podstavec
-  ctx.fillStyle = '#3a2412';
-  ctx.beginPath(); ctx.ellipse(0, 16*S, 56*S, 18*S, 0, 0, Math.PI*2); ctx.fill();
-  ctx.rotate(cannon.angle);
-  // hlaveň
-  const bl = cannon.barrel, bw = 26*S;
-  const bg2 = ctx.createLinearGradient(0,-bw,0,bw);
-  bg2.addColorStop(0,'#3d7edb'); bg2.addColorStop(0.5,'#1d4e9e'); bg2.addColorStop(1,'#123468');
-  ctx.fillStyle = bg2;
+  // dělo v podhledu — základna dole, hlaveň se naklání za pointerem
+  const baseX = W/2, baseY = H + 30*S;
+  const mx = baseX + (cannon.aimSX - baseX)*0.22;
+  const my = H*0.84 + (cannon.aimSY - H*0.45)*0.06;
+  cannon.muzzleSX = mx; cannon.muzzleSY = my;
+  const ang = Math.atan2(my-baseY, mx-baseX);
+  const nx = Math.cos(ang+Math.PI/2), ny = Math.sin(ang+Math.PI/2);
+  const wBase = 74*S, wMuz = 34*S;
+  const grad = ctx.createLinearGradient(baseX-wBase, baseY, baseX+wBase, baseY);
+  grad.addColorStop(0,'#123468'); grad.addColorStop(0.5,'#3d7edb'); grad.addColorStop(1,'#123468');
+  ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.moveTo(-10*S, -bw*0.7); ctx.lineTo(bl, -bw*0.55);
-  ctx.lineTo(bl, bw*0.55); ctx.lineTo(-10*S, bw*0.7);
+  ctx.moveTo(baseX+nx*wBase, baseY+ny*wBase);
+  ctx.lineTo(mx+nx*wMuz, my+ny*wMuz);
+  ctx.lineTo(mx-nx*wMuz, my-ny*wMuz);
+  ctx.lineTo(baseX-nx*wBase, baseY-ny*wBase);
   ctx.closePath(); ctx.fill();
-  // zlaté ústí + prstenec
-  ctx.fillStyle = '#e8a33a';
-  ctx.fillRect(bl-6*S, -bw*0.62, 8*S, bw*1.24);
-  ctx.fillRect(bl*0.35, -bw*0.68, 6*S, bw*1.36);
-  ctx.restore();
-  // koule děla (pivot)
-  ctx.fillStyle = '#1d4e9e';
-  ctx.beginPath(); ctx.arc(cannon.x, cannon.y, 20*S, 0, Math.PI*2); ctx.fill();
+  // zlatý prstenec + ústí
+  ctx.strokeStyle = '#e8a33a'; ctx.lineWidth = 7*S;
+  ctx.beginPath();
+  ctx.moveTo(baseX+nx*wBase*0.82 + (mx-baseX)*0.3, baseY+ny*wBase*0.82 + (my-baseY)*0.3);
+  ctx.lineTo(baseX-nx*wBase*0.82 + (mx-baseX)*0.3, baseY-ny*wBase*0.82 + (my-baseY)*0.3);
+  ctx.stroke();
+  ctx.fillStyle = '#0c1a36';
+  ctx.beginPath(); ctx.ellipse(mx, my, wMuz*0.82, wMuz*0.6, 0, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#e8a33a'; ctx.lineWidth = 4*S;
+  ctx.beginPath(); ctx.ellipse(mx, my, wMuz*0.82, wMuz*0.6, 0, 0, Math.PI*2); ctx.stroke();
+
+  // zaměřovač
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 2*S;
+  ctx.beginPath(); ctx.arc(cannon.aimSX, cannon.aimSY, 14*S, 0, Math.PI*2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cannon.aimSX-22*S, cannon.aimSY); ctx.lineTo(cannon.aimSX-8*S, cannon.aimSY);
+  ctx.moveTo(cannon.aimSX+8*S, cannon.aimSY);  ctx.lineTo(cannon.aimSX+22*S, cannon.aimSY);
+  ctx.moveTo(cannon.aimSX, cannon.aimSY-22*S); ctx.lineTo(cannon.aimSX, cannon.aimSY-8*S);
+  ctx.moveTo(cannon.aimSX, cannon.aimSY+8*S);  ctx.lineTo(cannon.aimSX, cannon.aimSY+22*S);
+  ctx.stroke();
 
   // plovoucí skóre
   ctx.fillStyle = '#ffe98a';
@@ -483,7 +573,7 @@ function draw(){
   for(const f of floaters){
     if(!f.alive) continue;
     ctx.globalAlpha = 1 - f.t/0.9;
-    ctx.fillText(f.txt, f.x, f.y);
+    ctx.fillText(f.txt, f.sx, f.sy);
   }
   ctx.globalAlpha = 1;
 }
@@ -513,6 +603,7 @@ function perfTick(dt, frameMs){
 function setupHUD(){
   scoreEl = document.getElementById('score-val');
   timeEl = document.getElementById('time-val');
+  waterBarEl = document.getElementById('water-fill');
   const panel = document.getElementById('perf-hud');
   perfEls = {
     panel,
@@ -523,7 +614,7 @@ function setupHUD(){
   };
   document.getElementById('hud-toggle').addEventListener('click', ()=>{ panel.hidden = !panel.hidden; });
 
-  function bindSlider(id, key, fmt){
+  function bindSlider(id, key){
     const el = document.getElementById(id), out = document.getElementById(id+'-val');
     el.value = tune[key];
     out.textContent = tune[key];
@@ -557,6 +648,8 @@ function loop(t){
 // ---------------------------------------------------------------- kolo
 function startRound(){
   score = 0; playTime = 0; timeLeft = ROUND_TIME; over = false;
+  water = WATER_MAX;
+  updateWaterBar();
   if(scoreEl) scoreEl.textContent = '0';
   for(const p of pool) p.alive = false;
   aliveCount = 0;
@@ -567,13 +660,14 @@ function startRound(){
   _safeGamee(()=>gamee.gameStart());
 }
 
-function endRound(){
+function endRound(reason){
   if(over) return;
   over = true;
   cannon.spraying = false;
   _safeGamee(()=>gamee.updateScore(score, playTime, WS_CHECKSUM));
   _safeGamee(()=>gamee.gameOver(undefined, JSON.stringify({score:score}), undefined));
   const ov = document.getElementById('overlay');
+  document.getElementById('overlay-title').textContent = reason || 'Konec kola';
   document.getElementById('overlay-msg').textContent = 'Skóre: ' + score;
   ov.hidden = false;
 }

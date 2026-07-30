@@ -25,6 +25,18 @@ html, body {
   pointer-events:none;
 }
 #topbar .lbl { opacity:0.7; font-weight:400; }
+#water-wrap { display:flex; align-items:center; gap:6px; }
+#water-bar {
+  display:inline-block; width:70px; height:10px;
+  background:rgba(255,255,255,0.18);
+  border:1px solid rgba(255,255,255,0.35); border-radius:5px;
+  overflow:hidden;
+}
+#water-fill {
+  display:block; height:100%; width:100%;
+  background:linear-gradient(90deg,#3d9be0,#7fd4ff);
+  transition:width 0.15s linear;
+}
 
 /* ---- perf HUD ---- */
 #hud-toggle {
