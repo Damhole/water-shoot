@@ -67,6 +67,8 @@ const tune = {
   additive: false,            // jen pro basic mód
   cartoon: true,              // kreslený proud (stuha + dvoubarevné kapky + kroužky)
   autoSpray: STRESS,          // demo/stress: samo stříká, krouží, nekonečná voda/čas
+  relativeAim: true,          // dotyk = trackpad (prst nezakrývá cíl); myš zůstává absolutní
+  aimGain: 1.8,               // základní citlivost relativního míření
 };
 
 // ---- páteř proudu (spine) — uzly pro kreslenou vodní stuhu ----
@@ -414,13 +416,41 @@ function makeDuckSprite(crown){
 
 // ---------------------------------------------------------------- vstup
 function setupInput(){
-  const aim = (e)=>{
+  // Dva režimy míření:
+  //  - myš (PC): absolutní — kurzor JE zaměřovač
+  //  - dotyk (mobil): relativní jako trackpad — prst jen táhne, zaměřovač se
+  //    pohybuje zrychleně podle rychlosti tahu, takže prst nikdy nezakrývá cíl
+  let lastX = 0, lastY = 0, lastT = 0;
+  const relative = (e)=> tune.relativeAim && (e.pointerType === 'touch' || e.pointerType === 'pen');
+
+  const aimAbs = (e)=>{
     const r = canvas.getBoundingClientRect();
-    cannon.aimSX = e.clientX - r.left;
+    cannon.aimSX = clamp(e.clientX - r.left, 10*S, W - 10*S);
     cannon.aimSY = clamp(e.clientY - r.top, H*0.12, H*0.78);
   };
-  canvas.addEventListener('pointerdown', e=>{ e.preventDefault(); aim(e); cannon.spraying=true; canvas.setPointerCapture(e.pointerId); });
-  canvas.addEventListener('pointermove', e=>{ aim(e); });
+  const aimRel = (e)=>{
+    const now = performance.now();
+    const dt = Math.max(4, now - lastT)/1000;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY; lastT = now;
+    // akcelerace: pomalý tah = jemné doladění, švih = rychlý přejezd přes scénu
+    const speed = Math.hypot(dx, dy)/dt;
+    const g = tune.aimGain * (1 + 1.5*Math.pow(Math.min(speed/2500, 1), 1.5));
+    cannon.aimSX = clamp(cannon.aimSX + dx*g, 10*S, W - 10*S);
+    cannon.aimSY = clamp(cannon.aimSY + dy*g, H*0.12, H*0.78);
+  };
+
+  canvas.addEventListener('pointerdown', e=>{
+    e.preventDefault();
+    if(relative(e)){ lastX = e.clientX; lastY = e.clientY; lastT = performance.now(); }
+    else aimAbs(e);
+    cannon.spraying = true;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', e=>{
+    if(relative(e)){ if(cannon.spraying) aimRel(e); }
+    else aimAbs(e);
+  });
   canvas.addEventListener('pointerup',   ()=>{ cannon.spraying=false; });
   canvas.addEventListener('pointercancel', ()=>{ cannon.spraying=false; });
 }
@@ -958,15 +988,23 @@ function draw(){
     ctx.fill();
   }
 
-  // zaměřovač
-  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 2*S;
-  ctx.beginPath(); ctx.arc(cannon.aimSX, cannon.aimSY, 14*S, 0, Math.PI*2); ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(cannon.aimSX-22*S, cannon.aimSY); ctx.lineTo(cannon.aimSX-8*S, cannon.aimSY);
-  ctx.moveTo(cannon.aimSX+8*S, cannon.aimSY);  ctx.lineTo(cannon.aimSX+22*S, cannon.aimSY);
-  ctx.moveTo(cannon.aimSX, cannon.aimSY-22*S); ctx.lineTo(cannon.aimSX, cannon.aimSY-8*S);
-  ctx.moveTo(cannon.aimSX, cannon.aimSY+8*S);  ctx.lineTo(cannon.aimSX, cannon.aimSY+22*S);
-  ctx.stroke();
+  // zaměřovač — na mobilu je jediným vodítkem (prst je jinde), takže výrazný:
+  // tmavý obrys pod bílou kresbou, ať je čitelný na jakémkoli pozadí
+  const ax = cannon.aimSX, ay = cannon.aimSY;
+  const cross = (color, lw)=>{
+    ctx.strokeStyle = color; ctx.lineWidth = lw;
+    ctx.beginPath(); ctx.arc(ax, ay, 15*S, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(ax-24*S, ay); ctx.lineTo(ax-9*S, ay);
+    ctx.moveTo(ax+9*S, ay);  ctx.lineTo(ax+24*S, ay);
+    ctx.moveTo(ax, ay-24*S); ctx.lineTo(ax, ay-9*S);
+    ctx.moveTo(ax, ay+9*S);  ctx.lineTo(ax, ay+24*S);
+    ctx.stroke();
+  };
+  cross('rgba(0,0,0,0.45)', 5.5*S);
+  cross(cannon.spraying ? 'rgba(190,235,255,0.95)' : 'rgba(255,255,255,0.7)', 2.2*S);
+  ctx.fillStyle = cannon.spraying ? 'rgba(190,235,255,0.95)' : 'rgba(255,255,255,0.7)';
+  ctx.beginPath(); ctx.arc(ax, ay, 2.4*S, 0, Math.PI*2); ctx.fill();
 
   // plovoucí skóre
   ctx.fillStyle = '#ffe98a';
@@ -1313,6 +1351,7 @@ function setupHUD(){
   bindSlider('sl-rate','emitRate');
   bindSlider('sl-size','size');
   bindSlider('sl-splash','splash');
+  bindSlider('sl-gain','aimGain');
   const cb = document.getElementById('cb-coll');
   cb.checked = tune.collisions;
   cb.addEventListener('change', ()=>{ tune.collisions = cb.checked; });
@@ -1322,6 +1361,9 @@ function setupHUD(){
   const cbc = document.getElementById('cb-cartoon');
   cbc.checked = tune.cartoon;
   cbc.addEventListener('change', ()=>{ tune.cartoon = cbc.checked; });
+  const cbr = document.getElementById('cb-rel');
+  cbr.checked = tune.relativeAim;
+  cbr.addEventListener('change', ()=>{ tune.relativeAim = cbr.checked; });
   const cbs = document.getElementById('cb-auto');
   cbs.checked = tune.autoSpray;
   cbs.addEventListener('change', ()=>{
