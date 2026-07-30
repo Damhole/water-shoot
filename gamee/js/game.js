@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v41';
-const WS_CHECKSUM = 'water-shoot-v41';
+const WS_VERSION = 'v42';
+const WS_CHECKSUM = 'water-shoot-v42';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -397,6 +397,8 @@ const SPECIAL_HP = 22;        // ~1,8 s přesného kropení (krity) / ~3,7 s po 
 // Královská jako jediná NEZMIZÍ sama od sebe — pluje, dokud nedojede na konec řádku.
 let special = null;           // {lane,pos,x,hp,state:'rise'|'up'|'sink',t}
 let specialTimer = 7;
+const SPECIAL_KILL_CUT = 1.8;   // o kolik sestřel zkrátí čekání na královskou
+const SPECIAL_MIN_WAIT = 0.8;   // pod tohle odpočet neklesne, ať nechodí v hejnu
 
 function spawnSpecial(){
   const lane = (Math.random()*LANES.length)|0;
@@ -938,7 +940,8 @@ function update(dt){
     if(d.knocked){
       // kachnička NEMIZÍ — leží převrhnutá ve svém slotu, pak se zase postaví
       d.knockT += dt;
-      if(d.knockT > 0.8 && d.respawnT <= 0) d.respawnT = rand(1.5, 3);
+      // řada se doplňuje svižně, ať scéna nezůstává prázdná
+      if(d.knockT > 0.8 && d.respawnT <= 0) d.respawnT = rand(0.5, 1.1);
       if(d.respawnT > 0){
         d.respawnT -= dt;
         if(d.respawnT <= 0){
@@ -1130,6 +1133,12 @@ function hitDuck(d, p, direct){
   }
   if(d.dmg >= duckHpNeeded(d)){
     d.knocked=true; d.knockT=0; d.respawnT=0;
+    // Aktivní hráč si královskou přivolá dřív — každý sestřel ukrojí z odpočtu.
+    // Podmínka je nutná: bez ní by Math.max odpočet, který už klesl pod
+    // minimum, naopak zvedal zpátky a královská by nikdy nepřijela.
+    if(specialTimer > SPECIAL_MIN_WAIT){
+      specialTimer = Math.max(SPECIAL_MIN_WAIT, specialTimer - SPECIAL_KILL_CUT);
+    }
     const s = projS(L.z);
     addFloater(projX(d.x,s), projY(L.y+L.duckSize*0.45,s), 'KVÁK!');
     spawnFeathers(d.x, L.y + L.duckSize*0.5, L.z, rainbowOn()?26:16, rainbowOn()?1.7:1);
