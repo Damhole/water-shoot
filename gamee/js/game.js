@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v26';
-const WS_CHECKSUM = 'water-shoot-v26';
+const WS_VERSION = 'v27';
+const WS_CHECKSUM = 'water-shoot-v27';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -167,8 +167,10 @@ const HIT_CD = 0.08;
 // poškození exponenciálně. Jakmile proud ze středu sjede na víc než FOCUS_GRACE,
 // série se vynuluje a začíná se od základu.
 const FOCUS_GRACE = 0.3;
-const FOCUS_GROWTH = 1.25;
-const FOCUS_MAX_MUL = 4;
+const FOCUS_GROWTH = 1.32;
+const FOCUS_MAX_MUL = 5;
+const CENTER_DMG = 1.2;       // přímý zásah do středu
+const BODY_DMG = 0.4;         // okraj tělíčka / truhly — jen „udržovací" poškození
 function focusMul(focus){ return Math.min(Math.pow(FOCUS_GROWTH, focus), FOCUS_MAX_MUL); }
 // hodnota kachničky klesá s časem bez zásahu: baseVal → 25 % za VALUE_DECAY_T sekund
 const VALUE_DECAY_T = 12;
@@ -236,7 +238,7 @@ function spawnChest(){
     lane, pos, x: xStart, wobble: rand(0, Math.PI*2),
     hp: CHEST_HP,
     reward: Math.random() < 0.5 ? 'time' : 'water',
-    state: 'in', t: 0, hitCd: 0,
+    state: 'in', t: 0, hitCd: 0, focus: 0, focusT: 0,
   };
 }
 
@@ -585,14 +587,16 @@ function update(dt){
     }
 
     const armZ = computeAimZ() - 80;   // odjištění až u cílové hloubky
-    const spread = dryT >= 0 ? 55 + 90*(1-pressure) : 55;
+    // úzký proud = kam míříš, tam voda dopadne (bez toho se rozstřik rozlije
+    // po celém tělíčku a přesnost přestane rozhodovat)
+    const spread = dryT >= 0 ? 26 + 110*(1-pressure) : 26;
 
     emitAccum += tune.emitRate * (dryT >= 0 ? pressure : 1) * dt;
     while(emitAccum >= 1){
       emitAccum -= 1;
       const pp = spawnParticle(
         m.x, m.y, m.z,
-        vx + rand(-spread,spread), vy + rand(-spread,spread), vz + rand(-45,45),
+        vx + rand(-spread,spread), vy + rand(-spread,spread), vz + rand(-22,22),
         1.4, tune.size*2.2*rand(0.8,1.3), 0
       );
       if(pp) pp.armZ = armZ;
@@ -713,6 +717,7 @@ function update(dt){
     chest.wobble += dt*2.5;
     chest.t += dt;
     if(chest.hitCd > 0) chest.hitCd -= dt;
+    if(chest.focusT > 0){ chest.focusT -= dt; if(chest.focusT <= 0) chest.focus = 0; }
     if(chest.state==='in' && chest.t>0.25){ chest.state='closed'; chest.t=0; }
     else if(chest.state==='closed' && chest.t>CHEST_UP_T){ chest.state='out'; chest.t=0; }
     else if(chest.state==='open' && chest.t>1.4){ chest=null; chestTimer=rand(10,16); }
@@ -780,14 +785,17 @@ function update(dt){
           for(const t of popups){
             if(t.state!=='up' || p.z < t.z-70) continue;
             const ddx = p.x-t.x, ddy = p.y-t.y;
-            if(ddx*ddx+ddy*ddy < t.r*t.r){ hitPopup(t, p); dead=true; break; }
+            const d2 = ddx*ddx+ddy*ddy;
+            // střed terče (červený bod) = bullseye bonus
+            if(d2 < t.r*t.r){ hitPopup(t, p, d2 < t.r*t.r*0.16); dead=true; break; }
           }
         }
         if(armed && !dead && chest && chest.state==='closed'){
           const Lc = LANES[chest.lane];
           if(Math.abs(p.z - Lc.z) <= 60){
             const ddx = p.x-chest.x, ddy = p.y-(Lc.y+CHEST_CY);
-            if(ddx*ddx+ddy*ddy < CHEST_R*CHEST_R){ hitChest(p); dead=true; }
+            const d2 = ddx*ddx+ddy*ddy;
+            if(d2 < CHEST_R*CHEST_R){ hitChest(p, d2 < CHEST_R*CHEST_R*0.25); dead=true; }
           }
         }
       }
@@ -837,11 +845,11 @@ function hitDuck(d, p, direct){
   if(d.hitCd > 0) return;      // šplíchá to, ale HP ubývá max 1× za HIT_CD
   d.hitCd = HIT_CD;
   if(direct){
-    d.dmg += focusMul(d.focus);             // držená linie = exponenciální nárůst
+    d.dmg += CENTER_DMG * focusMul(d.focus);   // držená linie = exponenciální nárůst
     d.focus++;
     d.focusT = FOCUS_GRACE;
   } else {
-    d.dmg += 0.5;                           // tělíčko ubírá, ale sérii nedrží
+    d.dmg += BODY_DMG;                         // tělíčko ubírá, ale sérii nedrží
   }
   if(d.dmg >= duckHpNeeded(d)){
     d.knocked=true; d.knockT=0; d.respawnT=0;
@@ -860,11 +868,11 @@ function hitSpecial(p, direct){
   if(special.hitCd > 0) return;
   special.hitCd = HIT_CD;
   if(direct){
-    special.hp -= focusMul(special.focus);
+    special.hp -= CENTER_DMG * focusMul(special.focus);
     special.focus++;
     special.focusT = FOCUS_GRACE;
   } else {
-    special.hp -= 0.5;
+    special.hp -= BODY_DMG;
   }
   if(special.hp<=0){
     const s = projS(L.z);
@@ -876,11 +884,18 @@ function hitSpecial(p, direct){
   }
 }
 
-function hitChest(p){
-  splashAt(p.x, p.y, p.z, tune.splash, 0);
+function hitChest(p, direct){
+  splashAt(p.x, p.y, p.z, direct ? tune.splash+3 : tune.splash, 0);
+  if(direct) spawnRing(p.x, p.y, p.z, 0);
   if(chest.hitCd > 0) return;
   chest.hitCd = HIT_CD;
-  chest.hp--;
+  if(direct){
+    chest.hp -= CENTER_DMG * focusMul(chest.focus);   // zámek uprostřed povolí rychleji
+    chest.focus++;
+    chest.focusT = FOCUS_GRACE;
+  } else {
+    chest.hp -= BODY_DMG;
+  }
   if(chest.hp<=0){
     chest.state='open'; chest.t=0;
     const L = LANES[chest.lane];
@@ -900,12 +915,17 @@ function hitChest(p){
   }
 }
 
-function hitPopup(t, p){
+function hitPopup(t, p, bull){
   splashAt(p.x, p.y, t.z, tune.splash, 0);
   const bonus = Math.round((1 - Math.min(t.t,t.ttl)/t.ttl) * 100);
   t.state='out'; t.t=0;
   const s = projS(t.z);
-  addScore(100 + bonus, projX(t.x,s), projY(t.y+t.r,s));
+  // trefa doprostřed (červený střed) = bullseye bonus navrch
+  if(bull){
+    splashAt(t.x, t.y, t.z, tune.splash*2, 0);
+    addFloater(projX(t.x,s), projY(t.y,s), 'TREFA!');
+  }
+  addScore(100 + bonus + (bull ? 150 : 0), projX(t.x,s), projY(t.y+t.r,s));
   spawnRing(t.x, t.y, t.z, 0);
 }
 
@@ -1222,7 +1242,8 @@ function drawChest(l){
 
   // otazník + progress prstenec dokud je zavřená
   if(chest.state==='closed'){
-    drawDuckBadge(cx, cy + h*0.12, 34*s*S, 1 - chest.hp/CHEST_HP, '?', true);
+    const heat = chest.focusT > 0 ? Math.min(chest.focus/4, 1) : 0;
+    drawDuckBadge(cx, cy + h*0.12, 34*s*S, 1 - chest.hp/CHEST_HP, '?', true, heat);
   }
   ctx.restore();
 }
