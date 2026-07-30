@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v28';
-const WS_CHECKSUM = 'water-shoot-v28';
+const WS_VERSION = 'v29';
+const WS_CHECKSUM = 'water-shoot-v29';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -86,7 +86,7 @@ function updateCurtain(dt){
 // ---------------------------------------------------------------- particle pool
 const POOL_HARD_MAX = 20000;
 const pool = new Array(POOL_HARD_MAX);
-for(let i=0;i<POOL_HARD_MAX;i++) pool[i] = {alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,life:0,maxLife:0,size:1,type:0,armZ:0};
+for(let i=0;i<POOL_HARD_MAX;i++) pool[i] = {alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,life:0,maxLife:0,size:1,type:0,armZ:0,hue:-1};
 let poolCursor = 0, aliveCount = 0;
 
 const tune = {
@@ -103,8 +103,28 @@ const tune = {
   // Náběh trysky: po každém stisku chvíli trvá, než je proud v plném tlaku.
   // Budoucí upgrady děla/pistole tuhle dobu budou zkracovat.
   jetRampT: 0.45,
+  specialMode: true,          // sběr královských kachen → duhový režim
 };
 let rampT = 0;                // jak dlouho už tryska nabíhá
+
+// ---------------------------------------------------------------- duhový režim
+// Sejmi tři královské kachničky → na 10 s se rozjede duhový režim: dvě rotující
+// trysky, dvojnásobné poškození a nespotřebovává se čas ani voda.
+const ROYAL_NEEDED = 3;
+const RAINBOW_T = 10;
+const RAINBOW_DMG_MUL = 2;
+let royalCollected = 0;
+let rainbowT = -1;            // -1 = neaktivní
+function rainbowOn(){ return rainbowT > 0; }
+function dmgMul(){ return rainbowOn() ? RAINBOW_DMG_MUL : 1; }
+
+function collectRoyal(){
+  if(!tune.specialMode) return;
+  royalCollected++;
+  if(royalCollected >= ROYAL_NEEDED){
+    rainbowT = RAINBOW_T;     // ikony zůstanou plné, dokud režim běží
+  }
+}
 
 // ---- páteř proudu (spine) — uzly pro kreslenou vodní stuhu ----
 // Uzly letí stejnou balistikou jako částice; stuha se přes ně natahuje
@@ -143,6 +163,7 @@ function spawnParticle(x,y,z,vx,vy,vz,life,size,type){
       poolCursor = i+1;
       p.alive=true; p.x=x; p.y=y; p.z=z; p.vx=vx; p.vy=vy; p.vz=vz;
       p.life=life; p.maxLife=life; p.size=size; p.type=type;
+      p.hue = rainbowOn() ? (ribbonTime*220 + z*0.4) % 360 : -1;
       aliveCount++;
       return p;
     }
@@ -537,7 +558,12 @@ function update(dt){
   // dokud se opona rozhrnuje, kolo ještě „neběží" — čas stojí, dělo nestříká
   const curtainBusy = curtainState === 'opening';
   playTime += dt;
-  if(!curtainBusy) timeLeft -= dt;
+  // duhový režim: čas kola stojí
+  if(rainbowT > 0){
+    rainbowT -= dt;
+    if(rainbowT <= 0){ rainbowT = -1; royalCollected = 0; }   // bar se resetuje
+  }
+  if(!curtainBusy && !rainbowOn()) timeLeft -= dt;
   if(tune.autoSpray){
     // auto-spray: míření krouží přes dráhy, zdroje se nevyčerpávají
     cannon.spraying = true;
@@ -570,7 +596,7 @@ function update(dt){
   if(!sprayingNow) rampT = 0;
   if(sprayingNow){
     rampT += dt;
-    if(water > 0){
+    if(water > 0 && !rainbowOn()){     // duhová voda je zadarmo
       water -= WATER_PER_SEC * dt;
       if(water < 0) water = 0;
       updateWaterBar();
@@ -604,14 +630,23 @@ function update(dt){
     const spread = (dryT >= 0 ? 26 + 110*(1-pressure) : 26) + 26*(1-spinP);
 
     emitAccum += tune.emitRate * (dryT >= 0 ? pressure : 1) * spinP * dt;
+    // duhový režim: dvě trysky rotující kolem sebe
+    const twinAng = ribbonTime*7.5;
+    const twinR = 34;
+    let twinIdx = 0;
     while(emitAccum >= 1){
       emitAccum -= 1;
+      let ox = 0, oy = 0;
+      if(rainbowOn()){
+        const a = twinAng + (twinIdx++ % 2) * Math.PI;
+        ox = Math.cos(a)*twinR; oy = Math.sin(a)*twinR;
+      }
       const pp = spawnParticle(
-        m.x, m.y, m.z,
+        m.x + ox, m.y + oy, m.z,
         vx + rand(-spread,spread), vy + rand(-spread,spread), vz + rand(-22,22),
         1.4, tune.size*2.2*rand(0.8,1.3), 0
       );
-      if(pp) pp.armZ = armZ;
+      if(pp){ pp.armZ = armZ; pp.hue = rainbowOn() ? (ribbonTime*220 + pp.z*0.4) % 360 : -1; }
     }
 
     // poslední kapky stékající z ústí — postupně řídnou a ještě před koncem ustanou
@@ -857,11 +892,11 @@ function hitDuck(d, p, direct){
   if(d.hitCd > 0) return;      // šplíchá to, ale HP ubývá max 1× za HIT_CD
   d.hitCd = HIT_CD;
   if(direct){
-    d.dmg += CENTER_DMG * focusMul(d.focus);   // držená linie = exponenciální nárůst
+    d.dmg += CENTER_DMG * focusMul(d.focus) * dmgMul();   // držená linie = exponenciální nárůst
     d.focus++;
     d.focusT = FOCUS_GRACE;
   } else {
-    d.dmg += BODY_DMG;                         // tělíčko ubírá, ale sérii nedrží
+    d.dmg += BODY_DMG * dmgMul();              // tělíčko ubírá, ale sérii nedrží
   }
   if(d.dmg >= duckHpNeeded(d)){
     d.knocked=true; d.knockT=0; d.respawnT=0;
@@ -880,16 +915,17 @@ function hitSpecial(p, direct){
   if(special.hitCd > 0) return;
   special.hitCd = HIT_CD;
   if(direct){
-    special.hp -= CENTER_DMG * focusMul(special.focus);
+    special.hp -= CENTER_DMG * focusMul(special.focus) * dmgMul();
     special.focus++;
     special.focusT = FOCUS_GRACE;
   } else {
-    special.hp -= BODY_DMG;
+    special.hp -= BODY_DMG * dmgMul();
   }
   if(special.hp<=0){
     const s = projS(L.z);
     addFloater(projX(special.x,s), projY(L.y+L.duckSize*0.45,s), 'KVÁÁK!');
     addScore(SPECIAL_VAL, projX(special.x,s), projY(L.y+L.duckSize,s));
+    collectRoyal();
     splashAt(special.x, L.y+L.duckSize*0.4, L.z, tune.splash*3, 0);
     spawnRing(special.x, L.y+L.duckSize*0.4, L.z, 0);
     special.state='sink'; special.t=0;
@@ -902,11 +938,11 @@ function hitChest(p, direct){
   if(chest.hitCd > 0) return;
   chest.hitCd = HIT_CD;
   if(direct){
-    chest.hp -= CENTER_DMG * focusMul(chest.focus);   // zámek uprostřed povolí rychleji
+    chest.hp -= CENTER_DMG * focusMul(chest.focus) * dmgMul();   // zámek uprostřed povolí rychleji
     chest.focus++;
     chest.focusT = FOCUS_GRACE;
   } else {
-    chest.hp -= BODY_DMG;
+    chest.hp -= BODY_DMG * dmgMul();
   }
   if(chest.hp<=0){
     chest.state='open'; chest.t=0;
@@ -1156,7 +1192,61 @@ function draw(){
   ctx.textBaseline = 'alphabetic';
 
   drawWaterTank();
+  if(tune.specialMode) drawRoyalTracker();
   drawCurtain();
+}
+
+// Tři korunky pod skóre: každá sejmutá královská kachnička jednu odškrtne.
+// Když jsou všechny tři, rozjede se duhový režim a ukazuje se jeho odpočet.
+function drawRoyalTracker(){
+  const y = H*0.215 + 42*S;
+  const r = 15*S, gap = 42*S;
+  const x0 = W/2 - gap;
+
+  if(rainbowOn()){
+    // odpočet duhového režimu místo ikon
+    const bw = 150*S, bh = 9*S, bx = W/2 - bw/2, by = y - bh/2;
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(bx, by, bw, bh);
+    const g = ctx.createLinearGradient(bx, 0, bx+bw, 0);
+    for(let i=0;i<=6;i++) g.addColorStop(i/6, 'hsl('+((ribbonTime*220 + i*60)%360)+',95%,62%)');
+    ctx.fillStyle = g;
+    ctx.fillRect(bx, by, bw*(rainbowT/RAINBOW_T), bh);
+    ctx.font = '800 '+Math.round(15*S)+'px Arial, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('DUHOVÝ REŽIM ' + Math.ceil(rainbowT) + ' s', W/2, by - 13*S);
+    ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    return;
+  }
+
+  for(let i=0;i<ROYAL_NEEDED;i++){
+    const cx = x0 + i*gap, got = i < royalCollected;
+    ctx.fillStyle = got ? 'rgba(232,195,74,0.9)' : 'rgba(8,16,36,0.5)';
+    ctx.beginPath(); ctx.arc(cx, y, r, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = got ? '#fff3c4' : 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 2*S;
+    ctx.beginPath(); ctx.arc(cx, y, r, 0, Math.PI*2); ctx.stroke();
+    // korunka uvnitř
+    ctx.fillStyle = got ? '#5a3a06' : 'rgba(255,255,255,0.45)';
+    ctx.beginPath();
+    ctx.moveTo(cx-r*0.55, y+r*0.35);
+    ctx.lineTo(cx-r*0.55, y-r*0.15);
+    ctx.lineTo(cx-r*0.2,  y+r*0.1);
+    ctx.lineTo(cx,        y-r*0.5);
+    ctx.lineTo(cx+r*0.2,  y+r*0.1);
+    ctx.lineTo(cx+r*0.55, y-r*0.15);
+    ctx.lineTo(cx+r*0.55, y+r*0.35);
+    ctx.closePath(); ctx.fill();
+    if(got){
+      // odškrtnutí
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 3*S; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(cx-r*0.45, y+r*0.05); ctx.lineTo(cx-r*0.1, y+r*0.45);
+      ctx.lineTo(cx+r*0.5, y-r*0.4);
+      ctx.stroke(); ctx.lineCap = 'butt';
+    }
+  }
 }
 
 // Truhlička pluje ve žlabu dráhy: houpe se a kolébá jako kachničky.
@@ -1402,12 +1492,38 @@ function ribbonLayer(n, wMul, ox, oy, color){
 
 function fillRibbon(n){
   if(n<2) return;
+  if(rainbowOn()){
+    // duhový proud: gradient podél stuhy, posouvá se v čase
+    const g = ctx.createLinearGradient(ribX[0], ribY[0], ribX[n-1], ribY[n-1]);
+    for(let i=0;i<=6;i++){
+      g.addColorStop(i/6, 'hsl('+((ribbonTime*220 + i*60) % 360)+',95%,62%)');
+    }
+    ribbonLayer(n, 1.3, 0, 0, 'rgba(40,20,80,0.7)');
+    ribbonLayer(n, 1.0, 0, 0, g);
+    ribbonLayer(n, 0.4, -2.2*S, -2.2*S, 'rgba(255,255,255,0.85)');
+    return;
+  }
   ribbonLayer(n, 1.3, 0, 0, 'rgba(16,58,104,0.85)');   // obrys
   ribbonLayer(n, 1.0, 0, 0, '#3f9be6');                 // tělo
   ribbonLayer(n, 0.45, -2.2*S, -2.2*S, 'rgba(155,217,255,0.9)'); // jádro/lesk
 }
 
 function drawJetRibbon(){
+  // v duhovém režimu se stuha kreslí dvakrát s rotujícím odsazením = dvě trysky
+  if(rainbowOn()){
+    const a = ribbonTime*7.5, off = 11*S;
+    for(let k=0;k<2;k++){
+      ctx.save();
+      ctx.translate(Math.cos(a + k*Math.PI)*off, Math.sin(a + k*Math.PI)*off);
+      drawJetRibbonPass();
+      ctx.restore();
+    }
+    return;
+  }
+  drawJetRibbonPass();
+}
+
+function drawJetRibbonPass(){
   let n = 0, chainGen = -1;
   for(let k=0;k<SPINE_MAX;k++){
     const nd = spine[(spineHead-1-k+SPINE_MAX)%SPINE_MAX];
@@ -1432,19 +1548,27 @@ function drawJetRibbon(){
 
 // kapky: hlavní pass + bílé odlesky na každé čtvrté
 function drawDropletsCartoon(){
-  ctx.fillStyle = 'rgba(90,175,235,0.8)';
-  ctx.beginPath();
-  for(let i=0;i<POOL_HARD_MAX;i++){
-    const p = pool[i];
-    if(!p.alive) continue;
-    const s = projS(p.z);
-    const base = p.type===1 ? p.size*(p.life/p.maxLife) : p.size;
-    const sz = Math.max(0.6, base*s*S);
-    const sx = projX(p.x,s), sy = projY(p.y,s);
-    ctx.moveTo(sx+sz, sy);
-    ctx.arc(sx, sy, sz, 0, Math.PI*2);
+  // duhové kapky se kreslí po skupinách odstínů (6 průchodů), obyčejné v jednom
+  const buckets = rainbowOn() ? 6 : 1;
+  for(let b=0;b<buckets;b++){
+    ctx.fillStyle = rainbowOn() ? 'hsla('+(b*60+30)+',95%,62%,0.85)' : 'rgba(90,175,235,0.8)';
+    ctx.beginPath();
+    for(let i=0;i<POOL_HARD_MAX;i++){
+      const p = pool[i];
+      if(!p.alive) continue;
+      if(rainbowOn()){
+        const bi = p.hue >= 0 ? ((p.hue/60)|0) % 6 : 0;
+        if(bi !== b) continue;
+      }
+      const s = projS(p.z);
+      const base = p.type===1 ? p.size*(p.life/p.maxLife) : p.size;
+      const sz = Math.max(0.6, base*s*S);
+      const sx = projX(p.x,s), sy = projY(p.y,s);
+      ctx.moveTo(sx+sz, sy);
+      ctx.arc(sx, sy, sz, 0, Math.PI*2);
+    }
+    ctx.fill();
   }
-  ctx.fill();
   ctx.fillStyle = 'rgba(235,250,255,0.8)';
   ctx.beginPath();
   for(let i=0;i<POOL_HARD_MAX;i+=4){
@@ -1540,6 +1664,12 @@ function setupHUD(){
   const cbc = document.getElementById('cb-cartoon');
   cbc.checked = tune.cartoon;
   cbc.addEventListener('change', ()=>{ tune.cartoon = cbc.checked; });
+  const cbm = document.getElementById('cb-special');
+  cbm.checked = tune.specialMode;
+  cbm.addEventListener('change', ()=>{
+    tune.specialMode = cbm.checked;
+    if(!tune.specialMode){ royalCollected = 0; rainbowT = -1; }
+  });
   const cbr = document.getElementById('cb-rel');
   cbr.checked = tune.relativeAim;
   cbr.addEventListener('change', ()=>{ tune.relativeAim = cbr.checked; });
@@ -1570,6 +1700,7 @@ function loop(t){
 function startRound(){
   score = 0; playTime = 0; timeLeft = ROUND_TIME; over = false;
   water = WATER_MAX; dryT = -1;
+  royalCollected = 0; rainbowT = -1;
   updateWaterBar();
   if(scoreEl) scoreEl.textContent = '0';
   for(const p of pool) p.alive = false;

@@ -16,6 +16,7 @@
 | 💡 idea | Plnicí terče (fill objects) — terč se plní vodou, než spadne |
 | 💡 idea | Splash by color — barevné týmy kachniček |
 | 💡 idea | Zvuky (stříkání, splash, quack, pouťová hudba) |
+| 💡 idea | Upgrady děla/pistole — zkracují náběh trysky (`tune.jetRampT`), případně zvyšují tlak či zužují proud |
 
 ## 🧰 Infra
 
@@ -58,3 +59,4 @@ _(neotříděné nápady sem)_
 | v25 | Dojití vody: proud ztrácí tlak, zakuckává se, padá k dělu a dokape (1,4 s), teprve pak konec kola; kapka z truhly ho stihne zachránit | 446c63f | 2026-07-30 |
 | v26 | Pomalejší dokapávání — ztráta tlaku 2,8 s, konec kola až po doznění kapek ve 3,9 s | 9a11846 | 2026-07-30 |
 | v27 | Skill-based zásahy: užší proud (rozptyl 55→26), střed 1,2× focus (růst 1,32, strop ×5) vs okraj 0,4; střed i u truhly, bullseye u terčů (+150). Naměřeno 3× rychlejší sestřel při přesném míření | 66736d7 | 2026-07-30 |
+| v28 | Náběh trysky po každém stisku (0,45 s do plného tlaku a dostřelu), slider v HUD — připraveno jako hook pro budoucí upgrady děla | f033233 | 2026-07-30 |
