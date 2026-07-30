@@ -63,3 +63,4 @@ _(neotříděné nápady sem)_
 | v29 | Special mód (přepínatelný): 3 sejmuté královské kachny → duhový režim na 10 s — dvě rotující trysky, duhová voda, 2× poškození, nespotřebovává vodu ani čas; tracker korunek v UI, po doběhnutí se resetuje | 995aecc | 2026-07-30 |
 | v30 | Náběh trysky konečně vidět: slabší start (dolet ~¼) + náběh 0,7 s (delší než doba letu vody), proud se zvedá zdola k zaměřovači | bbc0319 | 2026-07-30 |
 | v31 | Peří při sestřelu (vlastní pool, třepotavý pád); duhové dělo: 3× poškození, tiky 45 ms, okamžitý tlak + **fix** konvergence dvou trysek (stříkaly vedle středu) — život ubývá 6× rychleji | 6f4238b | 2026-07-30 |
+| v32 | Výdrž = hodnota/12 (20 → 2 zásahy, 150 → 13); duhový režim ztrojnásobí počet kachniček na scéně (8 → 24, rovnoměrné rozestupy), po doběhnutí se potopí | 35aa27a | 2026-07-30 |

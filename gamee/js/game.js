@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v32';
-const WS_CHECKSUM = 'water-shoot-v32';
+const WS_VERSION = 'v33';
+const WS_CHECKSUM = 'water-shoot-v33';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -1311,6 +1311,23 @@ function draw(){
   drawWaterTank();
   if(tune.specialMode) drawRoyalTracker();
   drawCurtain();
+  drawFps();          // nad vším včetně opony — kvůli měření na mobilech
+}
+
+// FPS v levém horním rohu (vpravo je version badge). Barva hlásí kondici:
+// zelená plynule, žlutá znát, červená trhá.
+function drawFps(){
+  const f = perf.fps;
+  if(!f) return;
+  const x = 12*S, y = 10*S;
+  ctx.font = '700 '+Math.round(15*S)+'px "SF Mono", Menlo, monospace';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  const txt = f + ' FPS';
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillText(txt, x + 1.5*S, y + 1.5*S);
+  ctx.fillStyle = f >= 55 ? '#7dff8a' : (f >= 30 ? '#ffd54a' : '#ff6b6b');
+  ctx.fillText(txt, x, y);
+  ctx.textBaseline = 'alphabetic';
 }
 
 // Tři korunky pod skóre: každá sejmutá královská kachnička jednu odškrtne.
