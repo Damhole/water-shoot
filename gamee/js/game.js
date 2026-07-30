@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v22';
-const WS_CHECKSUM = 'water-shoot-v22';
+const WS_VERSION = 'v23';
+const WS_CHECKSUM = 'water-shoot-v23';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -160,6 +160,13 @@ let tierRotateT = TIER_ROTATE_T;
 // Damage cooldown: kachnička ztratí max 1 HP za HIT_CD sekund (≈12 HP/s),
 // jinak by hustý proud (stovky částic/s) sestřelil cokoli za pár setin.
 const HIT_CD = 0.08;
+// „Držení linie": každý další zásah do středu (kolečka s body) v řadě zvyšuje
+// poškození exponenciálně. Jakmile proud ze středu sjede na víc než FOCUS_GRACE,
+// série se vynuluje a začíná se od základu.
+const FOCUS_GRACE = 0.3;
+const FOCUS_GROWTH = 1.25;
+const FOCUS_MAX_MUL = 4;
+function focusMul(focus){ return Math.min(Math.pow(FOCUS_GROWTH, focus), FOCUS_MAX_MUL); }
 // hodnota kachničky klesá s časem bez zásahu: baseVal → 25 % za VALUE_DECAY_T sekund
 const VALUE_DECAY_T = 12;
 let ducks = [];               // {lane,pos,x,knocked,knockT,respawnT,hp,ageT,wobble}
@@ -192,7 +199,7 @@ function spawnSpecial(){
   const trackLen = 2*laneRangeX(lane);
   const buddy = ducks.find(d=>d.lane===lane);
   const pos = ((buddy ? buddy.pos : rand(0,trackLen)) + trackLen/(2*L.count)) % trackLen;
-  special = { lane, pos, x:0, hp:SPECIAL_HP, state:'rise', t:0, hitCd:0 };
+  special = { lane, pos, x:0, hp:SPECIAL_HP, state:'rise', t:0, hitCd:0, focus:0, focusT:0 };
 }
 
 const POPUP_SLOTS = 3;
@@ -252,6 +259,7 @@ function resetEntities(){
         pos: (laneOffset + i*(trackLen/L.count)) % trackLen,
         x: 0,
         knocked:false, knockT:0, respawnT:0, dmg:0, ageT: rand(0,3), riseT:1, hitCd:0,
+        focus:0, focusT:0,
         wobble: rand(0, Math.PI*2),
       });
     }
@@ -626,12 +634,14 @@ function update(dt){
       if(d.respawnT > 0){
         d.respawnT -= dt;
         if(d.respawnT <= 0){
-          d.knocked=false; d.knockT=0; d.dmg=0; d.ageT=0; d.riseT=0;
+          d.knocked=false; d.knockT=0; d.dmg=0; d.ageT=0; d.riseT=0; d.focus=0; d.focusT=0;
         }
       }
     } else {
       if(d.riseT < 1) d.riseT += dt;
       if(d.hitCd > 0) d.hitCd -= dt;
+      // linie drží jen dokud chodí zásahy do středu
+      if(d.focusT > 0){ d.focusT -= dt; if(d.focusT <= 0) d.focus = 0; }
       d.ageT += dt;
       d.wobble += dt*3;
     }
@@ -655,6 +665,7 @@ function update(dt){
     special.x = L.dir>0 ? special.pos - trackLen/2 : trackLen/2 - special.pos;
     special.t += dt;
     if(special.hitCd > 0) special.hitCd -= dt;
+    if(special.focusT > 0){ special.focusT -= dt; if(special.focusT <= 0) special.focus = 0; }
     if(special.state==='rise' && special.t>0.4){ special.state='up'; special.t=0; }
     else if(special.state==='sink' && special.t>0.75){ special=null; specialTimer=rand(8,14); }
     if(special && special.pos > trackLen + L.duckSize){ special=null; specialTimer=rand(8,14); }
@@ -795,7 +806,13 @@ function hitDuck(d, p, direct){
   if(direct) spawnRing(p.x, p.y, p.z, 0);   // feedback kritu (throttled)
   if(d.hitCd > 0) return;      // šplíchá to, ale HP ubývá max 1× za HIT_CD
   d.hitCd = HIT_CD;
-  d.dmg += direct ? 1 : 0.5;
+  if(direct){
+    d.dmg += focusMul(d.focus);             // držená linie = exponenciální nárůst
+    d.focus++;
+    d.focusT = FOCUS_GRACE;
+  } else {
+    d.dmg += 0.5;                           // tělíčko ubírá, ale sérii nedrží
+  }
   if(d.dmg >= duckHpNeeded(d)){
     d.knocked=true; d.knockT=0; d.respawnT=0;
     const s = projS(L.z);
@@ -812,7 +829,13 @@ function hitSpecial(p, direct){
   if(direct) spawnRing(p.x, p.y, p.z, 0);
   if(special.hitCd > 0) return;
   special.hitCd = HIT_CD;
-  special.hp -= direct ? 1 : 0.5;
+  if(direct){
+    special.hp -= focusMul(special.focus);
+    special.focus++;
+    special.focusT = FOCUS_GRACE;
+  } else {
+    special.hp -= 0.5;
+  }
   if(special.hp<=0){
     const s = projS(L.z);
     addFloater(projX(special.x,s), projY(L.y+L.duckSize*0.45,s), 'KVÁÁK!');
@@ -916,7 +939,8 @@ function draw(){
 
       // kulatý bar na těle: plní se zásahy, uvnitř aktuální hodnota kachničky
       if(!d.knocked && sink <= 0){
-        drawDuckBadge(sx, sy - spriteSz*0.12, spriteSz*0.19, d.dmg/duckHpNeeded(d), duckValue(d), false);
+        const heat = d.focusT > 0 ? Math.min(d.focus/4, 1) : 0;
+        drawDuckBadge(sx, sy - spriteSz*0.12, spriteSz*0.19, d.dmg/duckHpNeeded(d), duckValue(d), false, heat);
       }
     }
     // speciální korunková kachnička ve své dráze
@@ -939,7 +963,8 @@ function draw(){
         ctx.drawImage(duckCrownSprite, -spSz*0.53, -spSz*0.75, spSz, spSz);
         ctx.restore();
         if(special.state==='up'){
-          drawDuckBadge(sx, sy - spSz*0.12, spSz*0.19, 1 - special.hp/SPECIAL_HP, SPECIAL_VAL, true);
+          const heat = special.focusT > 0 ? Math.min(special.focus/4, 1) : 0;
+          drawDuckBadge(sx, sy - spSz*0.12, spSz*0.19, 1 - special.hp/SPECIAL_HP, SPECIAL_VAL, true, heat);
         }
       }
     }
@@ -1212,12 +1237,20 @@ function drawCurtainHalf(x0, w, dir){
 }
 
 // Kulatý bar kachničky: prstenec plnění zásahy + hodnota uvnitř.
-function drawDuckBadge(x, y, r, prog, value, gold){
+function drawDuckBadge(x, y, r, prog, value, gold, heat){
   ctx.fillStyle = gold ? 'rgba(80,60,4,0.6)' : 'rgba(8,16,36,0.55)';
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+  // držená linie prstenec rozžhaví z ledové modré do zlatooranžové
+  const h = heat || 0;
+  if(h > 0){
+    ctx.strokeStyle = 'rgba(255,190,60,'+(0.25+0.45*h).toFixed(2)+')';
+    ctx.lineWidth = Math.max(1.5, r*(0.12+0.2*h));
+    ctx.beginPath(); ctx.arc(x, y, r*(1.1+0.16*h), 0, Math.PI*2); ctx.stroke();
+  }
   if(prog > 0){
-    ctx.strokeStyle = gold ? '#ffd700' : '#5ad1ff';
-    ctx.lineWidth = Math.max(2, r*0.3);
+    ctx.strokeStyle = gold ? '#ffd700'
+      : 'rgb('+Math.round(90+165*h)+','+Math.round(209-6*h)+','+Math.round(255-255*h)+')';
+    ctx.lineWidth = Math.max(2, r*(0.3+0.12*h));
     ctx.beginPath();
     ctx.arc(x, y, r*0.78, -Math.PI/2, -Math.PI/2 + prog*Math.PI*2);
     ctx.stroke();
