@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v06';
-const WS_CHECKSUM = 'water-shoot-v06';
+const WS_VERSION = 'v07';
+const WS_CHECKSUM = 'water-shoot-v07';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -115,12 +115,12 @@ function spawnParticle(x,y,z,vx,vy,vz,life,size,type){
 
 // ---------------------------------------------------------------- scéna: dráhy, kachničky, terče
 // Dráhy = police se žlabem na zadní stěně v různé hloubce (spodní blíž).
+// hp = kolik zásahů proudem je potřeba — víc hodnotná kachnička spolkne víc vody
 const LANES = [
-  { z:900, y:-240, dir: 1, speed:170, duckSize:165, count:3, baseVal:150 },
-  { z:800, y:-429, dir:-1, speed:130, duckSize:182, count:3, baseVal:110 },
-  { z:700, y:-589, dir: 1, speed:100, duckSize:200, count:2, baseVal:80 },
+  { z:900, y:-240, dir: 1, speed:170, duckSize:165, count:3, baseVal:150, hp:12 },
+  { z:800, y:-429, dir:-1, speed:130, duckSize:182, count:3, baseVal:110, hp:8 },
+  { z:700, y:-589, dir: 1, speed:100, duckSize:200, count:2, baseVal:80,  hp:5 },
 ];
-const DUCK_HP = 8;
 // hodnota kachničky klesá s časem bez zásahu: baseVal → 25 % za VALUE_DECAY_T sekund
 const VALUE_DECAY_T = 12;
 let ducks = [];               // {lane,pos,x,knocked,knockT,respawnT,hp,ageT,wobble}
@@ -156,7 +156,7 @@ function resetEntities(){
         lane:l,
         pos: (laneOffset + i*(trackLen/L.count)) % trackLen,
         x: 0,
-        knocked:false, knockT:0, respawnT:0, hp:DUCK_HP, ageT: rand(0,3),
+        knocked:false, knockT:0, respawnT:0, hp:L.hp, ageT: rand(0,3), riseT:1,
         wobble: rand(0, Math.PI*2),
       });
     }
@@ -429,15 +429,17 @@ function update(dt){
     d.pos = (d.pos + L.speed*dt) % trackLen;
     d.x = L.dir>0 ? d.pos - range : range - d.pos;
     if(d.knocked){
+      // kachnička NEMIZÍ — leží převrhnutá ve svém slotu, pak se zase postaví
       d.knockT += dt;
-      if(d.knockT > 0.6 && d.respawnT <= 0) d.respawnT = rand(1.5, 3);
+      if(d.knockT > 0.4 && d.respawnT <= 0) d.respawnT = rand(1.5, 3);
       if(d.respawnT > 0){
         d.respawnT -= dt;
         if(d.respawnT <= 0){
-          d.knocked=false; d.knockT=0; d.hp=DUCK_HP; d.ageT=0;
+          d.knocked=false; d.knockT=0; d.hp=L.hp; d.ageT=0; d.riseT=0;
         }
       }
     } else {
+      if(d.riseT < 1) d.riseT += dt;
       d.ageT += dt;
       d.wobble += dt*3;
     }
@@ -583,26 +585,26 @@ function draw(){
     const spriteSz = L.duckSize*1.1*s*S;
     for(const d of ducks){
       if(d.lane!==l) continue;
-      if(d.knocked && d.knockT>0.6) continue;
       const sx = projX(d.x,s);
       const sy = projY(L.y + (d.knocked?0:Math.sin(d.wobble)*8) + 14, s);
+      // převrhnutí/vztyčení: kachnička je vidět pořád, jen se sklápí a zvedá
+      let rot = 0;
+      if(d.knocked) rot = Math.min(d.knockT/0.35, 1) * Math.PI/2;
+      else if(d.riseT < 0.25) rot = (1 - d.riseT/0.25) * Math.PI/2;
       ctx.save();
-      ctx.translate(sx, sy);
+      // pivot v těžišti těla — převrhnutá kachnička leží na polici, nevisí pod ní
+      ctx.translate(sx, sy - spriteSz*0.38);
       // sprite míří doleva → při jízdě doprava zrcadlit (zobák dopředu)
       if(L.dir>0) ctx.scale(-1,1);
-      if(d.knocked){
-        const k = Math.min(d.knockT/0.6, 1);
-        ctx.rotate((L.dir>0?1:-1) * k * Math.PI/2);
-        ctx.globalAlpha = 1-k*0.8;
-      }
-      ctx.drawImage(duckSprite, -spriteSz*0.53, -spriteSz*0.75, spriteSz, spriteSz);
+      if(rot > 0) ctx.rotate((L.dir>0?1:-1) * rot);
+      ctx.drawImage(duckSprite, -spriteSz*0.53, -spriteSz*0.37, spriteSz, spriteSz);
       ctx.restore();
 
       // kulatý bar na těle: plní se zásahy, uvnitř aktuální hodnota kachničky
       if(!d.knocked){
         const ringR = spriteSz*0.19;
         const ringX = sx, ringY = sy - spriteSz*0.12;
-        const prog = 1 - d.hp/DUCK_HP;
+        const prog = 1 - d.hp/L.hp;
         ctx.fillStyle = 'rgba(8,16,36,0.55)';
         ctx.beginPath(); ctx.arc(ringX, ringY, ringR, 0, Math.PI*2); ctx.fill();
         if(prog > 0){
