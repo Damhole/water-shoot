@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v40';
-const WS_CHECKSUM = 'water-shoot-v40';
+const WS_VERSION = 'v41';
+const WS_CHECKSUM = 'water-shoot-v41';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -245,82 +245,6 @@ let prevSpraying = false;
 const ribX=new Float32Array(SPINE_MAX), ribY=new Float32Array(SPINE_MAX), ribW=new Float32Array(SPINE_MAX);
 const ribLX=new Float32Array(SPINE_MAX), ribLY=new Float32Array(SPINE_MAX);
 const ribRX=new Float32Array(SPINE_MAX), ribRY=new Float32Array(SPINE_MAX);
-
-// ---- fáborky ----
-// Girlanda nad terči. Každý fáborek visí na šňůře jako kyvadlo — proud vody
-// do něj strčí a on se rozhoupe, pak se sám utlumí zpátky do klidu.
-const BUNT_N = 15;
-const BUNT_Y = 32;            // world výška girlandy — pás mezi HUD a horní dráhou
-const BUNT_LEN = 82;
-const BUNT_W = 54;
-let bunting = [];
-
-function initBunting(){
-  bunting = [];
-  const s = projS(WALL_Z);
-  const halfW = (W/2)/(s*S) + 70;
-  for(let i=0;i<BUNT_N;i++){
-    const t = i/(BUNT_N-1);
-    bunting.push({
-      x: -halfW + 2*halfW*t,
-      y: BUNT_Y - Math.sin(t*Math.PI)*26,   // prověšení šňůry
-      ang: 0, vel: 0, hitCd: 0,
-      tone: i % 5,
-    });
-  }
-}
-
-function updateBunting(dt){
-  for(const b of bunting){
-    if(b.hitCd > 0) b.hitCd -= dt;
-    b.vel += (-b.ang*24 - b.vel*2.6) * dt;   // pružina zpět do svislé polohy
-    b.ang += b.vel * dt;
-    if(b.ang > 1.2){ b.ang = 1.2; b.vel *= -0.4; }
-    if(b.ang < -1.2){ b.ang = -1.2; b.vel *= -0.4; }
-  }
-}
-
-// vrací true, když částice do nějakého fáborku strčila
-function hitBunting(p){
-  if(p.z < WALL_Z-110 || p.y < BUNT_Y - BUNT_LEN - 25 || p.y > BUNT_Y + 40) return false;
-  for(const b of bunting){
-    if(Math.abs(p.x - b.x) > BUNT_W*0.7) continue;
-    b.vel += (p.vx >= 0 ? 4.5 : -4.5) + rand(-1.2, 1.2);
-    if(b.hitCd <= 0){ b.hitCd = 0.1; splashAt(p.x, p.y, p.z, 2, 0); }
-    return true;
-  }
-  return false;
-}
-
-function drawBunting(){
-  const s = projS(WALL_Z);
-  // šňůra
-  ctx.strokeStyle = 'rgba(255,240,200,0.55)';
-  ctx.lineWidth = 2.5*S;
-  ctx.beginPath();
-  for(let i=0;i<bunting.length;i++){
-    const b = bunting[i];
-    const sx = projX(b.x,s), sy = projY(b.y,s);
-    if(i===0) ctx.moveTo(sx,sy); else ctx.lineTo(sx,sy);
-  }
-  ctx.stroke();
-  const TONES = ['#ffd54a','#ff6b6b','#5ad1ff','#7dff8a','#ff9ff3'];
-  const w = BUNT_W*s*S, l = BUNT_LEN*s*S;
-  for(const b of bunting){
-    ctx.save();
-    ctx.translate(projX(b.x,s), projY(b.y,s));
-    ctx.rotate(b.ang);
-    ctx.fillStyle = TONES[b.tone];
-    ctx.beginPath();
-    ctx.moveTo(-w/2, 0); ctx.lineTo(w/2, 0); ctx.lineTo(0, l);
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.2)';          // stín na odvrácené polovině
-    ctx.beginPath();
-    ctx.moveTo(0, 0); ctx.lineTo(w/2, 0); ctx.lineTo(0, l);
-    ctx.closePath(); ctx.fill();
-    ctx.restore();
-  }
-}
 
 // ---- pírka ----
 // Sestřelená kachnička se rozletí v peří: pírka mají vlastní malý pool,
@@ -627,7 +551,6 @@ function resize(){
   cannon.aimSX = W/2; cannon.aimSY = H*0.45;
   prerenderBackground();
   prerenderDuck();
-  initBunting();
   if(running) resetEntities();
 }
 
@@ -997,7 +920,6 @@ function update(dt){
   }
 
   updateFeathers(dt);
-  updateBunting(dt);
 
   // rozstřikové kroužky
   for(const r of rings){
@@ -1154,7 +1076,6 @@ function update(dt){
           if(d2 < CHEST_R*CHEST_R){ hitChest(ch, p, d2 < CHEST_R*CHEST_R*0.25); dead=true; break; }
         }
       }
-      if(!dead) hitBunting(p);
       // dopad na zadní stěnu → splash stékající po stěně
       if(!dead && p.z >= WALL_Z){
         splashAt(p.x, p.y, WALL_Z, Math.min(2, tune.splash), 0);
@@ -1295,7 +1216,6 @@ function hitPopup(t, p, bull){
 // ---------------------------------------------------------------- draw
 function draw(){
   ctx.drawImage(bgCanvas, 0, 0, W, H);
-  drawBunting();
 
   // pop-up terče (na stěně)
   for(const t of popups){

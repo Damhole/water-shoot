@@ -73,3 +73,4 @@ _(neotříděné nápady sem)_
 | v37 | Nová grafika děla podle předlohy: válcové stínování, dvě zlaté obruče, zubatý vzor pod ústím, rozšířené nálevkovité ústí; kresba přepsána do lokální soustavy hlavně | 562e3b9 | 2026-07-30 |
 | v38 | Perspektiva děla: z nadhledu zmizel otvor hlavně (silně zkrácený prstenec místo elipsy s dírou), obruče prohnuté podle válce | 9d2d416 | 2026-07-30 |
 | v39 | Fáborková girlanda nad terči — 15 fáborků, každý kyvadlo s pružinou a tlumením; proud vody je rozhoupe (až ~70°) a samy se vrátí do klidu | 45c6dec | 2026-07-30 |
+| v40 | Hra přejmenována na **Golden Ducks** (cedule, titulek, badge, PWA název); nápis se auto-zmenší podle šířky displeje | ef4c515 | 2026-07-30 |
