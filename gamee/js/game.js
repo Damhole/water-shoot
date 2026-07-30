@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v23';
-const WS_CHECKSUM = 'water-shoot-v23';
+const WS_VERSION = 'v24';
+const WS_CHECKSUM = 'water-shoot-v24';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -1240,12 +1240,22 @@ function drawCurtainHalf(x0, w, dir){
 function drawDuckBadge(x, y, r, prog, value, gold, heat){
   ctx.fillStyle = gold ? 'rgba(80,60,4,0.6)' : 'rgba(8,16,36,0.55)';
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
-  // držená linie prstenec rozžhaví z ledové modré do zlatooranžové
+  // držená linie: ze středu pulzují rozpínající se kruhy („trefuješ správně")
+  // + prstenec se rozžhaví z ledové modré do zlatooranžové
   const h = heat || 0;
   if(h > 0){
-    ctx.strokeStyle = 'rgba(255,190,60,'+(0.25+0.45*h).toFixed(2)+')';
-    ctx.lineWidth = Math.max(1.5, r*(0.12+0.2*h));
-    ctx.beginPath(); ctx.arc(x, y, r*(1.1+0.16*h), 0, Math.PI*2); ctx.stroke();
+    const PULSES = 3;
+    const speed = 1.2 + 1.1*h;                 // delší série = rychlejší tep
+    for(let i=0;i<PULSES;i++){
+      const ph = ((ribbonTime*speed) + i/PULSES) % 1;
+      const a = (1-ph)*(0.35+0.5*h);
+      if(a <= 0.02) continue;
+      ctx.strokeStyle = 'rgba(255,214,90,'+a.toFixed(3)+')';
+      ctx.lineWidth = Math.max(1, r*0.16*(1-ph*0.6));
+      ctx.beginPath();
+      ctx.arc(x, y, r*(0.75 + ph*1.7), 0, Math.PI*2);
+      ctx.stroke();
+    }
   }
   if(prog > 0){
     ctx.strokeStyle = gold ? '#ffd700'

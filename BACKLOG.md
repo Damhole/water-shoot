@@ -53,3 +53,4 @@ _(neotříděné nápady sem)_
 | v20 | Ukazatel vodní nádrže přesunut na levou stranu obrazu | cba2320 | 2026-07-30 |
 | v21 | **Fix:** overlay konce kola se nikdy nezobrazil (crash na chybějícím `overlay-title`); nový vzhled — důvod konce, velké skóre, čas, tlačítko Hrát znovu | 14f7e82 | 2026-07-30 |
 | v22 | Divadelní opona: rozhrnutí na startu kola, zatažení při konci (čas/voda); overlay čeká na zatažení, během rozhrnování stojí čas i stříkání | cccb4d1 | 2026-07-30 |
+| v23 | Držení linie na středu = exponenciální nárůst poškození (×1,25 za zásah, strop ×4, grace 0,3 s); prstenec se rozžhaví do zlaté | 1f533ca | 2026-07-30 |
