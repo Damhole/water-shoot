@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v03';
-const WS_CHECKSUM = 'water-shoot-v03';
+const WS_VERSION = 'v04';
+const WS_CHECKSUM = 'water-shoot-v04';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -66,6 +66,7 @@ const tune = {
   collisions: true,
   additive: false,            // jen pro basic mód
   cartoon: true,              // kreslený proud (stuha + dvoubarevné kapky + kroužky)
+  autoSpray: STRESS,          // demo/stress: samo stříká, krouží, nekonečná voda/čas
 };
 
 // ---- páteř proudu (spine) — uzly pro kreslenou vodní stuhu ----
@@ -73,8 +74,10 @@ const tune = {
 // v screen-space s šířkou podle hloubky. Kosmetika — nedávají damage.
 const SPINE_MAX = 56;
 const spine = new Array(SPINE_MAX);
-for(let i=0;i<SPINE_MAX;i++) spine[i] = {alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,life:0};
+for(let i=0;i<SPINE_MAX;i++) spine[i] = {alive:false,x:0,y:0,z:0,vx:0,vy:0,vz:0,life:0,gen:0};
 let spineHead = 0;
+let spineGen = 0;             // generace stříkání — stuha se mezi generacemi nespojuje
+let prevSpraying = false;
 // pracovní buffery pro stuhu (žádné alokace za běhu)
 const ribX=new Float32Array(SPINE_MAX), ribY=new Float32Array(SPINE_MAX), ribW=new Float32Array(SPINE_MAX);
 const ribLX=new Float32Array(SPINE_MAX), ribLY=new Float32Array(SPINE_MAX);
@@ -327,7 +330,7 @@ const JET_SPEED = 1500;       // world px/s
 function update(dt){
   playTime += dt;
   timeLeft -= dt;
-  if(STRESS){
+  if(tune.autoSpray){
     // auto-spray: míření krouží přes dráhy, zdroje se nevyčerpávají
     cannon.spraying = true;
     cannon.aimSX = W*(0.5 + 0.4*Math.sin(playTime*0.7));
@@ -339,6 +342,9 @@ function update(dt){
   if(timeLeft <= 0){ timeLeft = 0; endRound('Čas vypršel!'); }
 
   // emise proudu — spotřebovává vodu
+  const sprayingNow = cannon.spraying && !over && water > 0;
+  if(sprayingNow && !prevSpraying) spineGen++;   // nový proud = nová generace stuhy
+  prevSpraying = sprayingNow;
   if(cannon.spraying && !over && water > 0){
     water -= WATER_PER_SEC * dt;
     updateWaterBar();
@@ -371,7 +377,7 @@ function update(dt){
       const nd = spine[spineHead];
       spineHead = (spineHead+1)%SPINE_MAX;
       nd.alive=true; nd.x=m.x; nd.y=m.y; nd.z=m.z;
-      nd.vx=vx; nd.vy=vy; nd.vz=vz; nd.life=1.4;
+      nd.vx=vx; nd.vy=vy; nd.vz=vz; nd.life=1.4; nd.gen=spineGen;
     }
   } else emitAccum = 0;
 
@@ -710,10 +716,13 @@ function fillRibbon(n){
 }
 
 function drawJetRibbon(){
-  let n = 0;
+  let n = 0, chainGen = -1;
   for(let k=0;k<SPINE_MAX;k++){
     const nd = spine[(spineHead-1-k+SPINE_MAX)%SPINE_MAX];
     if(nd.alive){
+      // hranice generací = konec stuhy; starý proud doletí jako samostatný kus
+      if(n>0 && nd.gen!==chainGen){ if(n>=2) fillRibbon(n); n=0; }
+      chainGen = nd.gen;
       const s = projS(nd.z);
       ribX[n] = projX(nd.x,s);
       ribY[n] = projY(nd.y,s);
@@ -837,6 +846,12 @@ function setupHUD(){
   const cbc = document.getElementById('cb-cartoon');
   cbc.checked = tune.cartoon;
   cbc.addEventListener('change', ()=>{ tune.cartoon = cbc.checked; });
+  const cbs = document.getElementById('cb-auto');
+  cbs.checked = tune.autoSpray;
+  cbs.addEventListener('change', ()=>{
+    tune.autoSpray = cbs.checked;
+    if(!tune.autoSpray) cannon.spraying = false;   // po vypnutí hned přestat
+  });
 }
 
 // ---------------------------------------------------------------- smyčka
