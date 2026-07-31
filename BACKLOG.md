@@ -80,3 +80,4 @@ _(neotříděné nápady sem)_
 | v44 | **Fix:** královská vznikala odvozeně od sousední kachničky, často až u výjezdu → hráč ji nestihl. Teď vjíždí z náhodného místa vstupní části dráhy, vždy 4,7–11,2 s na obrazovce (medián 7,5) | 300c892 | 2026-07-30 |
 | v45 | Truhla se po otevření potopí pod hladinu (víko zůstává otevřené) místo aby zmizela; stejně mizí i nestihnutá truhla | 3700a49 | 2026-07-30 |
 | v46 | **Fix zaseknutí v duze:** sestřel královské během duhového režimu resetoval `rainbowT` na 10 s a znovu volal `addRainbowDucks()` → nekonečná duha + hromadění kachniček. Nyní královské v duze nepřijíždějí a korunky se nesbírají | a4c4fc2 | 2026-07-30 |
+| v47 | **Fix překryvů:** královská hledá volné místo — 24 kandidátů ve vstupní části dráhy s kontrolou odstupu (76 % překryvů → 0 %, min odstup 1,05× kachnička). Opraveno i míchání drah (Fisher-Yates místo `sort()` s náhodným komparátorem) | e175227 | 2026-07-30 |
