@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v46';
-const WS_CHECKSUM = 'water-shoot-v46';
+const WS_VERSION = 'v47';
+const WS_CHECKSUM = 'water-shoot-v47';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -410,17 +410,44 @@ function spawnSpecial(){
   // Královská se dřív odvozovala od pozice sousední kachničky, takže často
   // vznikla až u výjezdu a hráč ji nestihl. Teď vjíždí z náhodného místa
   // VSTUPNÍ části dráhy — vždycky jí zbývá aspoň 65 % průjezdu obrazovkou.
-  const lane = (Math.random()*LANES.length)|0;
-  const L = LANES[lane];
-  const trackLen = 2*laneRangeX(lane);
-  const s = projS(L.z);
-  const visHalf = (W/2)/(s*S);
-  const margin = L.duckSize*0.6;
-  const span = 2*(visHalf + margin);            // celý průjezd obrazovkou
-  const consumed = rand(0, 0.35);               // kolik z něj už má za sebou
-  const x = -L.dir*(visHalf + margin) + L.dir*consumed*span;
-  const pos = L.dir>0 ? x + trackLen/2 : trackLen/2 - x;
-  special = { lane, pos, x, hp:SPECIAL_HP, state:'rise', t:0, hitCd:0, focus:0, focusT:0 };
+  // Dráhy zkusíme v náhodném pořadí a v každé nasamplujeme několik míst ve
+  // vstupní části. Vybere se to, kde je největší odstup od kachniček — jinak
+  // by královská vyplavala rovnou přes někoho. Rozestup pak drží napořád,
+  // protože královská pluje stejnou rychlostí jako řada.
+  // Fisher-Yates: sort() s náhodným komparátorem nemíchá rovnoměrně
+  // a dráhy by nevycházely stejně často.
+  const lanes = [0,1,2];
+  for(let i=lanes.length-1;i>0;i--){
+    const j = (Math.random()*(i+1))|0;
+    const tmp = lanes[i]; lanes[i] = lanes[j]; lanes[j] = tmp;
+  }
+  let best = null;
+  for(const lane of lanes){
+    const L = LANES[lane];
+    const trackLen = 2*laneRangeX(lane);
+    const s = projS(L.z);
+    const visHalf = (W/2)/(s*S);
+    const margin = L.duckSize*0.6;
+    const span = 2*(visHalf + margin);          // celý průjezd obrazovkou
+    const need = L.duckSize*1.05;               // poloměr královské + kachničky
+    let laneBest = null;
+    for(let i=0;i<24;i++){
+      const consumed = rand(0, 0.45);           // kolik z průjezdu už má za sebou
+      const x = -L.dir*(visHalf + margin) + L.dir*consumed*span;
+      const pos = L.dir>0 ? x + trackLen/2 : trackLen/2 - x;
+      let clear = 1e9;
+      for(const d of ducks){
+        if(d.lane !== lane) continue;
+        let dd = Math.abs(d.pos - pos) % trackLen;
+        clear = Math.min(clear, Math.min(dd, trackLen - dd));
+      }
+      if(!laneBest || clear > laneBest.clear) laneBest = { lane, pos, x, clear };
+      if(clear >= need) break;
+    }
+    if(!best || laneBest.clear > best.clear) best = laneBest;
+    if(laneBest.clear >= need) { best = laneBest; break; }
+  }
+  special = { lane:best.lane, pos:best.pos, x:best.x, hp:SPECIAL_HP, state:'rise', t:0, hitCd:0, focus:0, focusT:0 };
 }
 
 const POPUP_SLOTS = 3;
