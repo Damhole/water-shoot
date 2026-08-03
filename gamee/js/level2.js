@@ -36,8 +36,13 @@ const TOWER = (function(){
   const PUSH_Z   = 9;        // přírůstek rychlosti do hloubky za jeden zásah
   const Z_DAMP   = 0.9;      // tlumení letu do hloubky (1/s)
   const Z_MAX    = 320;      // dál než tohle bedna neodletí (byla by moc malá)
+  // Za touhle hloubkou už bedna není nad bidlem a musí spadnout ZA něj. Fyzika
+  // je 2D a o hloubce neví, takže by ji jinak držela dál nad bidlem a bedna by
+  // dopadla zpátky na něj — vizuálně vzadu, fyzikálně vepředu.
+  const Z_OFF_BEAM = 95;
 
   let boxes = [], beam = null;
+  let letici = [];           // bedny za bidlem — dopad si dopočítají samy
   let state = 'play';        // 'play' | 'won'
   let bg = null;
   let rozbito = 0;
@@ -76,7 +81,7 @@ const TOWER = (function(){
   // ---------------------------------------------------------------- start
   function init(){
     state = 'play'; rozbito = 0;
-    boxes = []; beam = null;
+    boxes = []; beam = null; letici = [];
     if(!FLUID_LF.isAvailable()){ prerenderBackground(); return; }
 
     // Podlaha je TLUSTÝ blok, ne úsečka — do tenké hrany rychlá bedna prolétne.
@@ -120,6 +125,16 @@ const TOWER = (function(){
         h.zOff = Math.min(Z_MAX, (h.zOff || 0) + h.vz * dt * (volna ? 95 : 6));
         h.vz -= h.vz * Math.min(1, Z_DAMP*dt);
       }
+      // odletěla za bidlo → převezmeme ji z fyziky a necháme dopadnout za ním
+      if((h.zOff||0) > Z_OFF_BEAM){
+        letici.push({ x: p.x, y: p.y, vx: p.vx*0.35, vy: p.vy*0.35,
+                      zOff: h.zOff, vz: h.vz||0, rot: p.angle, spin: rand(-2.5, 2.5),
+                      halfW: h.halfW, halfH: h.halfH });
+        FLUID_LF.removeBody(h);
+        boxes.splice(i,1);
+        continue;
+      }
+
       if(p.y < CRASH_Y){
         const sx = projX(p.x, projS(Z)), sy = projY(GROUND + p.y, projS(Z));
         FLUID_LF.removeBody(h);
@@ -130,7 +145,24 @@ const TOWER = (function(){
       }
     }
 
-    if(state === 'play' && boxes.length === 0) state = 'won';
+    // Bedny za bidlem: prostá balistika, dopad na zem je rozbije.
+    for(let i=letici.length-1; i>=0; i--){
+      const f = letici[i];
+      f.vy -= 1400*dt;
+      f.x += f.vx*dt; f.y += f.vy*dt;
+      f.rot += f.spin*dt;
+      f.zOff = Math.min(Z_MAX, f.zOff + f.vz*dt*95);
+      f.vz -= f.vz * Math.min(1, Z_DAMP*dt);
+      if(f.y <= f.halfH){
+        const sd = projS(Z + f.zOff);
+        splashAt(f.x, GROUND + f.halfH, Z + f.zOff, 10, 0);
+        addFloater(projX(f.x, sd), projY(GROUND + f.halfH, sd), 'PRÁSK!');
+        letici.splice(i,1);
+        rozbito++;
+      }
+    }
+
+    if(state === 'play' && boxes.length === 0 && letici.length === 0) state = 'won';
   }
 
   // Zásah proudem bednu NEPOŠKODÍ, jen do ní strčí. Ničení má na starosti pád.
@@ -143,10 +175,13 @@ const TOWER = (function(){
     const h = FLUID_LF.bodyAt(lx, ly);
     if(!h) return false;
 
-    // směr strčení podle toho, odkud voda přilétá
-    const dir = lx >= 0 ? 1 : -1;
-    FLUID_LF.pushBody(h, lx, ly, PUSH*dir*0.5, PUSH*0.10);
-    h.vz = (h.vz || 0) + PUSH_Z*0.01;      // voda letí od hráče → tlačí dozadu
+    // Impulz jde po SKUTEČNÉM směru letu kapky, ne podle toho, na které
+    // polovině obrazu bedna stojí. Proud míří vzhůru a od hráče, takže bedny
+    // odletí nahoru a dozadu — dřív je umělé „strč doleva/doprava" posílalo
+    // jen do stran, což vypadalo ploše.
+    const v = Math.hypot(p.vx, p.vy, p.vz) || 1;
+    FLUID_LF.pushBody(h, lx, ly, PUSH*(p.vx/v)*0.5, PUSH*(p.vy/v)*0.9);
+    h.vz = (h.vz || 0) + PUSH_Z*0.01*Math.max(0.2, p.vz/v);
     if(Math.random() < 0.18) splashAt(p.x, p.y, p.z, 1, 0);
     return true;
   }
@@ -159,23 +194,12 @@ const TOWER = (function(){
   // jejíž šířka roste se vzdáleností od středu obrazu. Stěny se kreslí v lokální
   // soustavě tělesa, takže při otočení se horní stěna natočí do strany — což je
   // u krychle rotující kolem osy do hloubky fyzikálně správně, ne trik.
-  function drawBox(h){
-    const p = FLUID_LF.floaterPos(h);
-    if(!p) return;
-    // vlastní hloubka bedny → vlastní měřítko perspektivy
-    const s = projS(Z + (h.zOff || 0));
-    const scale = s*S;
-    const sx = projX(p.x, s), sy = projY(GROUND + p.y, s);
-    const w = h.halfW*scale, ht = h.halfH*scale;
-    const top = ht*VIEW*2.2;                       // hloubka horní stěny
-    const side = clamp((sx - projX(0, s)) / (W*0.5), -1, 1) * w * 0.5;
-
-
-    ctx.save();
-    ctx.translate(sx, sy);
-    ctx.rotate(-p.angle);
-
-    // boční stěna (odvrácená strana podle polohy na obrazovce)
+  // Krychle ve fake 3D: přední stěna, horní zkosená podle nadhledu a boční,
+  // jejíž šířka roste se vzdáleností od středu obrazu. Stěny se kreslí v lokální
+  // soustavě tělesa, takže při otočení se horní stěna natočí do strany — což je
+  // u krychle rotující kolem osy do hloubky fyzikálně správně, ne trik.
+  function kresliKrychli(w, ht, side){
+    const top = ht*VIEW*2.2;
     if(Math.abs(side) > 1){
       ctx.fillStyle = '#8a5a2b';
       ctx.beginPath();
@@ -184,22 +208,45 @@ const TOWER = (function(){
       ctx.lineTo(dir*w + side, ht - top); ctx.lineTo(dir*w, ht);
       ctx.closePath(); ctx.fill();
     }
-    // horní stěna
     ctx.fillStyle = '#d9a066';
     ctx.beginPath();
     ctx.moveTo(-w, -ht); ctx.lineTo(-w + side, -ht - top);
     ctx.lineTo(w + side, -ht - top); ctx.lineTo(w, -ht);
     ctx.closePath(); ctx.fill();
-    // přední stěna
     const g = ctx.createLinearGradient(-w, 0, w, 0);
     g.addColorStop(0, '#c98a4b'); g.addColorStop(0.5, '#b9793c'); g.addColorStop(1, '#a96b32');
     ctx.fillStyle = g;
     ctx.fillRect(-w, -ht, w*2, ht*2);
-    // spáry prken
     ctx.strokeStyle = 'rgba(90,55,20,0.35)'; ctx.lineWidth = 1.5*S;
     ctx.beginPath(); ctx.moveTo(-w, 0); ctx.lineTo(w, 0); ctx.stroke();
     ctx.strokeStyle = 'rgba(60,35,10,0.7)'; ctx.lineWidth = 2*S;
     ctx.strokeRect(-w, -ht, w*2, ht*2);
+  }
+
+  function drawBox(h){
+    const p = FLUID_LF.floaterPos(h);
+    if(!p) return;
+    const s = projS(Z + (h.zOff || 0));
+    const scale = s*S;
+    const sx = projX(p.x, s), sy = projY(GROUND + p.y, s);
+    const w = h.halfW*scale, ht = h.halfH*scale;
+    const side = clamp((sx - projX(0, s)) / (W*0.5), -1, 1) * w * 0.5;
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(-p.angle);
+    kresliKrychli(w, ht, side);
+    ctx.restore();
+  }
+
+  // Bedna za bidlem: kreslí se stejně jako ta na fyzice, jen si polohu
+  // a otočení nese sama.
+  function drawFlying(f){
+    const s = projS(Z + f.zOff);
+    const scale = s*S;
+    ctx.save();
+    ctx.translate(projX(f.x, s), projY(GROUND + f.y, s));
+    ctx.rotate(-f.rot);
+    kresliKrychli(f.halfW*scale, f.halfH*scale, 0);
     ctx.restore();
   }
 
@@ -229,13 +276,14 @@ const TOWER = (function(){
     // Vzdálenější bedny se kreslí první, aby je bližší překryly — bez toho by
     // se prostorový dojem rozbil hned, jak jedna odletí dozadu.
     const poradi = boxes.slice().sort((a,b)=> (b.zOff||0) - (a.zOff||0));
+    for(const f of letici.slice().sort((a,b)=> b.zOff - a.zOff)) drawFlying(f);
     for(const h of poradi) drawBox(h);
 
     ctx.restore();
   }
 
   function drawHud(){
-    const zbyva = boxes.length;
+    const zbyva = boxes.length + letici.length;
     ctx.font = '700 '+Math.round(15*S)+'px Arial, sans-serif';
     ctx.textAlign = 'right';
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
