@@ -110,6 +110,7 @@ const tune = {
   // za dolet a hráč ho vůbec nezaregistruje.
   jetRampT: 0.7,
   specialMode: true,          // sběr královských kachen → duhový režim
+  fluidMax: 700,              // strop částic kapaliny v puzzlu (test výkonu na mobilu)
 };
 let rampT = 0;                // jak dlouho už tryska nabíhá
 
@@ -2080,6 +2081,13 @@ function setupHUD(){
   bindSlider('sl-splash','splash');
   bindSlider('sl-gain','aimGain');
   bindSlider('sl-ramp','jetRampT');
+  const slF = document.getElementById('sl-fluid');
+  if(slF){
+    const out = document.getElementById('sl-fluid-val');
+    slF.value = tune.fluidMax; out.textContent = tune.fluidMax;
+    slF.addEventListener('input', ()=>{ tune.fluidMax = +slF.value; out.textContent = slF.value;
+      if(isPuzzle()) FLUID.reset(tune.fluidMax); });
+  }
   const cb = document.getElementById('cb-coll');
   cb.checked = tune.collisions;
   cb.addEventListener('change', ()=>{ tune.collisions = cb.checked; });

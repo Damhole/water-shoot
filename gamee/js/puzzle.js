@@ -22,13 +22,23 @@ const PUZZLE = (function(){
   const HOLE_R   = 78;       // poloměr napouštěcího otvoru
   const HOLE_DX  = 92;       // otvor je stranou od osy, ať se musí mířit
 
-  const FILL_PER_HIT = 0.00026;  // kolik hladiny přidá jedna kapka (~10 s přesného míření)
+  const DROPS_PER_HIT = 0.055;   // kolik kapek kapaliny přibude za jednu částici proudu
+  const WIN_LEVEL     = 0.95;    // jak plno musí být, aby kachnička přeplavala okraj
+  // Kolik částic zaplní válec: plocha vnitřku / plocha připadající na částici
+  // při hexagonálním rozložení. Bez tohohle by se naplnění počítalo z výšky
+  // a jediná kapka u okraje by hlásila plno.
+  function fullCount(){
+    const area = 2*(CYL_R-GLASS) * CYL_H;
+    const per  = FLUID.R0*FLUID.R0*0.87;
+    return Math.min(Math.round(area/per), Math.round(FLUID.capacity()*0.85));
+  }
   const TILT_MAX     = 0.30;     // za tímhle náklonem začne voda vyšplíchávat
   const TILT_PER_HIT = 0.02;     // příspěvek jedné kapky do rozhoupání
   const TILT_CAP     = 0.10;     // strop za snímek — bez něj proud válec okamžitě překlopí
   const SPILL_RATE   = 0.16;     // jak rychle uniká při překlonění
 
-  let fill = 0;              // 0..1 hladina uvnitř
+  let fill = 0;              // 0..1 hladina uvnitř (odvozená ze skutečné kapaliny)
+  let dropAcc = 0;           // zbytkové kapky do dalšího spawnu
   let tilt = 0, tiltV = 0;   // náklon na čepu
   let bob = 0;               // pohupování kachničky
   let state = 'play';        // 'play' | 'escape' | 'done'
@@ -111,8 +121,9 @@ const PUZZLE = (function(){
 
   // ---------------------------------------------------------------- start
   function init(){
-    fill = 0; tilt = 0; tiltV = 0; bob = 0;
+    fill = 0; tilt = 0; tiltV = 0; bob = 0; dropAcc = 0;
     state = 'play'; escT = 0; spillT = 0;
+    FLUID.reset(tune.fluidMax);
     prerenderBackground();
   }
 
@@ -120,7 +131,7 @@ const PUZZLE = (function(){
   function holeWorldX(){ return HOLE_DX; }              // střed otvoru
   function waterTopY(){ return CYL_BOT + CYL_H*fill; }  // hladina uvnitř
   function duckWorldY(){
-    // kachnička plave na hladině; než voda dosáhne, sedí na dně
+    // kachnička plave na skutečné hladině kapaliny; než voda dosáhne, sedí na dně
     return Math.max(CYL_BOT + 60, waterTopY() + 40);
   }
 
@@ -137,19 +148,15 @@ const PUZZLE = (function(){
     bob += dt*2.2;
     if(spillT > 0) spillT -= dt;
 
-    // překlopený válec vodu ztrácí
-    if(state === 'play' && Math.abs(tilt) > TILT_MAX && fill > 0){
-      fill = Math.max(0, fill - SPILL_RATE*dt);
-      if(spillT <= 0){
-        spillT = 0.12;
-        const s = projS(CYL_Z);
-        const sx = projX(Math.sign(tilt)*CYL_R, s);
-        splashAt(Math.sign(tilt)*CYL_R, waterTopY(), CYL_Z, 6, 0);
-        addFloater(sx, projY(waterTopY(), s), 'vylévá se!');
-      }
-    }
+    // Krok kapaliny. Simuluje se v lokální soustavě nádoby, takže naklonění
+    // řešíme otočením gravitace — voda se pak sama nakloní a při velkém úhlu
+    // přeteče přes okraj a je nenávratně pryč.
+    const G = 1400;
+    FLUID.step(dt, { R: CYL_R - GLASS, top: CYL_H,
+                     gx: Math.sin(tilt)*G, gy: -Math.cos(tilt)*G });
+    fill = clamp(FLUID.count()/fullCount(), 0, 1);
 
-    if(state === 'play' && fill >= 1){
+    if(state === 'play' && fill >= WIN_LEVEL){
       state = 'escape'; escT = 0;
       const s = projS(CYL_Z);
       escX = projX(0, s); escY = projY(CYL_BOT + CYL_H + 40, s);
@@ -176,9 +183,13 @@ const PUZZLE = (function(){
 
     // trefa do otvoru → přitéká dovnitř
     if(p.y > topY - 30 && p.y < topY + 90 && Math.abs(p.x - hx) < HOLE_R){
-      fill = Math.min(1, fill + FILL_PER_HIT);
-      // dopad na hladinu uvnitř
-      if(Math.random() < 0.25) splashAt(p.x, waterTopY(), CYL_Z, 1, 1);
+      // proud se v nálevce mění na kapalinu, která už si teče sama
+      dropAcc += DROPS_PER_HIT;
+      while(dropAcc >= 1){
+        dropAcc -= 1;
+        FLUID.spawn(HOLE_DX + rand(-24,24), CYL_H - 12, rand(-30,30), -160);
+      }
+      if(Math.random() < 0.12) splashAt(p.x, p.y, CYL_Z, 1, 1);
       return true;
     }
 
@@ -224,26 +235,21 @@ const PUZZLE = (function(){
     ctx.fillStyle = '#b9a583';
     ctx.fillRect(cx - rx*0.16, bottomSy - 6*S, rx*0.32, 20*S);
 
-    // voda uvnitř
-    const wTop = bottomSy - hgt*fill;
-    if(fill > 0.005){
-      const wg = ctx.createLinearGradient(cx-rx, 0, cx+rx, 0);
-      wg.addColorStop(0,'#1c86c8'); wg.addColorStop(0.45,'#5cc8f2'); wg.addColorStop(1,'#1c86c8');
-      ctx.fillStyle = wg;
-      ctx.beginPath();
-      ctx.moveTo(cx-rx, wTop);
-      ctx.lineTo(cx-rx, bottomSy);
-      ctx.ellipse(cx, bottomSy, rx, ry, 0, Math.PI, 0, true);
-      ctx.lineTo(cx+rx, wTop);
-      ctx.closePath(); ctx.fill();
-      // hladina
-      ctx.fillStyle = 'rgba(190,240,255,0.9)';
-      ctx.beginPath(); ctx.ellipse(cx, wTop, rx, ry, 0, 0, Math.PI*2); ctx.fill();
+    // kapalina uvnitř — každá částice na svém místě, ne plochý obdélník
+    if(FLUID.count() > 0){
+      const scale = s*S;
+      const toScreen = (lx, ly) => ({ x: cx + lx*scale, y: bottomSy - ly*scale });
+      ctx.save();
+      ctx.beginPath();                      // ořez tvarem válce, ať netryská skrz sklo
+      ctx.rect(cx-rx, topSy - 40*S, rx*2, (bottomSy-topSy) + 40*S);
+      ctx.clip();
+      FLUID.draw(ctx, toScreen, scale, '#2fa8e0');
+      ctx.restore();
     }
 
     // kachnička uvnitř (dokud neutekla)
     if(state === 'play'){
-      const dy = projY(duckWorldY(), s) + Math.sin(bob)*3*S;
+      const dy = projY(CYL_BOT + Math.max(70, FLUID.surfaceY() + 46), s) + Math.sin(bob)*3*S;
       const sz = 150*s*S;
       ctx.drawImage(duckSprite, cx - sz*0.53, dy - sz*0.75, sz, sz);
     }
@@ -307,6 +313,9 @@ const PUZZLE = (function(){
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#25506e';
     ctx.fillText(Math.round(fill*100)+' %', bx + bw + 6*S, topSy + 10*S);
+    ctx.font = '600 '+Math.round(12*S)+'px Arial, sans-serif';
+    ctx.fillStyle = 'rgba(37,80,110,0.75)';
+    ctx.fillText(FLUID.count()+'/'+FLUID.capacity()+' kapek', bx + bw + 6*S, topSy + 26*S);
     ctx.textBaseline = 'alphabetic';
   }
 

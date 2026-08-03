@@ -48,6 +48,9 @@
   <label>náběh trysky (s)
     <div class="sl-row"><input type="range" id="sl-ramp" min="0" max="1.5" step="0.05"><span class="sl-val" id="sl-ramp-val"></span></div>
   </label>
+  <label>kapalina (částic)
+    <div class="sl-row"><input type="range" id="sl-fluid" min="100" max="1600" step="50"><span class="sl-val" id="sl-fluid-val"></span></div>
+  </label>
   <div class="cb-row">
     <label><input type="checkbox" id="cb-coll"> kolize</label>
     <label><input type="checkbox" id="cb-add"> glow</label>
@@ -70,6 +73,7 @@
 // dev cache-bust — vždy čerstvý game.js
 (function(){
   const t = new URLSearchParams(location.search).get('t') || Date.now();
+  document.write('<scr' + 'ipt src="./js/fluid.js?t=' + encodeURIComponent(t) + '"><\/scr' + 'ipt>');
   document.write('<scr' + 'ipt src="./js/puzzle.js?t=' + encodeURIComponent(t) + '"><\/scr' + 'ipt>');
   document.write('<scr' + 'ipt src="./js/game.js?t=' + encodeURIComponent(t) + '"><\/scr' + 'ipt>');
 })();
