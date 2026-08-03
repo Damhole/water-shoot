@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v64';
-const WS_CHECKSUM = 'water-shoot-v64';
+const WS_VERSION = 'v65';
+const WS_CHECKSUM = 'water-shoot-v65';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -124,7 +124,7 @@ const tune = {
   glThresh: 0.36,             // práh hladiny
   glTintMix: 0.62,            // kolik barvy vody proti prosvítajícímu pozadí
   glWhite: 0.9,               // síla bílé u tenké vody (letící kapky, čepička na hladině)
-  glCap: 0.22,                // jak tlustá vrstva u hladiny ještě bílá je
+  glCap: 0.26,                // šířka bílého lemu u hladiny; ke dnu se zužuje na 18 %
 };
 let rampT = 0;                // jak dlouho už tryska nabíhá
 

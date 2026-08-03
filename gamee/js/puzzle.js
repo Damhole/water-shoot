@@ -294,7 +294,10 @@ const PUZZLE = (function(){
             { pointSize: solver.R0 * scale * tune.glPoint,
               gain: tune.glGain, thresh: tune.glThresh,
               tintMix: tune.glTintMix, white: tune.glWhite,
-              capLo: 0.01, capHi: tune.glCap })
+              capLo: 0.01, capTop: tune.glCap, capBot: tune.glCap * 0.18,
+              // odkud kam se šířka bílé zužuje (v = 1 nahoře plátna)
+              yTop: 1 - toScreen(0, solver.surfaceY()).y / H,
+              yBot: 1 - bottomSy / H })
         : null;
       if(glcv) ctx.drawImage(glcv, 0, 0, W, H);
       else solver.draw(ctx, toScreen, scale, { R: CYL_R - GLASS, top: CYL_H });

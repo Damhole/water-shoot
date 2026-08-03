@@ -64,11 +64,13 @@ const FLUID_GL = (function(){
     uniform vec2 uTexel;
     uniform float uThresh;
     uniform vec3 uTint;
-    uniform vec3 uEdge;
     uniform float uTintMix;
     uniform float uWhite;
     uniform float uCapLo;
-    uniform float uCapHi;
+    uniform float uCapTop;   // šířka bílé u hladiny
+    uniform float uCapBot;   // šířka bílé u dna
+    uniform float uYTop;     // v-souřadnice hladiny (1 = horní okraj plátna)
+    uniform float uYBot;     // v-souřadnice dna nádoby
 
     void main(){
       vec4 f = texture2D(uField, vUv);
@@ -93,29 +95,18 @@ const FLUID_GL = (function(){
       vec3 bg = texture2D(uBg, clamp(vUv - off, 0.001, 0.999)).rgb;
 
       // Tělo vody je JEDNOLITÉ — žádný přechod uvnitř. Ve Where's My Water
-      // není bílá zvláštní veličina: bílá je tenká voda. Letící kapka je malá
+      // není pěna zvláštní veličina: bílá je tenká voda. Letící kapka je malá
       // a tenká, takže je celá bílá; hladina je tenká vrstva, takže má bílou
       // čepičku; hluboké tělo je tlusté, takže je plná barva.
       vec3 col = mix(bg, uTint, uTintMix);
 
-      // bílá podle tloušťky — jediný zdroj bělosti ve scéně
-      float white = 1.0 - smoothstep(uThresh + uCapLo, uThresh + uCapHi, dS);
+      // Bílý lem je u hladiny široký a ke dnu se zužuje — voda je nahoře
+      // rozčeřená a provzdušněná, dole klidná a hluboká. Žádný tmavý obrys:
+      // silueta drží sama alfou.
+      float t = clamp((uYTop - vUv.y) / max(uYTop - uYBot, 0.001), 0.0, 1.0);
+      float capHi = mix(uCapTop, uCapBot, t * t);
+      float white = 1.0 - smoothstep(uThresh + uCapLo, uThresh + capHi, dS);
       col = mix(col, vec3(1.0), white * uWhite);
-
-      // Obrys patří jen k VELKÉMU tělesu. U samostatné kapky hustota nikdy
-      // nevystoupá vysoko nad práh, takže by podmínka „jsem u okraje" platila
-      // v celé kapce a přebarvila ji tmavou — a přitom letící kapky mají být
-      // celé bílé. Široký vzorek pole rozliší okraj tělesa od malé kapky:
-      // kapka má okolí prázdné, okraj tělesa ne.
-      float w1 = texture2D(uField, vUv + vec2(uTexel.x*7.0, 0.0)).r;
-      float w2 = texture2D(uField, vUv - vec2(uTexel.x*7.0, 0.0)).r;
-      float w3 = texture2D(uField, vUv + vec2(0.0, uTexel.y*7.0)).r;
-      float w4 = texture2D(uField, vUv - vec2(0.0, uTexel.y*7.0)).r;
-      float wide = (w1 + w2 + w3 + w4) * 0.25;
-      float body = smoothstep(uThresh * 0.30, uThresh * 0.90, wide);
-
-      float edge = 1.0 - smoothstep(uThresh + 0.005, uThresh + 0.055, dS);
-      col = mix(col, uEdge, edge * 0.8 * body);
 
       gl_FragColor = vec4(col, a);
     }`;
@@ -239,13 +230,14 @@ const FLUID_GL = (function(){
     gl.uniform2f(gl.getUniformLocation(progComp, 'uTexel'), 1/fieldW, 1/fieldH);
     gl.uniform1f(gl.getUniformLocation(progComp, 'uThresh'), o.thresh || 0.34);
     const tint = o.tint || [0.36, 0.74, 0.96];
-    const edge = o.edge || [0.05, 0.36, 0.52];
     gl.uniform3f(gl.getUniformLocation(progComp, 'uTint'), tint[0], tint[1], tint[2]);
-    gl.uniform3f(gl.getUniformLocation(progComp, 'uEdge'), edge[0], edge[1], edge[2]);
     gl.uniform1f(gl.getUniformLocation(progComp, 'uTintMix'), o.tintMix === undefined ? 0.55 : o.tintMix);
     gl.uniform1f(gl.getUniformLocation(progComp, 'uWhite'), o.white === undefined ? 0.9 : o.white);
     gl.uniform1f(gl.getUniformLocation(progComp, 'uCapLo'), o.capLo === undefined ? 0.01 : o.capLo);
-    gl.uniform1f(gl.getUniformLocation(progComp, 'uCapHi'), o.capHi === undefined ? 0.22 : o.capHi);
+    gl.uniform1f(gl.getUniformLocation(progComp, 'uCapTop'), o.capTop === undefined ? 0.26 : o.capTop);
+    gl.uniform1f(gl.getUniformLocation(progComp, 'uCapBot'), o.capBot === undefined ? 0.05 : o.capBot);
+    gl.uniform1f(gl.getUniformLocation(progComp, 'uYTop'), o.yTop === undefined ? 1.0 : o.yTop);
+    gl.uniform1f(gl.getUniformLocation(progComp, 'uYBot'), o.yBot === undefined ? 0.0 : o.yBot);
     const aXY = gl.getAttribLocation(progComp, 'aXY');
     gl.bindBuffer(gl.ARRAY_BUFFER, vboQuad);
     gl.enableVertexAttribArray(aXY);
