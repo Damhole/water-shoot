@@ -28,6 +28,10 @@ const PUZZLE = (function(){
   const GLASS    = 16;       // tloušťka skla
   const HOLE_R   = 78;       // poloměr napouštěcího otvoru
   const HOLE_DX  = 92;       // otvor je stranou od osy, ať se musí mířit
+  // Míra nadhledu: poměr svislé a vodorovné poloosy elips (dno, okraj, otvor).
+  // 0 = čistě zepředu, 0,3 = pohled hodně shora. Držíme se nízko — scéna má být
+  // z lehkého nadhledu, ne z ptačí perspektivy.
+  const VIEW = 0.13;
 
   // Kolik kapaliny přibude za jednu částici proudu. NEDÁVAT natvrdo: cíl se
   // mění s velikostí kapek (plocha na částici roste s druhou mocninou poloměru)
@@ -110,20 +114,21 @@ const PUZZLE = (function(){
     tile.addColorStop(1,'#e3d7c2');
     g.fillStyle = tile; g.fillRect(0,horizon+edgeH,W,H-horizon-edgeH);
 
-    // spáry: podélné sbíhající se k úběžníku
+    // Spáry podlahy. Sbíhavost držíme malou — scéna je z lehkého nadhledu,
+    // takže podlaha nesmí utíkat do dálky jako u pohledu shora.
     g.strokeStyle = 'rgba(150,132,104,0.35)';
     g.lineWidth = 1.6*S;
-    for(let k=-7;k<=7;k++){
+    for(let k=-9;k<=9;k++){
       g.beginPath();
-      g.moveTo(VPX + k*70*S*0.45, horizon+edgeH);
-      g.lineTo(VPX + k*70*S*2.6, H);
+      g.moveTo(VPX + k*70*S*0.92, horizon+edgeH);
+      g.lineTo(VPX + k*70*S*1.18, H);
       g.stroke();
     }
-    // spáry: příčné, s rostoucím rozestupem směrem k divákovi
-    let y = horizon+edgeH, step = 10*S;
+    // příčné spáry: skoro rovnoměrné, jen mírně se rozestupující
+    let y = horizon+edgeH, step = 30*S;
     while(y < H){
       g.beginPath(); g.moveTo(0,y); g.lineTo(W,y); g.stroke();
-      y += step; step *= 1.28;
+      y += step; step *= 1.07;
     }
 
     // sluneční zář na kachlících pod válcem
@@ -255,7 +260,7 @@ const PUZZLE = (function(){
     const topSy = projY(CYL_BOT + CYL_H, s);
     const rx = CYL_R*s*S;
     const hgt = bottomSy - topSy;
-    const ry = rx*0.26;                 // zploštění elipsy dané nadhledem
+    const ry = rx*VIEW;                 // zploštění elipsy dané nadhledem
 
     ctx.save();
     ctx.translate(cx, bottomSy);
@@ -273,8 +278,14 @@ const PUZZLE = (function(){
       const scale = s*S;
       const toScreen = (lx, ly) => ({ x: cx + lx*scale, y: bottomSy - ly*scale });
       ctx.save();
-      ctx.beginPath();                      // ořez tvarem válce, ať netryská skrz sklo
-      ctx.rect(cx-rx, topSy - 40*S, rx*2, (bottomSy-topSy) + 40*S);
+      // Ořez kopíruje SKUTEČNÝ tvar válce i s vykrouženým dnem. S obdélníkem
+      // měla voda dole rovnou hranu, zatímco sklo oblouk — a bylo to vidět.
+      ctx.beginPath();
+      ctx.moveTo(cx-rx, topSy - 40*S);
+      ctx.lineTo(cx-rx, bottomSy);
+      ctx.ellipse(cx, bottomSy, rx, ry, 0, Math.PI, 0, true);   // přední oblouk dna
+      ctx.lineTo(cx+rx, topSy - 40*S);
+      ctx.closePath();
       ctx.clip();
       const solver = F();
       const glcv = tune.glFluid && FLUID_GL.available()
@@ -318,12 +329,12 @@ const PUZZLE = (function(){
     const hx = projX(holeWorldX(), s);
     const hr = HOLE_R*s*S;
     ctx.fillStyle = '#e8a33a';
-    ctx.beginPath(); ctx.ellipse(hx, topSy, hr, hr*0.34, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(hx, topSy, hr, hr*VIEW*1.3, 0, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle = '#3a2a12';
-    ctx.beginPath(); ctx.ellipse(hx, topSy, hr*0.68, hr*0.22, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(hx, topSy, hr*0.68, hr*VIEW*0.85, 0, 0, Math.PI*2); ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.5)';
     ctx.lineWidth = 2*S;
-    ctx.beginPath(); ctx.ellipse(hx, topSy, hr, hr*0.34, 0, Math.PI*1.1, Math.PI*1.9); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(hx, topSy, hr, hr*VIEW*1.3, 0, Math.PI*1.1, Math.PI*1.9); ctx.stroke();
 
     ctx.restore();
 
