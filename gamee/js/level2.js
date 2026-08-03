@@ -259,11 +259,11 @@ const TOWER = (function(){
         vx: sx*rand(40,130), vy: rand(90,240), vz: rand(-25,45),
         rot: rand(0,6.28), spin: rand(-7,7),
         pul: pulHrana*rand(0.34,0.52),
-        life: rand(0.7,1.2), mat,
+        life: rand(0.32,0.55), mat,
       });
     }
     // prachový prstenec na zemi
-    prach.push({ x, z, r: pulHrana*0.6, t: 0, dl: 0.45 });
+    prach.push({ x, z, r: pulHrana*0.6, t: 0, dl: 0.3 });
     odstrelTrisky(x, y, z, mat, 14, 130);
   }
 
@@ -301,11 +301,17 @@ const TOWER = (function(){
     }
     for(const k of kusy){
       const sd = projS(Z + k.z), sc = sd*S;
+      const w = k.pul*sc;
       ctx.save();
-      ctx.globalAlpha = Math.min(1, k.life*2.5);
+      ctx.globalAlpha = Math.min(1, k.life*3.5);
       ctx.translate(projX(k.x, sd), projY(GROUND + k.y, sd));
       ctx.rotate(-k.rot);
-      kresliKrychli(k.pul*sc, k.pul*sc, k.pul*sc*0.25, k.mat);
+      // Úlomek je PROSTÁ KOSTIČKA bez detailů bedny. S horní stěnou, spárou
+      // a obrysem se v malém četl jako mini bedna, ne jako kus rozbité.
+      ctx.fillStyle = k.mat.predek[1];
+      ctx.fillRect(-w, -w, w*2, w*2);
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(-w, w*0.35, w*2, w*0.65);
       ctx.restore();
     }
     ctx.globalAlpha = 1;
