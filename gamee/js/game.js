@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v69';
-const WS_CHECKSUM = 'water-shoot-v69';
+const WS_VERSION = 'v70';
+const WS_CHECKSUM = 'water-shoot-v70';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -16,6 +16,81 @@ const STRESS = WS_PARAMS.get('stress') === '1';
 let MODE = (WS_PARAMS.get('mode') === 'puzzle') ? 'puzzle' : 'ducks';
 const isPuzzle = () => MODE === 'puzzle';
 const otherMode = () => isPuzzle() ? 'ducks' : 'puzzle';
+
+// ---------------------------------------------------------------- nastavení
+// Hodnoty z ⚙ HUD se ukládají samy, aby se doladěný vzhled neztratil refreshem.
+// Výchozí sada se drží stranou, aby se šlo kdykoli vrátit.
+const TUNE_KEY = 'golden-ducks-tune-v1';
+let TUNE_DEFAULTS = null;          // naplní se hned po definici tune
+
+// Který posuvník/zaškrtávátko patří ke které hodnotě. Slouží k obnovení
+// ovládacích prvků po návratu na výchozí (jinak by v HUD zůstala stará čísla).
+const HUD_MAP = {
+  sliders: [
+    ['sl-max','maxParticles'], ['sl-rate','emitRate'], ['sl-size','size'],
+    ['sl-splash','splash'], ['sl-gain','aimGain'], ['sl-ramp','jetRampT'],
+    ['sl-fluid','fluidMax'], ['sl-fill','fillSeconds', v=>v+' s'],
+    ['sl-drop','dropSize'],
+    ['sl-glpoint','glPoint', v=>v.toFixed(1)],
+    ['sl-glthresh','glThresh', v=>v.toFixed(2)],
+    ['sl-gltint','glTintMix', v=>v.toFixed(2)],
+    ['sl-glcap','glCap', v=>v.toFixed(2)],
+  ],
+  checks: [
+    ['cb-coll','collisions'], ['cb-add','additive'], ['cb-cartoon','cartoon'],
+    ['cb-special','specialMode'], ['cb-lf','lfFluid'], ['cb-gl','glFluid'],
+    ['cb-rel','relativeAim'], ['cb-auto','autoSpray'],
+  ],
+};
+
+function saveTune(){
+  try{ localStorage.setItem(TUNE_KEY, JSON.stringify(tune)); }
+  catch(e){ /* soukromý režim nebo zamčené úložiště — nevadí, jen se neuloží */ }
+}
+
+// Bereme jen klíče, které známe, a jen se sedícím typem. Uložená data můžou být
+// z jiné verze hry a neznámý klíč by tiše rozbil ladění.
+function loadTune(){
+  let raw = null;
+  try{ raw = localStorage.getItem(TUNE_KEY); }catch(e){ return false; }
+  if(!raw) return false;
+  let data;
+  try{ data = JSON.parse(raw); }catch(e){ return false; }
+  let n = 0;
+  for(const k of Object.keys(TUNE_DEFAULTS)){
+    if(!(k in data)) continue;
+    const def = TUNE_DEFAULTS[k], val = data[k];
+    if(Array.isArray(def)){
+      if(Array.isArray(val) && val.length === def.length){ tune[k] = val.slice(); n++; }
+    } else if(typeof def === typeof val){ tune[k] = val; n++; }
+  }
+  return n > 0;
+}
+
+function resetTune(){
+  for(const k of Object.keys(TUNE_DEFAULTS)){
+    const def = TUNE_DEFAULTS[k];
+    tune[k] = Array.isArray(def) ? def.slice() : def;
+  }
+  try{ localStorage.removeItem(TUNE_KEY); }catch(e){}
+  syncHUD();
+  if(isPuzzle()) PUZZLE.resetFluid();
+}
+
+// Přepíše ovládací prvky podle aktuálních hodnot (po načtení i po resetu).
+function syncHUD(){
+  for(const [id, key, fmt] of HUD_MAP.sliders){
+    const el = document.getElementById(id);
+    if(!el) continue;
+    el.value = tune[key];
+    const out = document.getElementById(id+'-val');
+    if(out) out.textContent = fmt ? fmt(tune[key]) : tune[key];
+  }
+  for(const [id, key] of HUD_MAP.checks){
+    const el = document.getElementById(id);
+    if(el) el.checked = tune[key];
+  }
+}
 
 // ---------------------------------------------------------------- util
 function _safeGamee(fn){ try{ fn(); }catch(e){ console.warn('[gamee]', e); } }
@@ -123,11 +198,19 @@ const tune = {
   glGain:  0.034,             // kolik hustoty přidá jedna částice
   glThresh: 0.36,             // práh hladiny
   glTint: [0.16, 0.60, 0.97], // odstín vody (RGB 0-1)
-  glTintMix: 0.76,            // kolik barvy vody proti prosvítajícímu pozadí
+  glTintMix: 0.75,            // kolik barvy vody proti prosvítajícímu pozadí
                               // (nad ~0,85 voda přestane být průhledná)
   glWhite: 0.9,               // síla bílé u tenké vody (letící kapky, čepička na hladině)
   glCap: 0.26,                // šířka bílého lemu u hladiny; ke dnu se zužuje na 18 %
 };
+
+// Kopie výchozích hodnot — z ní se obnovuje „vrátit na výchozí". Pole se musí
+// kopírovat zvlášť, jinak by reset vracel odkaz na tentýž objekt.
+TUNE_DEFAULTS = (function(){
+  const d = {};
+  for(const k of Object.keys(tune)) d[k] = Array.isArray(tune[k]) ? tune[k].slice() : tune[k];
+  return d;
+})();
 let rampT = 0;                // jak dlouho už tryska nabíhá
 
 // ---------------------------------------------------------------- mince
@@ -2084,6 +2167,22 @@ function setupHUD(){
     parts: document.getElementById('pf-parts'),
   };
   document.getElementById('hud-toggle').addEventListener('click', ()=>{ panel.hidden = !panel.hidden; });
+
+  // Uložené nastavení se načte JEŠTĚ PŘED navázáním ovládacích prvků, aby
+  // posuvníky rovnou ukazovaly obnovené hodnoty.
+  if(loadTune()) console.log('[WS] nastavení obnoveno z prohlížeče');
+
+  // Ukládá se samo při každé změně — jedna obsluha na celém panelu místo
+  // dopisování do každého posuvníku zvlášť.
+  panel.addEventListener('input',  saveTune);
+  panel.addEventListener('change', saveTune);
+
+  const btnReset = document.getElementById('tune-reset');
+  if(btnReset) btnReset.addEventListener('click', ()=>{
+    resetTune();
+    btnReset.textContent = 'vráceno ✓';
+    setTimeout(()=>{ btnReset.textContent = '↺ výchozí hodnoty'; }, 1200);
+  });
 
   function bindSlider(id, key){
     const el = document.getElementById(id), out = document.getElementById(id+'-val');
