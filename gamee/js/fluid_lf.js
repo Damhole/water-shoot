@@ -172,6 +172,16 @@ const FLUID_LF = (function(){
     fd.density = density === undefined ? 4 : density;
     fd.friction = 0.6;
     fd.restitution = 0.02;
+    // Hloubkové vrstvy: 2D simulace o hloubce neví, takže dvě bedny stojící
+    // za sebou by se srazily, i když je mezi nimi kus prostoru. Každá vrstva
+    // proto dostane vlastní bit a sráží se jen sama se sebou a se statickými
+    // tělesy (zem, bidlo), která jsou hluboká přes všechny vrstvy.
+    if(o.layer !== undefined || o.static){
+      const f2 = new B.b2Filter();
+      if(o.static){ f2.categoryBits = 0x8000; f2.maskBits = 0xFFFF; }
+      else { f2.categoryBits = (1 << o.layer); f2.maskBits = (1 << o.layer) | 0x8000; }
+      fd.filter = f2;
+    }
     body.CreateFixture(fd);
     const h = { body, halfW, halfH, hp: hp === undefined ? 100 : hp,
                 hp0: hp === undefined ? 100 : hp, box: true, alive: true,

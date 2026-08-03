@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v79';
-const WS_CHECKSUM = 'water-shoot-v79';
+const WS_VERSION = 'v80';
+const WS_CHECKSUM = 'water-shoot-v80';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.

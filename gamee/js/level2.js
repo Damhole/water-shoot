@@ -29,17 +29,20 @@ const TOWER = (function(){
   // Pod touhle výškou se bedna počítá za dopadlou na zem a rozbije se.
   const CRASH_Y  = BOX*0.85;
 
-  // Odhazování DO HLOUBKY. Simulace je 2D, takže se hloubka nesimuluje — každá
-  // bedna si nese vlastní posun v ose z, který se promítne do perspektivy:
-  // čím dál doletí, tím je menší a tím blíž k úběžníku. Voda přilétá od hráče,
-  // takže je logické, že bedny odhazuje od nás.
+  // HLOUBKA JAKO PLNOHODNOTNÁ SOUŘADNICE.
+  //
+  // Box2D počítá boční pohled (x, y) — gravitaci, stohování, otáčení. Hloubku z
+  // si vede scéna sama: nemá gravitaci, jen setrvačnost a odpor. Podpory mají
+  // hloubkový rozsah, takže „bedna spadla za bidlo" NENÍ prahová podmínka, ale
+  // fyzikální důsledek — její z vyjelo z rozsahu bidla, tedy ji nemá co držet.
+  //
+  // Co takhle nejde: převalení krychle přes hranu do hloubky. Rotace ve 2D má
+  // jeden stupeň volnosti, ve 3D tři — to není otázka implementace, ale rozměru.
   const PUSH_Z   = 9;        // přírůstek rychlosti do hloubky za jeden zásah
-  const Z_DAMP   = 0.9;      // tlumení letu do hloubky (1/s)
-  const Z_MAX    = 320;      // dál než tohle bedna neodletí (byla by moc malá)
-  // Za touhle hloubkou už bedna není nad bidlem a musí spadnout ZA něj. Fyzika
-  // je 2D a o hloubce neví, takže by ji jinak držela dál nad bidlem a bedna by
-  // dopadla zpátky na něj — vizuálně vzadu, fyzikálně vepředu.
-  const Z_OFF_BEAM = 95;
+  const Z_DAMP   = 0.9;      // odpor prostředí v ose z (1/s)
+  const Z_MAX    = 320;      // dál bedna neodletí (byla by na obrazovce moc malá)
+  const BEAM_ZH  = 78;       // hloubková polovina bidla — co vyjede ven, spadne
+  const ROW_Z    = 42;       // rozestup dvou řad beden do hloubky
 
   let boxes = [], beam = null;
   let letici = [];           // bedny za bidlem — dopad si dopočítají samy
@@ -91,17 +94,22 @@ const TOWER = (function(){
     // bidlo, na kterém všechno stojí
     beam = FLUID_LF.addBox(0, BEAM_Y, BEAM_HW, BEAM_HH, 0, 1, { static: true });
 
-    // Bedny na bidle: spodní řada přes celou délku, na ní kratší patro.
+    // Bedny stojí ve DVOU HLOUBKOVÝCH ŘADÁCH za sebou. Každá řada je vlastní
+    // kolizní vrstva, takže se navzájem neprostupují ani nesrážejí — 2D fyzika
+    // o hloubce neví a bez toho by bedna z přední řady stála na zadní.
     const y0 = BEAM_Y + BEAM_HH + BOX/2;
-    for(let i=0;i<5;i++){
-      const x = (i-2)*(BOX*1.06);
-      const h = FLUID_LF.addBox(x, y0, BOX/2, BOX/2, 2.2, 1);
-      if(h){ h.zOff = 0; h.vz = 0; boxes.push(h); }
-    }
-    for(let i=0;i<3;i++){
-      const x = (i-1)*(BOX*1.06);
-      const h = FLUID_LF.addBox(x, y0 + BOX*1.02, BOX/2, BOX/2, 2.2, 1);
-      if(h){ h.zOff = 0; h.vz = 0; boxes.push(h); }
+    const rady = [{ layer: 0, z: -ROW_Z, n: 4 }, { layer: 1, z: ROW_Z, n: 4 }];
+    for(const rada of rady){
+      for(let i=0;i<rada.n;i++){
+        const x = (i-(rada.n-1)/2)*(BOX*1.08);
+        const h = FLUID_LF.addBox(x, y0, BOX/2, BOX/2, 2.2, 1, { layer: rada.layer });
+        if(h){ h.z = rada.z; h.vz = 0; boxes.push(h); }
+      }
+      for(let i=0;i<2;i++){
+        const x = (i-0.5)*(BOX*1.08);
+        const h = FLUID_LF.addBox(x, y0 + BOX*1.02, BOX/2, BOX/2, 2.2, 1, { layer: rada.layer });
+        if(h){ h.z = rada.z; h.vz = 0; boxes.push(h); }
+      }
     }
     prerenderBackground();
   }
@@ -118,17 +126,20 @@ const TOWER = (function(){
       const p = FLUID_LF.floaterPos(h);
       if(!p) { boxes.splice(i,1); continue; }
 
-      // Let do hloubky. Dokud bedna stojí na bidle, drží ji sousedé a stojka,
-      // takže se posouvá jen nepatrně; jakmile se dá do pohybu, pustí se.
+      // Pohyb v ose z: bez gravitace, jen setrvačnost a odpor prostředí.
+      // Dokud bedna stojí sevřená mezi sousedy, drží ji tření — proto se
+      // v klidu posouvá jen zlomkem rychlosti.
       if(h.vz){
         const volna = Math.abs(p.vy) > 12 || Math.abs(p.vx) > 12;
-        h.zOff = Math.min(Z_MAX, (h.zOff || 0) + h.vz * dt * (volna ? 95 : 6));
+        h.z = clamp((h.z || 0) + h.vz * dt * (volna ? 95 : 6), -Z_MAX, Z_MAX);
         h.vz -= h.vz * Math.min(1, Z_DAMP*dt);
       }
-      // odletěla za bidlo → převezmeme ji z fyziky a necháme dopadnout za ním
-      if((h.zOff||0) > Z_OFF_BEAM){
+
+      // Vyjela z hloubkového rozsahu bidla → nemá ji co držet. Fyzika je 2D
+      // a o tom neví, takže si ji od téhle chvíle vede scéna sama.
+      if(Math.abs(h.z || 0) > BEAM_ZH){
         letici.push({ x: p.x, y: p.y, vx: p.vx*0.35, vy: p.vy*0.35,
-                      zOff: h.zOff, vz: h.vz||0, rot: p.angle, spin: rand(-2.5, 2.5),
+                      z: h.z, vz: h.vz||0, rot: p.angle, spin: rand(-2.5, 2.5),
                       halfW: h.halfW, halfH: h.halfH });
         FLUID_LF.removeBody(h);
         boxes.splice(i,1);
@@ -151,11 +162,11 @@ const TOWER = (function(){
       f.vy -= 1400*dt;
       f.x += f.vx*dt; f.y += f.vy*dt;
       f.rot += f.spin*dt;
-      f.zOff = Math.min(Z_MAX, f.zOff + f.vz*dt*95);
+      f.z = clamp(f.z + f.vz*dt*95, -Z_MAX, Z_MAX);
       f.vz -= f.vz * Math.min(1, Z_DAMP*dt);
       if(f.y <= f.halfH){
-        const sd = projS(Z + f.zOff);
-        splashAt(f.x, GROUND + f.halfH, Z + f.zOff, 10, 0);
+        const sd = projS(Z + f.z);
+        splashAt(f.x, GROUND + f.halfH, Z + f.z, 10, 0);
         addFloater(projX(f.x, sd), projY(GROUND + f.halfH, sd), 'PRÁSK!');
         letici.splice(i,1);
         rozbito++;
@@ -226,7 +237,7 @@ const TOWER = (function(){
   function drawBox(h){
     const p = FLUID_LF.floaterPos(h);
     if(!p) return;
-    const s = projS(Z + (h.zOff || 0));
+    const s = projS(Z + (h.z || 0));
     const scale = s*S;
     const sx = projX(p.x, s), sy = projY(GROUND + p.y, s);
     const w = h.halfW*scale, ht = h.halfH*scale;
@@ -241,7 +252,7 @@ const TOWER = (function(){
   // Bedna za bidlem: kreslí se stejně jako ta na fyzice, jen si polohu
   // a otočení nese sama.
   function drawFlying(f){
-    const s = projS(Z + f.zOff);
+    const s = projS(Z + f.z);
     const scale = s*S;
     ctx.save();
     ctx.translate(projX(f.x, s), projY(GROUND + f.y, s));
@@ -275,8 +286,8 @@ const TOWER = (function(){
 
     // Vzdálenější bedny se kreslí první, aby je bližší překryly — bez toho by
     // se prostorový dojem rozbil hned, jak jedna odletí dozadu.
-    const poradi = boxes.slice().sort((a,b)=> (b.zOff||0) - (a.zOff||0));
-    for(const f of letici.slice().sort((a,b)=> b.zOff - a.zOff)) drawFlying(f);
+    const poradi = boxes.slice().sort((a,b)=> (b.z||0) - (a.z||0));
+    for(const f of letici.slice().sort((a,b)=> b.z - a.z)) drawFlying(f);
     for(const h of poradi) drawBox(h);
 
     ctx.restore();
