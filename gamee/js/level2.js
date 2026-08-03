@@ -17,14 +17,28 @@ const TOWER = (function(){
   const GROUND   = -560;     // úroveň dlažby (world y)
   const VIEW     = 0.13;     // stejný lehký nadhled jako u nádoby
 
-  const BOX      = 46;       // hrana bedny
+  const BOX      = 44;       // hrana bedny
   const BEAM_Y   = 250;      // výška bidla nad zemí
-  const BEAM_HW  = 175;      // poloviční délka bidla
-  const BEAM_HH  = 12;       // poloviční tloušťka bidla
+  const BEAM_HW  = 258;      // poloviční délka bidla
+  const BEAM_HH  = 13;       // poloviční tloušťka bidla
+
+  // Materiály. Rozdíl dělá HUSTOTA — těžší bedna se při stejném impulzu vody
+  // pohne míň, takže shoditelnost vyjde z fyziky a nemusí se nikde zvlášť
+  // zařizovat. Kámen je čtyřikrát těžší než dřevo.
+  const MAT = {
+    drevo: { hustota: 1.3,
+             vrch:'#d9a066', bok:'#8a5a2b',
+             predek:['#c98a4b','#b9793c','#a96b32'],
+             spara:'rgba(90,55,20,0.35)', obrys:'rgba(60,35,10,0.7)' },
+    kamen: { hustota: 11,
+             vrch:'#cdd2d6', bok:'#6d747b',
+             predek:['#b3b9bf','#9ba1a8','#888e95'],
+             spara:'rgba(45,52,60,0.30)', obrys:'rgba(48,54,60,0.75)' },
+  };
 
   // Impulz od jedné částice. Jediná veličina, která řídí obtížnost — čím míň,
   // tím déle trvá bednu dostrkat přes okraj.
-  const PUSH     = 26;
+  const PUSH     = 17;
 
   // Pod touhle výškou se bedna počítá za dopadlou na zem a rozbije se.
   const CRASH_Y  = BOX*0.85;
@@ -97,19 +111,27 @@ const TOWER = (function(){
     // Bedny stojí ve DVOU HLOUBKOVÝCH ŘADÁCH za sebou. Každá řada je vlastní
     // kolizní vrstva, takže se navzájem neprostupují ani nesrážejí — 2D fyzika
     // o hloubce neví a bez toho by bedna z přední řady stála na zadní.
+    //
+    // Skladba materiálů dělá hádanku: kamenný základ se nedá odfouknout, takže
+    // se musí začít od dřeva nahoře, nebo do kamene tlačit dlouho.
     const y0 = BEAM_Y + BEAM_HH + BOX/2;
-    const rady = [{ layer: 0, z: -ROW_Z, n: 4 }, { layer: 1, z: ROW_Z, n: 4 }];
-    for(const rada of rady){
-      for(let i=0;i<rada.n;i++){
-        const x = (i-(rada.n-1)/2)*(BOX*1.08);
-        const h = FLUID_LF.addBox(x, y0, BOX/2, BOX/2, 2.2, 1, { layer: rada.layer });
-        if(h){ h.z = rada.z; h.vz = 0; boxes.push(h); }
-      }
-      for(let i=0;i<2;i++){
-        const x = (i-0.5)*(BOX*1.08);
-        const h = FLUID_LF.addBox(x, y0 + BOX*1.02, BOX/2, BOX/2, 2.2, 1, { layer: rada.layer });
-        if(h){ h.z = rada.z; h.vz = 0; boxes.push(h); }
-      }
+    const patra = [
+      { n: 6, mat: 'kamen' },
+      { n: 5, mat: 'drevo' },
+      { n: 4, mat: 'kamen' },
+      { n: 3, mat: 'drevo' },
+      { n: 2, mat: 'drevo' },
+    ];
+    for(const rada of [{ layer: 0, z: -ROW_Z }, { layer: 1, z: ROW_Z }]){
+      patra.forEach((patro, r) => {
+        for(let i=0;i<patro.n;i++){
+          const x = (i-(patro.n-1)/2)*(BOX*1.07);
+          const y = y0 + r*(BOX*1.03);
+          const m = MAT[patro.mat];
+          const h = FLUID_LF.addBox(x, y, BOX/2, BOX/2, m.hustota, 1, { layer: rada.layer });
+          if(h){ h.z = rada.z; h.vz = 0; h.mat = m; boxes.push(h); }
+        }
+      });
     }
     prerenderBackground();
   }
@@ -140,7 +162,7 @@ const TOWER = (function(){
       if(Math.abs(h.z || 0) > BEAM_ZH){
         letici.push({ x: p.x, y: p.y, vx: p.vx*0.35, vy: p.vy*0.35,
                       z: h.z, vz: h.vz||0, rot: p.angle, spin: rand(-2.5, 2.5),
-                      halfW: h.halfW, halfH: h.halfH });
+                      halfW: h.halfW, halfH: h.halfH, mat: h.mat });
         FLUID_LF.removeBody(h);
         boxes.splice(i,1);
         continue;
@@ -209,28 +231,29 @@ const TOWER = (function(){
   // jejíž šířka roste se vzdáleností od středu obrazu. Stěny se kreslí v lokální
   // soustavě tělesa, takže při otočení se horní stěna natočí do strany — což je
   // u krychle rotující kolem osy do hloubky fyzikálně správně, ne trik.
-  function kresliKrychli(w, ht, side){
+  function kresliKrychli(w, ht, side, m){
+    m = m || MAT.drevo;
     const top = ht*VIEW*2.2;
     if(Math.abs(side) > 1){
-      ctx.fillStyle = '#8a5a2b';
+      ctx.fillStyle = m.bok;
       ctx.beginPath();
       const dir = side > 0 ? 1 : -1;
       ctx.moveTo(dir*w, -ht); ctx.lineTo(dir*w + side, -ht - top);
       ctx.lineTo(dir*w + side, ht - top); ctx.lineTo(dir*w, ht);
       ctx.closePath(); ctx.fill();
     }
-    ctx.fillStyle = '#d9a066';
+    ctx.fillStyle = m.vrch;
     ctx.beginPath();
     ctx.moveTo(-w, -ht); ctx.lineTo(-w + side, -ht - top);
     ctx.lineTo(w + side, -ht - top); ctx.lineTo(w, -ht);
     ctx.closePath(); ctx.fill();
     const g = ctx.createLinearGradient(-w, 0, w, 0);
-    g.addColorStop(0, '#c98a4b'); g.addColorStop(0.5, '#b9793c'); g.addColorStop(1, '#a96b32');
+    g.addColorStop(0, m.predek[0]); g.addColorStop(0.5, m.predek[1]); g.addColorStop(1, m.predek[2]);
     ctx.fillStyle = g;
     ctx.fillRect(-w, -ht, w*2, ht*2);
-    ctx.strokeStyle = 'rgba(90,55,20,0.35)'; ctx.lineWidth = 1.5*S;
+    ctx.strokeStyle = m.spara; ctx.lineWidth = 1.5*S;
     ctx.beginPath(); ctx.moveTo(-w, 0); ctx.lineTo(w, 0); ctx.stroke();
-    ctx.strokeStyle = 'rgba(60,35,10,0.7)'; ctx.lineWidth = 2*S;
+    ctx.strokeStyle = m.obrys; ctx.lineWidth = 2*S;
     ctx.strokeRect(-w, -ht, w*2, ht*2);
   }
 
@@ -245,7 +268,7 @@ const TOWER = (function(){
     ctx.save();
     ctx.translate(sx, sy);
     ctx.rotate(-p.angle);
-    kresliKrychli(w, ht, side);
+    kresliKrychli(w, ht, side, h.mat);
     ctx.restore();
   }
 
@@ -257,7 +280,7 @@ const TOWER = (function(){
     ctx.save();
     ctx.translate(projX(f.x, s), projY(GROUND + f.y, s));
     ctx.rotate(-f.rot);
-    kresliKrychli(f.halfW*scale, f.halfH*scale, 0);
+    kresliKrychli(f.halfW*scale, f.halfH*scale, 0, f.mat);
     ctx.restore();
   }
 
