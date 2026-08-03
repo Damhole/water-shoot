@@ -57,6 +57,7 @@ const PUZZLE = (function(){
   let dropAcc = 0;           // zbytkové kapky do dalšího spawnu
   let tilt = 0, tiltV = 0;   // náklon na čepu
   let bob = 0;               // pohupování kachničky
+  let duckY = -1;            // vyhlazená výška plavání (hladina sama poskakuje s vlnami)
   let state = 'play';        // 'play' | 'escape' | 'done'
   let escT = 0;              // čas útěku
   let escX = 0, escY = 0;    // pozice kachničky při útěku
@@ -149,7 +150,7 @@ const PUZZLE = (function(){
 
   function init(){
     fill = 0; tilt = 0; tiltV = 0; bob = 0; dropAcc = 0;
-    state = 'play'; escT = 0; spillT = 0;
+    state = 'play'; escT = 0; spillT = 0; duckY = -1;
     resetFluid();
     prerenderBackground();
   }
@@ -182,6 +183,11 @@ const PUZZLE = (function(){
     F().step(dt, { R: CYL_R - GLASS, top: CYL_H,
                      gx: Math.sin(tilt)*G, gy: -Math.cos(tilt)*G });
     fill = clamp(F().count()/fullCount(), 0, 1);
+    // Kachnička plave na hladině, ale ne na každé vlnce — dojíždí za ní.
+    // Nahoru rychleji než dolů: voda ji nadnáší hned, klesá s ubývajícím objemem.
+    const targetY = Math.max(70, F().surfaceY() + 46);
+    if(duckY < 0) duckY = targetY;
+    else duckY += (targetY - duckY) * Math.min(1, dt * (targetY > duckY ? 3.5 : 1.8));
 
     if(state === 'play' && fill >= WIN_LEVEL){
       state = 'escape'; escT = 0;
@@ -285,7 +291,7 @@ const PUZZLE = (function(){
 
     // kachnička uvnitř (dokud neutekla)
     if(state === 'play'){
-      const dy = projY(CYL_BOT + Math.max(70, F().surfaceY() + 46), s) + Math.sin(bob)*3*S;
+      const dy = projY(CYL_BOT + (duckY < 0 ? 70 : duckY), s) + Math.sin(bob)*3*S;
       const sz = 150*s*S;
       ctx.drawImage(duckSprite, cx - sz*0.53, dy - sz*0.75, sz, sz);
     }

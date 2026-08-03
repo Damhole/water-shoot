@@ -115,7 +115,9 @@ const FLUID = (function(){
   }
 
   // container: { R, top, gx, gy }  — poloměr, výška okraje, směr gravitace
+  let lastR = 0;
   function step(dtFull, container){
+    lastR = container.R;
     if(n === 0) return;
     dtFull = Math.min(dtFull, 1/50);
     for(let sub=0; sub<SUBSTEPS; sub++) substep(dtFull/SUBSTEPS, container);
@@ -242,12 +244,39 @@ const FLUID = (function(){
   // Hladina: 85. percentil výšky částic — odolnější než maximum, které
   // by skákalo podle jedné vystřelené kapky.
   const heights = [];
+  // Hladina se NEDÁ počítat percentilem výšky částic: padající proud je svislý
+  // sloupec od otvoru až dolů, takže percentil skončí uprostřed proudu a hladina
+  // vyskočí k okraji nádoby (naměřeno: 502 px místo 75 px). Hladina je místo,
+  // kde voda přestane být souvislá — hledá se tedy zdola histogramem výšek.
+  function surfaceFromHistogram(getY, n, R, areaPerP){
+    if(n === 0 || !R) return 0;
+    const BIN = 8;                                  // px
+    const bins = 90;
+    const hist = new Int32Array(bins);
+    for(let i=0;i<n;i++){
+      const b = (getY(i)/BIN)|0;
+      if(b >= 0 && b < bins) hist[b]++;
+    }
+    const full = (BIN * 2*R) / areaPerP;            // kolik částic má plná vrstva
+    const MIN = full * 0.25;                        // proud dá na vrstvu jednotky procent
+    let top = 0;
+    for(let b=0;b<bins;b++){
+      if(hist[b] >= MIN) top = b + 1;
+      else if(top > 0) break;                       // první prázdno nad vodou = hladina
+    }
+    if(top === 0) return 0;
+    // dopočet uvnitř poslední vrstvy, ať hladina stoupá plynule a neskáče po 8 px
+    const rest = top < bins ? Math.min(1, hist[top]/full) : 0;
+    const h = (top + rest) * BIN;
+    // Strop z objemu: víc vody, než kolik jí ve válci je, hladina mít nemůže.
+    // Chytá první vteřinu, kdy se u otvoru drží shluk čerstvých kapek a ještě
+    // není co zaplavit. Rezerva 1,4x je na naklopenou nádobu, kde je voda klínem.
+    const byVolume = (n * areaPerP) / (2*R) * 1.4;
+    return Math.min(h, byVolume);
+  }
+
   function surfaceY(){
-    if(n === 0) return 0;
-    heights.length = 0;
-    for(let i=0;i<n;i++) heights.push(py[i]);
-    heights.sort((a,b)=>a-b);
-    return heights[Math.min(heights.length-1, Math.floor(heights.length*0.85))];
+    return surfaceFromHistogram(i => py[i], n, lastR, R0*R0*0.87);
   }
 
   // Vykreslení: metaballs přes rozmazání a kontrast, když to prohlížeč umí,

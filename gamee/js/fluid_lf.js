@@ -192,24 +192,43 @@ const FLUID_LF = (function(){
     }
   }
 
-  // Hladina = výška, pod kterou je většina částic. Bere se percentil, aby
-  // jedna vystřelená kapka nedělala hladinu o metr výš.
+  // Hladina se NEDÁ počítat percentilem výšky částic: padající proud je svislý
+  // sloupec od otvoru až dolů, takže percentil skončí uprostřed proudu a hladina
+  // vyskočí k okraji nádoby (naměřeno: 502 px místo 75 px). Hladina je místo,
+  // kde voda přestane být souvislá — hledá se tedy zdola histogramem výšek.
+  function surfaceFromHistogram(getY, n, R, areaPerP){
+    if(n === 0 || !R) return 0;
+    const BIN = 8;                                  // px
+    const bins = 90;
+    const hist = new Int32Array(bins);
+    for(let i=0;i<n;i++){
+      const b = (getY(i)/BIN)|0;
+      if(b >= 0 && b < bins) hist[b]++;
+    }
+    const full = (BIN * 2*R) / areaPerP;            // kolik částic má plná vrstva
+    const MIN = full * 0.25;                        // proud dá na vrstvu jednotky procent
+    let top = 0;
+    for(let b=0;b<bins;b++){
+      if(hist[b] >= MIN) top = b + 1;
+      else if(top > 0) break;                       // první prázdno nad vodou = hladina
+    }
+    if(top === 0) return 0;
+    // dopočet uvnitř poslední vrstvy, ať hladina stoupá plynule a neskáče po 8 px
+    const rest = top < bins ? Math.min(1, hist[top]/full) : 0;
+    const h = (top + rest) * BIN;
+    // Strop z objemu: víc vody, než kolik jí ve válci je, hladina mít nemůže.
+    // Chytá první vteřinu, kdy se u otvoru drží shluk čerstvých kapek a ještě
+    // není co zaplavit. Rezerva 1,4x je na naklopenou nádobu, kde je voda klínem.
+    const byVolume = (n * areaPerP) / (2*R) * 1.4;
+    return Math.min(h, byVolume);
+  }
+
   function surfaceY(){
     const n = count();
     if(n === 0) return 0;
     const p = positions();
     if(!p) return 0;
-    let hi = 0;
-    const skip = Math.max(1, (n*0.02)|0);   // horní 2 % ignorujeme
-    // levné přiblížení percentilu: hledáme maximum mimo nejvyšší skupinku
-    const tops = [];
-    for(let i=0;i<n;i++){
-      const y = p[i*2+1];
-      if(y > hi){ hi = y; }
-      if(tops.length < skip){ tops.push(y); tops.sort((a,b)=>a-b); }
-      else if(y > tops[0]){ tops[0] = y; tops.sort((a,b)=>a-b); }
-    }
-    return (tops.length ? tops[0] : hi) * PPM;
+    return surfaceFromHistogram(i => p[i*2+1]*PPM, n, curR, areaPer());
   }
 
   // Souřadnice (v pixelech lokální soustavy) a rozvíření pro WebGL vrstvu.
