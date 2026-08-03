@@ -81,3 +81,5 @@ _(neotříděné nápady sem)_
 | v45 | Truhla se po otevření potopí pod hladinu (víko zůstává otevřené) místo aby zmizela; stejně mizí i nestihnutá truhla | 3700a49 | 2026-07-30 |
 | v46 | **Fix zaseknutí v duze:** sestřel královské během duhového režimu resetoval `rainbowT` na 10 s a znovu volal `addRainbowDucks()` → nekonečná duha + hromadění kachniček. Nyní královské v duze nepřijíždějí a korunky se nesbírají | a4c4fc2 | 2026-07-30 |
 | v47 | **Fix překryvů:** královská hledá volné místo — 24 kandidátů ve vstupní části dráhy s kontrolou odstupu (76 % překryvů → 0 %, min odstup 1,05× kachnička). Opraveno i míchání drah (Fisher-Yates místo `sort()` s náhodným komparátorem) | e175227 | 2026-07-30 |
+| v49 | Puzzle mód: bazénové prostředí, skleněný válec na čepu s uvězněnou kachničkou, napouštění otvorem; **fix** balistiky — mířila vždy na zadní stěnu, proto se muselo mířit výš | 5513ab5 | 2026-08-03 |
+| v50 | Skutečná kapalina (2D Position Based Fluids): mřížka sousedů, tlakový řešič, viskozita, povrchové napětí, metaball render. Kachnička plave na reálné hladině, slider počtu částic v HUD | e17e5db | 2026-08-03 |
