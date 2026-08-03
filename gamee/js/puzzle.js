@@ -104,7 +104,7 @@ const PUZZLE = (function(){
   // ho přemalujeme pískem: pruh těsně NAD dělem se roztáhne přes něj dolů.
   // Zdrojový pruh schválně končí přesně tam, kde začíná cíl, takže ve spoji
   // na sebe pixely navazují a není vidět šev.
-  const BG_CANNON_TOP = 0.685;   // odkud dolů je v obrázku dělo (podíl výšky)
+  const BG_CANNON_TOP = 0.56;    // odkud dolů je v obrázku dělo (podíl výšky)
   const BG_PATCH_SRC  = 0.20;    // jak vysoký pruh písku se na záplatu bere
 
   function drawBgImage(g){
@@ -115,12 +115,20 @@ const PUZZLE = (function(){
 
     g.drawImage(bgImg, dx, 0, dw, dh);
 
-    // záplata přes dělo
-    const cut = ih * BG_CANNON_TOP;
+    // Záplata přes dělo. Pruh se kreslí PŘEKLOPENÝ vzhůru nohama — jinak by
+    // záplata začala prvním řádkem zdroje, zatímco nad švem je řádek poslední,
+    // a přes celou šířku by vznikla viditelná hrana. Se zrcadlením na sebe
+    // pixely ve spoji navazují přesně.
+    const cut  = ih * BG_CANNON_TOP;
     const srcY = cut - ih*BG_PATCH_SRC;
+    const restH = dh - cut*sc;
+    g.save();
+    g.translate(0, cut*sc);
+    g.scale(1, -1);
     g.drawImage(bgImg,
-      0, srcY, iw, ih*BG_PATCH_SRC,                 // zdroj: písek nad dělem
-      dx, cut*sc, dw, dh - cut*sc);                 // cíl: celá spodní část
+      0, srcY, iw, ih*BG_PATCH_SRC,                 // zdroj: čistý pruh nad dělem
+      dx, -restH, dw, restH);                       // cíl: spodek, zrcadlově
+    g.restore();
   }
 
   function prerenderBackground(){
