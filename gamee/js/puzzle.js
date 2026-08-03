@@ -79,11 +79,61 @@ const PUZZLE = (function(){
     orange: '#ff9b4d',
   };
 
+  // Malované pozadí z obrázku. Zkouší se několik přípon; když soubor není,
+  // scéna se nakreslí kódem jako dosud (radši kreslené pozadí než prázdno).
+  let bgImg = null;
+  (function loadBgImage(){
+    const kandidati = ['./img/bg_puzzle.jpg', './img/bg_puzzle.png', './img/bg_puzzle.webp'];
+    let i = 0;
+    const zkus = ()=>{
+      if(i >= kandidati.length) return;
+      const im = new Image();
+      im.onload = ()=>{
+        bgImg = im;
+        console.log('[WS] pozadí puzzlu z ' + im.src.split('/').pop());
+        if(typeof W === 'number' && W > 0) prerenderBackground();   // překreslit s obrázkem
+      };
+      im.onerror = ()=>{ i++; zkus(); };
+      im.src = kandidati[i];
+    };
+    zkus();
+  })();
+
+  // Předloha má dole nakreslené dělo, ale dělo si hra kreslí sama — dvě by se
+  // tloukla. Místo ořezu (přišli bychom o kus písku a posunula by se kompozice)
+  // ho přemalujeme pískem: pruh těsně NAD dělem se roztáhne přes něj dolů.
+  // Zdrojový pruh schválně končí přesně tam, kde začíná cíl, takže ve spoji
+  // na sebe pixely navazují a není vidět šev.
+  const BG_CANNON_TOP = 0.685;   // odkud dolů je v obrázku dělo (podíl výšky)
+  const BG_PATCH_SRC  = 0.20;    // jak vysoký pruh písku se na záplatu bere
+
+  function drawBgImage(g){
+    const iw = bgImg.naturalWidth, ih = bgImg.naturalHeight;
+    const sc = Math.max(W/iw, H/ih);
+    const dw = iw*sc, dh = ih*sc;
+    const dx = (W-dw)/2;
+
+    g.drawImage(bgImg, dx, 0, dw, dh);
+
+    // záplata přes dělo
+    const cut = ih * BG_CANNON_TOP;
+    const srcY = cut - ih*BG_PATCH_SRC;
+    g.drawImage(bgImg,
+      0, srcY, iw, ih*BG_PATCH_SRC,                 // zdroj: písek nad dělem
+      dx, cut*sc, dw, dh - cut*sc);                 // cíl: celá spodní část
+  }
+
   function prerenderBackground(){
     bg = document.createElement('canvas');
     bg.width = Math.round(W*DPR); bg.height = Math.round(H*DPR);
     const g = bg.getContext('2d');
     g.setTransform(DPR,0,0,DPR,0,0);
+
+    if(bgImg){
+      drawBgImage(g);
+      FLUID_GL.setBackground(bg);   // vodní vrstva pozadí láme, musí ho znát
+      return;
+    }
 
     const horizon = H*0.30;          // kde končí bazén a začínají kachlíky
     const edgeH   = 30*S;            // bílý obrubník bazénu
