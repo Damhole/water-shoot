@@ -254,78 +254,124 @@ const FLUID = (function(){
     catch(e){ return false; }
   })();
 
-  function draw(g, toScreen, scale, color){
+  // Vykreslení kapaliny jako TĚLESA, ne jako shluku kuliček.
+  //
+  // Sjednocení kruhů má vždycky obrys složený z oblouků a čte se jako
+  // „kuličky na sobě", ať se rozmaže jakkoli. Voda v nádobě potřebuje
+  // hladinu: z částic se proto spočítá výškový profil po sloupcích, vyhladí
+  // se a tělo vody se nakreslí jako jeden tvar s vlnitým povrchem.
+  // Kapky výrazně nad hladinou se kreslí zvlášť jako krůpěje.
+  const COLS = 26;
+  const colH = new Float32Array(COLS);
+  const colN = new Int32Array(COLS);
+  const smooth = new Float32Array(COLS);
+  const colMax = new Float32Array(COLS);
+
+  function draw(g, toScreen, scale, opts){
     if(n === 0) return;
-    const rad = R0*1.12*scale;   // mírný překryv, ať kapky splynou v hmotu
-    if(canFilter){
-      // metaball: rozmazat a prohnat kontrastem → souvislá hmota
-      const pad = rad*3;
-      let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
-      for(let i=0;i<n;i++){
-        const s = toScreen(px[i], py[i]);
-        if(s.x<x0)x0=s.x; if(s.x>x1)x1=s.x;
-        if(s.y<y0)y0=s.y; if(s.y>y1)y1=s.y;
-      }
-      x0-=pad; y0-=pad; x1+=pad; y1+=pad;
-      const bw = Math.max(1, Math.ceil(x1-x0)), bh = Math.max(1, Math.ceil(y1-y0));
-      if(!blobCv){ blobCv = document.createElement('canvas'); blobCtx = blobCv.getContext('2d'); }
-      if(blobCv.width !== bw || blobCv.height !== bh){ blobCv.width = bw; blobCv.height = bh; }
-      // 1) Maska: plné kruhy se překryvem se slijí v jeden tvar samy od sebe.
-      // Klasický trik „blur + contrast" tu nefunguje — CSS contrast() pracuje
-      // s barevnými kanály, ne s alfou, takže okraj zůstal měkký a z vody byla
-      // rozmazaná šmouha. Jemné rozmazání jen zaoblí hrbolky na obrysu.
-      blobCtx.globalCompositeOperation = 'source-over';
-      blobCtx.clearRect(0,0,bw,bh);
-      blobCtx.filter = 'blur('+Math.max(1, rad*0.18).toFixed(1)+'px)';
-      blobCtx.fillStyle = '#fff';
-      blobCtx.beginPath();
-      for(let i=0;i<n;i++){
-        const s = toScreen(px[i], py[i]);
-        blobCtx.moveTo(s.x-x0+rad, s.y-y0);
-        blobCtx.arc(s.x-x0, s.y-y0, rad, 0, Math.PI*2);
-      }
-      blobCtx.fill();
-      blobCtx.filter = 'none';
+    const R = opts.R, TOP = opts.top;
 
-      // 2) maskou protáhnout vodní gradient — bez toho je z toho placka barvy
-      blobCtx.globalCompositeOperation = 'source-in';
-      const wg = blobCtx.createLinearGradient(0, 0, 0, bh);
-      wg.addColorStop(0.00, '#b9f2ff');
-      wg.addColorStop(0.06, '#6fdcff');
-      wg.addColorStop(0.30, '#31a9e8');
-      wg.addColorStop(1.00, '#0a5f96');
-      blobCtx.fillStyle = wg;
-      blobCtx.fillRect(0,0,bw,bh);
-
-      // 3) šikmý odlesk PŘES tělo vody. Musí být source-atop — se source-in
-      // by se výsledná průhlednost vynásobila průhledností odlesku a voda by
-      // se vygumovala do neviditelna.
-      blobCtx.globalCompositeOperation = 'source-atop';
-      const sh = blobCtx.createLinearGradient(0, 0, bw*0.7, bh);
-      sh.addColorStop(0.00, 'rgba(255,255,255,0.30)');
-      sh.addColorStop(0.35, 'rgba(255,255,255,0.05)');
-      sh.addColorStop(1.00, 'rgba(255,255,255,0)');
-      blobCtx.fillStyle = sh;
-      blobCtx.fillRect(0,0,bw,bh);
-      blobCtx.globalCompositeOperation = 'source-over';
-
-      g.save();
-      g.globalAlpha = 1;             // plná sytost — průsvitnost dělá už samotný gradient
-      g.drawImage(blobCv, x0, y0);
-      g.restore();
-    } else {
-      g.fillStyle = color;
-      g.beginPath();
-      for(let i=0;i<n;i++){
-        const s = toScreen(px[i], py[i]);
-        g.moveTo(s.x+rad, s.y);
-        g.arc(s.x, s.y, rad, 0, Math.PI*2);
-      }
-      g.fill();
+    // Výška sloupce se počítá z OBJEMU (počtu kapek), ne z nejvyšší částice —
+    // jinak jedna letící kapka vytáhne celý sloupec do špičky. Strop tvoří
+    // skutečná nejvyšší částice, aby hladina nikdy nepřerostla realitu.
+    colH.fill(-1e9); colN.fill(0); colMax.fill(-1e9);
+    for(let i=0;i<n;i++){
+      let c = ((px[i] + R) / (2*R) * COLS) | 0;
+      if(c < 0) c = 0; else if(c >= COLS) c = COLS-1;
+      colN[c]++;
+      if(py[i] > colMax[c]) colMax[c] = py[i];
     }
+    const colW = 2*R/COLS;
+    const perDrop = R0*R0*0.66 / colW;      // kolik výšky přidá jedna kapka
+    for(let c=0;c<COLS;c++){
+      if(colN[c] === 0) continue;
+      colH[c] = Math.min(colN[c]*perDrop, colMax[c]);
+    }
+
+    // vyhlazení profilu — bez něj by hladina poskakovala po jednotlivých kapkách
+    for(let pass=0; pass<3; pass++){
+      for(let c=0;c<COLS;c++){
+        const a = colH[Math.max(0,c-1)], b = colH[c], d = colH[Math.min(COLS-1,c+1)];
+        const vals = [a,b,d].filter(v => v > -1e8);
+        smooth[c] = vals.length ? vals.reduce((x,y)=>x+y,0)/vals.length : -1e9;
+      }
+      colH.set(smooth);
+    }
+
+    // souvislé úseky hladiny (mezi nimi voda není)
+    let c = 0;
+    while(c < COLS){
+      if(colH[c] < -1e8){ c++; continue; }
+      let c0 = c;
+      while(c < COLS && colH[c] > -1e8) c++;
+      const c1 = c - 1;
+      drawBody(g, toScreen, scale, R, c0, c1);
+    }
+
+    // krůpěje nad hladinou
+    const rad = R0*0.55*scale;
+    g.fillStyle = 'rgba(150,225,255,0.95)';
+    g.beginPath();
+    let any = false;
+    for(let i=0;i<n;i++){
+      let cc = ((px[i] + R) / (2*R) * COLS) | 0;
+      if(cc < 0) cc = 0; else if(cc >= COLS) cc = COLS-1;
+      if(py[i] < colH[cc] + R0*0.9) continue;      // uvnitř tělesa
+      const s = toScreen(px[i], py[i]);
+      g.moveTo(s.x+rad, s.y); g.arc(s.x, s.y, rad, 0, Math.PI*2);
+      any = true;
+    }
+    if(any) g.fill();
+  }
+
+  function drawBody(g, toScreen, scale, R, c0, c1){
+    const xAt = c => -R + (c + 0.5)/COLS * 2*R;
+    const top0 = toScreen(xAt(c0), colH[c0]);
+    const bot0 = toScreen(xAt(c0), 0);
+    const bot1 = toScreen(xAt(c1), 0);
+
+    g.beginPath();
+    g.moveTo(toScreen(xAt(c0) - R/COLS, 0).x, bot0.y);
+    // povrch zleva doprava, prohnutý přes střední body
+    let prev = toScreen(xAt(c0) - R/COLS, colH[c0]);
+    g.lineTo(prev.x, prev.y);
+    for(let c=c0; c<=c1; c++){
+      const cur = toScreen(xAt(c), colH[c]);
+      const nx  = (c < c1) ? toScreen(xAt(c+1), colH[c+1]) : toScreen(xAt(c1)+R/COLS, colH[c1]);
+      g.quadraticCurveTo(cur.x, cur.y, (cur.x+nx.x)/2, (cur.y+nx.y)/2);
+      prev = cur;
+    }
+    g.lineTo(toScreen(xAt(c1) + R/COLS, 0).x, bot1.y);
+    g.closePath();
+
+    const top = toScreen(0, colH[c0] > colH[c1] ? colH[c0] : colH[c1]);
+    const bottom = toScreen(0, 0);
+    const gr = g.createLinearGradient(0, top.y, 0, bottom.y);
+    gr.addColorStop(0.00, '#8fe6ff');
+    gr.addColorStop(0.10, '#3fbaf0');
+    gr.addColorStop(0.55, '#1b8fd4');
+    gr.addColorStop(1.00, '#0a5f9c');
+    g.fillStyle = gr;
+    g.fill();
+
+    // lesklá hladina
+    g.save();
+    g.clip();
+    g.strokeStyle = 'rgba(220,250,255,0.9)';
+    g.lineWidth = Math.max(1.5, 3*scale);
+    g.beginPath();
+    let p0 = toScreen(xAt(c0) - R/COLS, colH[c0]);
+    g.moveTo(p0.x, p0.y);
+    for(let c=c0; c<=c1; c++){
+      const cur = toScreen(xAt(c), colH[c]);
+      const nx  = (c < c1) ? toScreen(xAt(c+1), colH[c+1]) : toScreen(xAt(c1)+R/COLS, colH[c1]);
+      g.quadraticCurveTo(cur.x, cur.y, (cur.x+nx.x)/2, (cur.y+nx.y)/2);
+    }
+    g.stroke();
+    g.restore();
   }
 
   reset(CAP);
   return { reset, spawn, step, draw, count, capacity, surfaceY,
-           get R0(){ return R0; }, get metaballs(){ return canFilter; } };
+           get R0(){ return R0; } };
 })();

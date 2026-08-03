@@ -243,7 +243,7 @@ const PUZZLE = (function(){
       ctx.beginPath();                      // ořez tvarem válce, ať netryská skrz sklo
       ctx.rect(cx-rx, topSy - 40*S, rx*2, (bottomSy-topSy) + 40*S);
       ctx.clip();
-      FLUID.draw(ctx, toScreen, scale, '#2fa8e0');
+      FLUID.draw(ctx, toScreen, scale, { R: CYL_R - GLASS, top: CYL_H });
       ctx.restore();
     }
 
