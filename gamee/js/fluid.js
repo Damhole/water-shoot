@@ -248,7 +248,7 @@ const FLUID = (function(){
   // sloupec od otvoru až dolů, takže percentil skončí uprostřed proudu a hladina
   // vyskočí k okraji nádoby (naměřeno: 502 px místo 75 px). Hladina je místo,
   // kde voda přestane být souvislá — hledá se tedy zdola histogramem výšek.
-  function surfaceFromHistogram(getY, n, R, areaPerP){
+  function surfaceFromHistogram(getY, n, R, areaPerP, areaPerLoose){
     if(n === 0 || !R) return 0;
     const BIN = 8;                                  // px
     const bins = 90;
@@ -270,13 +270,15 @@ const FLUID = (function(){
     const h = (top + rest) * BIN;
     // Strop z objemu: víc vody, než kolik jí ve válci je, hladina mít nemůže.
     // Chytá první vteřinu, kdy se u otvoru drží shluk čerstvých kapek a ještě
-    // není co zaplavit. Rezerva 1,4x je na naklopenou nádobu, kde je voda klínem.
-    const byVolume = (n * areaPerP) / (2*R) * 1.4;
+    // není co zaplavit. MUSÍ počítat s NEJŘIDŠÍM balením — je to horní odhad.
+    // (Když jsem sem dal hodnotu pro stlačenou vodu, strop usekával skutečnou
+    // hladinu u částečně plné nádoby a ukazatel hlásil míň, než ve válci bylo.)
+    const byVolume = (n * areaPerLoose) / (2*R) * 1.15;
     return Math.min(h, byVolume);
   }
 
   function surfaceY(){
-    return surfaceFromHistogram(i => py[i], n, lastR, R0*R0*0.87);
+    return surfaceFromHistogram(i => py[i], n, lastR, R0*R0*0.87, R0*R0*1.3);
   }
 
   // Vykreslení: metaballs přes rozmazání a kontrast, když to prohlížeč umí,

@@ -102,9 +102,20 @@ const FLUID_GL = (function(){
       float white = 1.0 - smoothstep(uThresh + uCapLo, uThresh + uCapHi, dS);
       col = mix(col, vec3(1.0), white * uWhite);
 
-      // obrys — úzká tmavá linka po obvodu, kreslí se přes bílou
+      // Obrys patří jen k VELKÉMU tělesu. U samostatné kapky hustota nikdy
+      // nevystoupá vysoko nad práh, takže by podmínka „jsem u okraje" platila
+      // v celé kapce a přebarvila ji tmavou — a přitom letící kapky mají být
+      // celé bílé. Široký vzorek pole rozliší okraj tělesa od malé kapky:
+      // kapka má okolí prázdné, okraj tělesa ne.
+      float w1 = texture2D(uField, vUv + vec2(uTexel.x*7.0, 0.0)).r;
+      float w2 = texture2D(uField, vUv - vec2(uTexel.x*7.0, 0.0)).r;
+      float w3 = texture2D(uField, vUv + vec2(0.0, uTexel.y*7.0)).r;
+      float w4 = texture2D(uField, vUv - vec2(0.0, uTexel.y*7.0)).r;
+      float wide = (w1 + w2 + w3 + w4) * 0.25;
+      float body = smoothstep(uThresh * 0.30, uThresh * 0.90, wide);
+
       float edge = 1.0 - smoothstep(uThresh + 0.005, uThresh + 0.055, dS);
-      col = mix(col, uEdge, edge * 0.8);
+      col = mix(col, uEdge, edge * 0.8 * body);
 
       gl_FragColor = vec4(col, a);
     }`;
