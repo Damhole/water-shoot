@@ -68,20 +68,21 @@ html, body {
 #perf-hud .cb-row label { display:flex; align-items:center; gap:4px; margin:0; }
 
 /* ---- overlay konce kola ---- */
-#overlay {
+#overlay, #start-overlay {
   position:fixed; inset:0; z-index:40;
   display:flex; align-items:center; justify-content:center;
   background:rgba(5,8,20,0.65);
 }
-#overlay[hidden] { display:none; }
-#overlay-box {
+#start-overlay { z-index:45; background:rgba(5,8,20,0.82); }
+#overlay[hidden], #start-overlay[hidden] { display:none; }
+#overlay-box, #start-box {
   background:linear-gradient(180deg,#1b2a58,#111a38);
   border:3px solid #e8c34a; border-radius:18px;
   box-shadow:0 12px 40px rgba(0,0,0,0.6), inset 0 0 0 2px rgba(255,255,255,0.06);
   padding:26px 40px 28px; text-align:center; color:#fff;
   min-width:250px; max-width:86vw;
 }
-#overlay-box h3 {
+#overlay-box h3, #start-box h3 {
   margin-bottom:14px; font-size:22px; font-weight:800;
   color:#fdf3d0; letter-spacing:0.5px;
 }
@@ -105,3 +106,35 @@ html, body {
   -webkit-tap-highlight-color:transparent;
 }
 #restart-btn:active { transform:translateY(3px); box-shadow:0 1px 0 #a8701c; }
+
+/* přepnutí do druhého módu — vedlejší volba, ať nepřebije „Hrát znovu" */
+#overlay-box .ov-alt {
+  display:block; margin:12px auto 0;
+  padding:10px 22px; font-size:14px; font-weight:700;
+  background:transparent; color:#cfe0ff;
+  border:2px solid rgba(207,224,255,0.35); border-radius:9px;
+  cursor:pointer; -webkit-tap-highlight-color:transparent;
+}
+#overlay-box .ov-alt:active { transform:translateY(2px); border-color:rgba(207,224,255,0.6); }
+
+/* ---- úvodní obrazovka s volbou módu ---- */
+#start-box { padding:26px 28px 28px; }
+#start-box h3 { margin-bottom:2px; font-size:26px; }
+.start-hint {
+  font-size:13px; text-transform:uppercase; letter-spacing:2px;
+  color:rgba(255,255,255,0.55); margin-bottom:16px;
+}
+.mode-grid { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+.mode-btn {
+  flex:1 1 170px; max-width:210px; min-width:150px;
+  display:flex; flex-direction:column; align-items:center; gap:5px;
+  padding:16px 12px 14px; text-align:center; cursor:pointer;
+  background:linear-gradient(180deg,rgba(255,255,255,0.10),rgba(255,255,255,0.03));
+  border:2px solid rgba(232,195,74,0.35); border-radius:14px;
+  color:#fff; -webkit-tap-highlight-color:transparent;
+}
+.mode-btn.sel { border-color:#e8c34a; box-shadow:0 0 0 3px rgba(232,195,74,0.18); }
+.mode-btn:active { transform:translateY(2px); }
+.mb-icon { font-size:30px; line-height:1; }
+.mb-name { font-size:17px; font-weight:800; color:#ffe98a; }
+.mb-desc { font-size:12px; line-height:1.35; color:rgba(255,255,255,0.65); }

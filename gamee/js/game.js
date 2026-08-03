@@ -3,17 +3,19 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v51';
-const WS_CHECKSUM = 'water-shoot-v51';
+const WS_VERSION = 'v55';
+const WS_CHECKSUM = 'water-shoot-v55';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
 const WS_PARAMS = new URLSearchParams(location.search);
 const STRESS = WS_PARAMS.get('stress') === '1';
 // Mód hry: 'ducks' = střelnice (dosavadní), 'puzzle' = osvobozování kachniček.
-// Přepíná se přes ?mode= nebo tlačítkem na overlay konce kola.
-const MODE = (WS_PARAMS.get('mode') === 'puzzle') ? 'puzzle' : 'ducks';
+// Volí se na úvodní obrazovce a přepíná na overlay konce kola; ?mode= drží volbu
+// přes refresh a dá se poslat odkazem.
+let MODE = (WS_PARAMS.get('mode') === 'puzzle') ? 'puzzle' : 'ducks';
 const isPuzzle = () => MODE === 'puzzle';
+const otherMode = () => isPuzzle() ? 'ducks' : 'puzzle';
 
 // ---------------------------------------------------------------- util
 function _safeGamee(fn){ try{ fn(); }catch(e){ console.warn('[gamee]', e); } }
@@ -2130,6 +2132,37 @@ function loop(t){
   perfTick(dt, performance.now()-t0);
 }
 
+// ---------------------------------------------------------------- přepínání módů
+// MODE je proměnná, takže se přepíná za běhu — bez reloadu stránky. Reload by na
+// Gamee platformě znovu inicializoval SDK uprostřed session.
+// Pozadí je pro každý mód prerenderované zvlášť, takže se musí překreslit.
+function setMode(m){
+  if((m !== 'ducks' && m !== 'puzzle') || m === MODE) return;
+  MODE = m;
+  const u = new URL(location.href);
+  u.searchParams.set('mode', MODE);
+  history.replaceState(null, '', u);
+  if(isPuzzle()) PUZZLE.prerenderBackground(); else prerenderBackground();
+}
+
+// Úvodní obrazovka s volbou módu — hráč se do puzzlu nemusí proklikávat přes prohru.
+function showStartScreen(){
+  const el = document.getElementById('start-overlay');
+  if(!el){ startRound(); return; }   // starší HTML bez obrazovky nesmí zablokovat hru
+  for(const b of el.querySelectorAll('[data-mode]')){
+    b.classList.toggle('sel', b.dataset.mode === MODE);
+  }
+  el.hidden = false;
+}
+
+// Jediná cesta ke spuštění kola v konkrétním módu (úvodní obrazovka i přepínač na overlay).
+function startIn(m){
+  setMode(m);
+  const el = document.getElementById('start-overlay');
+  if(el) el.hidden = true;
+  startRound();
+}
+
 // ---------------------------------------------------------------- kolo
 function startRound(){
   score = 0; playTime = 0; timeLeft = ROUND_TIME; over = false;
@@ -2174,6 +2207,8 @@ function showEndOverlay(reason){
   set('overlay-title', reason || 'Konec kola');
   set('overlay-score', score);
   set('overlay-msg', 'Hráno ' + Math.round(playTime) + ' s');
+  const sw = document.getElementById('switch-btn');
+  if(sw) sw.textContent = isPuzzle() ? 'Zkusit střelnici' : 'Zkusit puzzle';
   const ov = document.getElementById('overlay');
   if(ov) ov.hidden = false;
 }
@@ -2188,12 +2223,19 @@ function initGame(){
   setupInput();
   setupHUD();
   document.getElementById('restart-btn').addEventListener('click', startRound);
+  // volba módu na úvodní obrazovce
+  for(const b of document.querySelectorAll('[data-mode]')){
+    b.addEventListener('click', ()=> startIn(b.dataset.mode));
+  }
+  // přepnutí do druhého módu z overlay konce kola
+  const swBtn = document.getElementById('switch-btn');
+  if(swBtn) swBtn.addEventListener('click', ()=> startIn(otherMode()));
 
   gamee.gameInit('FullScreen', {}, ['saveState'], function(error, data){
     if(error) console.warn('[gamee] init error', error);
 
     gamee.emitter.addEventListener('start', function(ev){
-      startRound();
+      showStartScreen();   // kolo se rozjede až po volbě módu
       if(ev && ev.detail && ev.detail.callback) ev.detail.callback();
     });
     gamee.emitter.addEventListener('pause', function(ev){

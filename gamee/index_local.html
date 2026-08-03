@@ -2,7 +2,7 @@
 <html lang="cs">
 <head>
   <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-  <title>Golden Ducks v51</title>
+  <title>Golden Ducks v55</title>
   <script type="text/javascript" src="./lib/gamee-js-stub.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <!-- Dev/Pages only: „Přidat na plochu" spustí hru fullscreen bez lišty prohlížeče.
@@ -16,7 +16,7 @@
 </head>
 <body onload="initGame()">
 <canvas id="game-canvas"></canvas>
-<div id="version-badge"><span class="game-name">Golden Ducks</span> <span class="ver-num">v51</span></div>
+<div id="version-badge"><span class="game-name">Golden Ducks</span> <span class="ver-num">v55</span></div>
 <div id="topbar">
   <span><span class="lbl">skóre </span><span id="score-val">0</span></span>
   <span><span class="lbl">čas </span><span id="time-val">60</span></span>
@@ -60,6 +60,24 @@
     <label><input type="checkbox" id="cb-special"> special mód</label>
   </div>
 </div>
+<div id="start-overlay" hidden>
+  <div id="start-box">
+    <h3>Golden Ducks</h3>
+    <p class="start-hint">vyber mód</p>
+    <div class="mode-grid">
+      <button class="mode-btn" data-mode="ducks">
+        <span class="mb-icon">🎯</span>
+        <span class="mb-name">Střelnice</span>
+        <span class="mb-desc">Sestřel co nejvíc kachniček, než dojde voda a čas</span>
+      </button>
+      <button class="mode-btn" data-mode="puzzle">
+        <span class="mb-icon">🧩</span>
+        <span class="mb-name">Puzzle</span>
+        <span class="mb-desc">Napusť válec vodou a vyplav kachničku ven</span>
+      </button>
+    </div>
+  </div>
+</div>
 <div id="overlay" hidden>
   <div id="overlay-box">
     <h3 id="overlay-title">Konec kola</h3>
@@ -67,6 +85,7 @@
     <div id="overlay-score">0</div>
     <p id="overlay-msg"></p>
     <button id="restart-btn">Hrát znovu</button>
+    <button id="switch-btn" class="ov-alt">Zkusit puzzle</button>
   </div>
 </div>
 <script>
