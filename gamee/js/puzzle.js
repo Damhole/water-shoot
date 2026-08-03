@@ -29,7 +29,15 @@ const PUZZLE = (function(){
   const HOLE_R   = 78;       // poloměr napouštěcího otvoru
   const HOLE_DX  = 92;       // otvor je stranou od osy, ať se musí mířit
 
-  const DROPS_PER_HIT = 0.055;   // kolik kapek kapaliny přibude za jednu částici proudu
+  // Kolik kapaliny přibude za jednu částici proudu. NEDÁVAT natvrdo: cíl se
+  // mění s velikostí kapek (plocha na částici roste s druhou mocninou poloměru)
+  // a s ním se musí měnit i přítok, jinak je puzzle buď triviální, nebo
+  // nesplnitelný. Naměřeno: při přesném míření projde otvorem ~39 % částic
+  // proudu, zbytek mine nebo trefí sklo.
+  const HIT_RATE = 0.39;
+  function dropsPerHit(){
+    return fullCount() / (tune.emitRate * HIT_RATE * tune.fillSeconds);
+  }
   const WIN_LEVEL     = 0.95;    // jak plno musí být, aby kachnička přeplavala okraj
   // Kolik částic zaplní válec: plocha vnitřku / plocha připadající na částici
   // při hexagonálním rozložení. Bez tohohle by se naplnění počítalo z výšky
@@ -203,7 +211,7 @@ const PUZZLE = (function(){
     // trefa do otvoru → přitéká dovnitř
     if(p.y > topY - 30 && p.y < topY + 90 && Math.abs(p.x - hx) < HOLE_R){
       // proud se v nálevce mění na kapalinu, která už si teče sama
-      dropAcc += DROPS_PER_HIT;
+      dropAcc += dropsPerHit();
       while(dropAcc >= 1){
         dropAcc -= 1;
         F().spawn(HOLE_DX + rand(-30,30), CYL_H - 14, rand(-15,15), -60);
