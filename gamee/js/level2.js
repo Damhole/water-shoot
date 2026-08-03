@@ -65,7 +65,13 @@ const TOWER = (function(){
 
   let boxes = [], beam = null;
   let letici = [];           // bedny za bidlem — dopad si dopočítají samy
-  let volnaKachna = null;    // kachnička po prasknutí skla
+  // Získaná kachnička: po prasknutí skla vylétne k hornímu okraji, chvíli se
+  // ukáže ve větším pod skóre a pak se zhroutí do sebe. Kreslí se v souřadnicích
+  // OBRAZOVKY, ne scény — je to oznámení hráči, ne objekt ve světě.
+  let ziskana = null;
+  const ZISK_LET  = 0.55;    // doba letu k hornímu okraji
+  const ZISK_DRZ  = 0.75;    // jak dlouho se ukazuje
+  const ZISK_MIZI = 0.45;    // doba hroucení do sebe
   let trisky = [];           // odštěpky odražené od beden
   let state = 'play';        // 'play' | 'won'
   let bg = null;
@@ -105,7 +111,7 @@ const TOWER = (function(){
   // ---------------------------------------------------------------- start
   function init(){
     state = 'play'; rozbito = 0;
-    boxes = []; beam = null; letici = []; volnaKachna = null; trisky = [];
+    boxes = []; beam = null; letici = []; ziskana = null; trisky = [];
     if(!FLUID_LF.isAvailable()){ prerenderBackground(); return; }
 
     // Podlaha je TLUSTÝ blok, ne úsečka — do tenké hrany rychlá bedna prolétne.
@@ -191,7 +197,7 @@ const TOWER = (function(){
         splashAt(p.x, GROUND + p.y, Z + (h.z||0), h.kachnicka ? 22 : 10, 0);
         odstrelTrisky(p.x, p.y, h.z||0, h.mat, h.kachnicka ? 16 : 10, 110);
         addFloater(sx, sy, h.kachnicka ? 'OSVOBOZENA!' : 'PRÁSK!');
-        if(h.kachnicka) volnaKachna = { x: p.x, y: BOX*0.5, z: h.z||0, t: 0 };
+        if(h.kachnicka) ziskana = { t: 0, sx, sy };
       }
     }
 
@@ -210,21 +216,19 @@ const TOWER = (function(){
         addFloater(projX(f.x, sd), projY(GROUND + f.halfH, sd),
                    f.kachnicka ? 'OSVOBOZENA!' : 'PRÁSK!');
         if(f.kachnicka){
-          // sklo puklo — kachnička je venku a odplouvá
-          volnaKachna = { x: f.x, y: f.halfH, z: f.z, t: 0 };
+          // sklo puklo — kachnička je venku
+          ziskana = { t: 0, sx: projX(f.x, sd), sy: projY(GROUND + f.halfH, sd) };
         }
         letici.splice(i,1);
         rozbito++;
       }
     }
 
-    // osvobozená kachnička poskočí a odpluje
     updateTrisky(dt);
 
-    if(volnaKachna){
-      volnaKachna.t += dt;
-      volnaKachna.y += Math.max(0, 90 - volnaKachna.t*70) * dt;
-      volnaKachna.x += 26*dt;
+    if(ziskana){
+      ziskana.t += dt;
+      if(ziskana.t > ZISK_LET + ZISK_DRZ + ZISK_MIZI) ziskana = null;
     }
 
     if(state === 'play' && boxes.length === 0 && letici.length === 0) state = 'won';
@@ -407,17 +411,51 @@ const TOWER = (function(){
     for(const f of predBidlem) drawFlying(f);     // a nakonec co letí před ním
     drawTrisky();
 
-    if(volnaKachna){
-      const sd = projS(Z + volnaKachna.z);
-      const sz = 150*sd*S;
-      ctx.save();
-      ctx.translate(projX(volnaKachna.x, sd), projY(GROUND + volnaKachna.y, sd));
-      ctx.rotate(Math.sin(volnaKachna.t*4)*0.10);
-      ctx.drawImage(duckSprite, -sz*0.53, -sz*0.62, sz, sz);
-      ctx.restore();
-    }
+
 
     ctx.restore();
+  }
+
+  // Získaná kachnička — oznámení hráči. Vylétne od místa, kde sklo prasklo,
+  // k hornímu okraji pod skóre, tam se ukáže ve větším a zhroutí se do sebe.
+  function drawZiskana(){
+    if(!ziskana) return;
+    const cilX = W/2, cilY = H*0.285;      // pod skóre, ať ho nepřekrývá
+    const zaklad = 100*S;
+    let x, y, sz, rot = 0, alfa = 1;
+
+    if(ziskana.t < ZISK_LET){
+      const k = ziskana.t/ZISK_LET;
+      const e = 1 - Math.pow(1-k, 3);              // ease-out, ať to nedoletí prudce
+      x = ziskana.sx + (cilX - ziskana.sx)*e;
+      y = ziskana.sy + (cilY - ziskana.sy)*e;
+      sz = zaklad * (0.75 + 0.75*e);
+      rot = (1-e) * 0.5;
+    } else if(ziskana.t < ZISK_LET + ZISK_DRZ){
+      const k = (ziskana.t - ZISK_LET)/ZISK_DRZ;
+      x = cilX; y = cilY - Math.sin(k*Math.PI)*10*S;
+      sz = zaklad * (1.5 + Math.sin(k*Math.PI*2)*0.06);   // lehké nadechnutí
+    } else {
+      const k = (ziskana.t - ZISK_LET - ZISK_DRZ)/ZISK_MIZI;
+      x = cilX; y = cilY;
+      sz = zaklad * 1.5 * (1 - k*k);               // hroucení do sebe
+      rot = k*k * 2.4;
+      alfa = 1 - k*k;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = alfa;
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    // zář za kachničkou, ať je oznámení vidět i na světlém pozadí
+    const g = ctx.createRadialGradient(0, 0, sz*0.1, 0, 0, sz*0.75);
+    g.addColorStop(0, 'rgba(255,240,170,0.55)');
+    g.addColorStop(1, 'rgba(255,240,170,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, sz*0.75, 0, Math.PI*2); ctx.fill();
+    ctx.drawImage(duckSprite, -sz*0.53, -sz*0.55, sz, sz);
+    ctx.restore();
+    ctx.globalAlpha = 1;
   }
 
   function drawHud(){
@@ -430,6 +468,7 @@ const TOWER = (function(){
     ctx.strokeText(t, W - 14*S, H*0.30);
     ctx.fillText(t, W - 14*S, H*0.30);
     ctx.textAlign = 'left';
+    drawZiskana();
   }
 
   return { init, update, onParticle, aimZ, isWon,
