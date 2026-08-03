@@ -66,6 +66,7 @@ const TOWER = (function(){
   let boxes = [], beam = null;
   let letici = [];           // bedny za bidlem — dopad si dopočítají samy
   let volnaKachna = null;    // kachnička po prasknutí skla
+  let trisky = [];           // odštěpky odražené od beden
   let state = 'play';        // 'play' | 'won'
   let bg = null;
   let rozbito = 0;
@@ -104,7 +105,7 @@ const TOWER = (function(){
   // ---------------------------------------------------------------- start
   function init(){
     state = 'play'; rozbito = 0;
-    boxes = []; beam = null; letici = []; volnaKachna = null;
+    boxes = []; beam = null; letici = []; volnaKachna = null; trisky = [];
     if(!FLUID_LF.isAvailable()){ prerenderBackground(); return; }
 
     // Podlaha je TLUSTÝ blok, ne úsečka — do tenké hrany rychlá bedna prolétne.
@@ -188,6 +189,7 @@ const TOWER = (function(){
         boxes.splice(i,1);
         rozbito++;
         splashAt(p.x, GROUND + p.y, Z + (h.z||0), h.kachnicka ? 22 : 10, 0);
+        odstrelTrisky(p.x, p.y, h.z||0, h.mat, h.kachnicka ? 16 : 10, 110);
         addFloater(sx, sy, h.kachnicka ? 'OSVOBOZENA!' : 'PRÁSK!');
         if(h.kachnicka) volnaKachna = { x: p.x, y: BOX*0.5, z: h.z||0, t: 0 };
       }
@@ -204,6 +206,7 @@ const TOWER = (function(){
       if(f.y <= f.halfH){
         const sd = projS(Z + f.z);
         splashAt(f.x, GROUND + f.halfH, Z + f.z, f.kachnicka ? 22 : 10, 0);
+        odstrelTrisky(f.x, f.halfH, f.z, f.mat, f.kachnicka ? 16 : 10, 110);
         addFloater(projX(f.x, sd), projY(GROUND + f.halfH, sd),
                    f.kachnicka ? 'OSVOBOZENA!' : 'PRÁSK!');
         if(f.kachnicka){
@@ -216,6 +219,8 @@ const TOWER = (function(){
     }
 
     // osvobozená kachnička poskočí a odpluje
+    updateTrisky(dt);
+
     if(volnaKachna){
       volnaKachna.t += dt;
       volnaKachna.y += Math.max(0, 90 - volnaKachna.t*70) * dt;
@@ -223,6 +228,47 @@ const TOWER = (function(){
     }
 
     if(state === 'play' && boxes.length === 0 && letici.length === 0) state = 'won';
+  }
+
+  // Odštěpky z bedny. Nesou barvu svého materiálu, takže z kamene odletí
+  // šedé úlomky a ze dřeva třísky — hráč tak vidí, do čeho tluče.
+  function odstrelTrisky(x, y, z, mat, n, sila){
+    for(let i=0;i<n;i++){
+      trisky.push({
+        x, y, z,
+        vx: rand(-1,1)*sila, vy: rand(0.3,1.4)*sila, vz: rand(-0.4,1.0)*sila*0.5,
+        rot: rand(0, 6.28), spin: rand(-9, 9),
+        dl: rand(3, 9), sir: rand(1.5, 3.5),
+        life: rand(0.5, 1.3), life0: 1,
+        barva: mat.predek[1],
+      });
+    }
+  }
+
+  function updateTrisky(dt){
+    for(let i=trisky.length-1;i>=0;i--){
+      const t = trisky[i];
+      t.vy -= 1400*dt;
+      t.x += t.vx*dt; t.y += t.vy*dt; t.z += t.vz*dt;
+      t.rot += t.spin*dt;
+      t.life -= dt;
+      if(t.life <= 0 || t.y < -20) trisky.splice(i,1);
+    }
+  }
+
+  function drawTrisky(){
+    for(const t of trisky){
+      const sd = projS(Z + t.z);
+      const sc = sd*S;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, t.life*2.2);
+      ctx.translate(projX(t.x, sd), projY(GROUND + t.y, sd));
+      ctx.rotate(t.rot);
+      ctx.fillStyle = t.barva;
+      ctx.fillRect(-t.dl*sc/2, -t.sir*sc/2, t.dl*sc, t.sir*sc);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
   }
 
   // Zásah proudem bednu NEPOŠKODÍ, jen do ní strčí. Ničení má na starosti pád.
@@ -243,6 +289,8 @@ const TOWER = (function(){
     FLUID_LF.pushBody(h, lx, ly, PUSH*(p.vx/v)*0.5, PUSH*(p.vy/v)*0.9);
     h.vz = (h.vz || 0) + PUSH_Z*0.01*Math.max(0.2, p.vz/v);
     if(Math.random() < 0.18) splashAt(p.x, p.y, p.z, 1, 0);
+    // občas se z bedny odloupne tříska
+    if(Math.random() < 0.05) odstrelTrisky(lx, ly, h.z||0, h.mat, 1, 55);
     return true;
   }
 
@@ -346,14 +394,18 @@ const TOWER = (function(){
       const px = projX(sx, s);
       ctx.fillRect(px - 7*scale, beamSy, 14*scale, groundSy - beamSy);
     }
-    // bidlo
-    if(beam) drawBox(beam);
+    // POŘADÍ PODLE HLOUBKY, včetně bidla. Bidlo se dřív kreslilo první, takže
+    // bedna odstřelená ZA něj se namalovala přes něj a vypadala, že padá před
+    // ním — přesně naopak, než kam letí.
+    const zaBidlem = letici.filter(f => f.z > BEAM_ZH).sort((a,b)=> b.z - a.z);
+    const predBidlem = letici.filter(f => f.z <= BEAM_ZH).sort((a,b)=> b.z - a.z);
+    const naBidle = boxes.slice().sort((a,b)=> (b.z||0) - (a.z||0));
 
-    // Vzdálenější bedny se kreslí první, aby je bližší překryly — bez toho by
-    // se prostorový dojem rozbil hned, jak jedna odletí dozadu.
-    const poradi = boxes.slice().sort((a,b)=> (b.z||0) - (a.z||0));
-    for(const f of letici.slice().sort((a,b)=> b.z - a.z)) drawFlying(f);
-    for(const h of poradi) drawBox(h);
+    for(const f of zaBidlem) drawFlying(f);      // nejdřív co je za bidlem
+    if(beam) drawBox(beam);                       // pak bidlo
+    for(const h of naBidle) drawBox(h);           // pak bedny na něm
+    for(const f of predBidlem) drawFlying(f);     // a nakonec co letí před ním
+    drawTrisky();
 
     if(volnaKachna){
       const sd = projS(Z + volnaKachna.z);
