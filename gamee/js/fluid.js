@@ -17,19 +17,20 @@ const FLUID = (function(){
   const R0   = 20;             // klidová vzdálenost částic (world jednotky)
   const H    = R0 * 2;         // vyhlazovací poloměr
   const H2   = H*H;
-  const ITERS = 3;             // iterace solveru hustoty
+  const ITERS = 4;             // iterace solveru hustoty (víc = klidnější hladina)
+  const SUBSTEPS = 2;          // menší kroky = stabilnější řešič
   // Relaxace v lambda. POZOR na řád: gradienty vycházejí kolem 1e-3, takže
   // hodnota v jednotkách „stovky" by jmenovatel zcela přebila a tlak by byl
   // nulový — voda by se slehla do kaluže na dně.
   const EPS  = 2e-4;
-  const VISC = 0.012;          // XSPH viskozita — drží vodu pohromadě
-  const SCORR_K = 0.15;        // umělý tlak proti shlukování (relativní k lambda)
+  const VISC = 0.09;           // XSPH viskozita — tlumí odskoky, drží vodu pohromadě
+  const SCORR_K = 0.04;        // umělý tlak proti shlukování (relativní k lambda)
   const SCORR_N = 4;
-  const DAMP = 0.985;
+  const DAMP = 0.955;
   // Pojistky proti explozi řešiče: bez nich stačí, aby se pár částic ocitlo
   // na sobě, hustota vystřelí a korekce je vymrští z nádoby ven.
-  const MAX_CORR = R0*0.35;    // strop posunu za jednu iteraci
-  const MAX_VEL  = 2600;       // strop rychlosti
+  const MAX_CORR = R0*0.18;    // strop posunu za jednu iteraci
+  const MAX_VEL  = 1100;       // strop rychlosti — bez něj kapky vystřelují z hmoty
 
   // jádra (2D)
   const POLY6 = 4 / (Math.PI * Math.pow(H, 8));
@@ -114,9 +115,14 @@ const FLUID = (function(){
   }
 
   // container: { R, top, gx, gy }  — poloměr, výška okraje, směr gravitace
-  function step(dt, container){
+  function step(dtFull, container){
     if(n === 0) return;
-    dt = Math.min(dt, 1/50);
+    dtFull = Math.min(dtFull, 1/50);
+    for(let sub=0; sub<SUBSTEPS; sub++) substep(dtFull/SUBSTEPS, container);
+  }
+
+  function substep(dt, container){
+    if(n === 0) return;
 
     const R = container.R, TOP = container.top;
     const gxA = container.gx, gyA = container.gy;
@@ -285,7 +291,11 @@ const FLUID = (function(){
     const perDrop = R0*R0*0.66 / colW;      // kolik výšky přidá jedna kapka
     for(let c=0;c<COLS;c++){
       if(colN[c] === 0) continue;
-      colH[c] = Math.min(colN[c]*perDrop, colMax[c]);
+      // Hladina jde po SKUTEČNÉM vrcholu sloupce, ale nejvýš o kousek nad to,
+      // co dovolí objem. Samotný objem hladinu podceňoval (horní vrstva je
+      // volnější) a ta vrstva pak vypadla z tělesa jako řetěz korálků.
+      // Strop z objemu zároveň brání tomu, aby jedna letící kapka udělala špičku.
+      colH[c] = Math.min(colMax[c], colN[c]*perDrop + R0*1.6);
     }
 
     // vyhlazení profilu — bez něj by hladina poskakovala po jednotlivých kapkách
@@ -372,6 +382,14 @@ const FLUID = (function(){
   }
 
   reset(CAP);
-  return { reset, spawn, step, draw, count, capacity, surfaceY,
+  // průměrná rychlost — čím blíž nule, tím klidnější hladina
+  function meanSpeed(){
+    if(n === 0) return 0;
+    let sum = 0;
+    for(let i=0;i<n;i++) sum += Math.hypot(vx[i], vy[i]);
+    return sum/n;
+  }
+
+  return { reset, spawn, step, draw, count, capacity, surfaceY, meanSpeed,
            get R0(){ return R0; } };
 })();

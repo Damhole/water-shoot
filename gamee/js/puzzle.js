@@ -187,7 +187,7 @@ const PUZZLE = (function(){
       dropAcc += DROPS_PER_HIT;
       while(dropAcc >= 1){
         dropAcc -= 1;
-        FLUID.spawn(HOLE_DX + rand(-24,24), CYL_H - 12, rand(-30,30), -160);
+        FLUID.spawn(HOLE_DX + rand(-30,30), CYL_H - 14, rand(-15,15), -60);
       }
       if(Math.random() < 0.12) splashAt(p.x, p.y, CYL_Z, 1, 1);
       return true;
