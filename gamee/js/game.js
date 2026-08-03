@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v70';
-const WS_CHECKSUM = 'water-shoot-v70';
+const WS_VERSION = 'v71';
+const WS_CHECKSUM = 'water-shoot-v71';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -41,7 +41,19 @@ const HUD_MAP = {
     ['cb-special','specialMode'], ['cb-lf','lfFluid'], ['cb-gl','glFluid'],
     ['cb-rel','relativeAim'], ['cb-auto','autoSpray'],
   ],
+  colors: [ ['cl-water','glTint'] ],
 };
+
+// Barva se v shaderu počítá v 0-1, ale <input type=color> mluví hexem.
+function rgbToHex(c){
+  const h = v => Math.round(Math.max(0, Math.min(1, v))*255).toString(16).padStart(2,'0');
+  return '#' + h(c[0]) + h(c[1]) + h(c[2]);
+}
+function hexToRgb(hex){
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
+  if(!m) return null;
+  return [parseInt(m[1],16)/255, parseInt(m[2],16)/255, parseInt(m[3],16)/255];
+}
 
 function saveTune(){
   try{ localStorage.setItem(TUNE_KEY, JSON.stringify(tune)); }
@@ -89,6 +101,10 @@ function syncHUD(){
   for(const [id, key] of HUD_MAP.checks){
     const el = document.getElementById(id);
     if(el) el.checked = tune[key];
+  }
+  for(const [id, key] of HUD_MAP.colors){
+    const el = document.getElementById(id);
+    if(el) el.value = rgbToHex(tune[key]);
   }
 }
 
@@ -2250,6 +2266,14 @@ function setupHUD(){
   slider('sl-glthresh', 'glThresh', v=>v.toFixed(2));
   slider('sl-gltint', 'glTintMix', v=>v.toFixed(2));
   slider('sl-glcap', 'glCap', v=>v.toFixed(2));
+  const clW = document.getElementById('cl-water');
+  if(clW){
+    clW.value = rgbToHex(tune.glTint);
+    clW.addEventListener('input', ()=>{
+      const rgb = hexToRgb(clW.value);
+      if(rgb) tune.glTint = rgb;       // neplatný zápis ignorujeme, ať barva nezčerná
+    });
+  }
 
   const cbg = document.getElementById('cb-gl');
   if(cbg){

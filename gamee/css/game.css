@@ -66,6 +66,10 @@ html, body {
 #perf-hud label { display:block; margin-top:6px; }
 #perf-hud .sl-row { display:flex; align-items:center; gap:6px; }
 #perf-hud input[type=range] { flex:1; }
+#perf-hud input[type=color] {
+  flex:1; height:26px; padding:0; cursor:pointer;
+  background:transparent; border:1px solid rgba(255,255,255,0.3); border-radius:6px;
+}
 #perf-hud .sl-val { min-width:38px; text-align:right; font-variant-numeric:tabular-nums; color:#8ecbff; }
 #perf-hud .cb-row { margin-top:8px; display:flex; gap:14px; }
 #perf-hud .cb-row label { display:flex; align-items:center; gap:4px; margin:0; }

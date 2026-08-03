@@ -99,13 +99,13 @@ const PUZZLE = (function(){
     zkus();
   })();
 
-  // Předloha má dole nakreslené dělo, ale dělo si hra kreslí sama — dvě by se
-  // tloukla. Místo ořezu (přišli bychom o kus písku a posunula by se kompozice)
-  // ho přemalujeme pískem: pruh těsně NAD dělem se roztáhne přes něj dolů.
-  // Zdrojový pruh schválně končí přesně tam, kde začíná cíl, takže ve spoji
-  // na sebe pixely navazují a není vidět šev.
-  const BG_CANNON_TOP = 0.56;    // odkud dolů je v obrázku dělo (podíl výšky)
-  const BG_PATCH_SRC  = 0.20;    // jak vysoký pruh písku se na záplatu bere
+  // Přemalování děla z předlohy. Aktuální obrázek je vyretušovaný ručně, takže
+  // je vypnuté (1 = nezasahovat). Kdyby se dal do pozadí jiný, který dělo má,
+  // stačí sem dát podíl výšky, od kterého dolů se má přemalovat: pruh těsně nad
+  // dělem se roztáhne přes něj dolů, a to ZRCADLOVĚ, aby pixely ve spoji
+  // navazovaly (bez zrcadlení je přes celou šířku vidět hrana).
+  const BG_CANNON_TOP = 1;       // odkud dolů je v obrázku dělo (podíl výšky)
+  const BG_PATCH_SRC  = 0.20;    // jak vysoký pruh se na záplatu bere
 
   function drawBgImage(g){
     const iw = bgImg.naturalWidth, ih = bgImg.naturalHeight;
@@ -115,10 +115,9 @@ const PUZZLE = (function(){
 
     g.drawImage(bgImg, dx, 0, dw, dh);
 
-    // Záplata přes dělo. Pruh se kreslí PŘEKLOPENÝ vzhůru nohama — jinak by
-    // záplata začala prvním řádkem zdroje, zatímco nad švem je řádek poslední,
-    // a přes celou šířku by vznikla viditelná hrana. Se zrcadlením na sebe
-    // pixely ve spoji navazují přesně.
+    if(BG_CANNON_TOP >= 1) return;      // obrázek dělo nemá, není co přemalovat
+
+    // Záplata přes dělo, překlopená vzhůru nohama (viz komentář u konstanty).
     const cut  = ih * BG_CANNON_TOP;
     const srcY = cut - ih*BG_PATCH_SRC;
     const restH = dh - cut*sc;
