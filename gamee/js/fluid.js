@@ -256,7 +256,7 @@ const FLUID = (function(){
 
   function draw(g, toScreen, scale, color){
     if(n === 0) return;
-    const rad = R0*0.95*scale;
+    const rad = R0*1.12*scale;   // mírný překryv, ať kapky splynou v hmotu
     if(canFilter){
       // metaball: rozmazat a prohnat kontrastem → souvislá hmota
       const pad = rad*3;
@@ -270,9 +270,14 @@ const FLUID = (function(){
       const bw = Math.max(1, Math.ceil(x1-x0)), bh = Math.max(1, Math.ceil(y1-y0));
       if(!blobCv){ blobCv = document.createElement('canvas'); blobCtx = blobCv.getContext('2d'); }
       if(blobCv.width !== bw || blobCv.height !== bh){ blobCv.width = bw; blobCv.height = bh; }
+      // 1) Maska: plné kruhy se překryvem se slijí v jeden tvar samy od sebe.
+      // Klasický trik „blur + contrast" tu nefunguje — CSS contrast() pracuje
+      // s barevnými kanály, ne s alfou, takže okraj zůstal měkký a z vody byla
+      // rozmazaná šmouha. Jemné rozmazání jen zaoblí hrbolky na obrysu.
+      blobCtx.globalCompositeOperation = 'source-over';
       blobCtx.clearRect(0,0,bw,bh);
-      blobCtx.filter = 'blur('+Math.max(2, rad*0.55).toFixed(1)+'px) contrast(14)';
-      blobCtx.fillStyle = color;
+      blobCtx.filter = 'blur('+Math.max(1, rad*0.18).toFixed(1)+'px)';
+      blobCtx.fillStyle = '#fff';
       blobCtx.beginPath();
       for(let i=0;i<n;i++){
         const s = toScreen(px[i], py[i]);
@@ -281,7 +286,33 @@ const FLUID = (function(){
       }
       blobCtx.fill();
       blobCtx.filter = 'none';
+
+      // 2) maskou protáhnout vodní gradient — bez toho je z toho placka barvy
+      blobCtx.globalCompositeOperation = 'source-in';
+      const wg = blobCtx.createLinearGradient(0, 0, 0, bh);
+      wg.addColorStop(0.00, '#b9f2ff');
+      wg.addColorStop(0.06, '#6fdcff');
+      wg.addColorStop(0.30, '#31a9e8');
+      wg.addColorStop(1.00, '#0a5f96');
+      blobCtx.fillStyle = wg;
+      blobCtx.fillRect(0,0,bw,bh);
+
+      // 3) šikmý odlesk PŘES tělo vody. Musí být source-atop — se source-in
+      // by se výsledná průhlednost vynásobila průhledností odlesku a voda by
+      // se vygumovala do neviditelna.
+      blobCtx.globalCompositeOperation = 'source-atop';
+      const sh = blobCtx.createLinearGradient(0, 0, bw*0.7, bh);
+      sh.addColorStop(0.00, 'rgba(255,255,255,0.30)');
+      sh.addColorStop(0.35, 'rgba(255,255,255,0.05)');
+      sh.addColorStop(1.00, 'rgba(255,255,255,0)');
+      blobCtx.fillStyle = sh;
+      blobCtx.fillRect(0,0,bw,bh);
+      blobCtx.globalCompositeOperation = 'source-over';
+
+      g.save();
+      g.globalAlpha = 1;             // plná sytost — průsvitnost dělá už samotný gradient
       g.drawImage(blobCv, x0, y0);
+      g.restore();
     } else {
       g.fillStyle = color;
       g.beginPath();
