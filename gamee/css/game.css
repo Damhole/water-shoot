@@ -12,7 +12,10 @@ html, body {
 
 #version-badge {
   position:fixed; top:4px; right:6px; z-index:20;
-  font-size:11px; color:rgba(255,255,255,0.55);
+  font-size:11px; color:rgba(255,255,255,0.75);
+  /* obrys místo plné barvy — badge musí být čitelný na tmavé pouti i na
+     světlém bazénu (na světlém pozadí bílý text mizel) */
+  text-shadow:0 0 3px rgba(0,0,0,0.75), 0 1px 2px rgba(0,0,0,0.6);
   pointer-events:none;
 }
 #version-badge .game-name { font-weight:700; }

@@ -67,7 +67,18 @@ const PUZZLE = (function(){
   let tiltAccum = 0;         // impulzy od kapek za aktuální snímek
 
   // ---------------------------------------------------------------- pozadí
-  // Hotelový bazén: rozostřená modrá voda vzadu, bělavé kachlíky vepředu.
+  // Letní bazén: sytá tyrkysová voda s bílými odlesky, bílý obrubník, teplá
+  // krémová podlaha. Barvy podle předlohy — jasné a teplé, žádná šeď.
+  const COL = {
+    sky:    ['#fefaf2', '#eaf9ff'],
+    water:  ['#5ce9f7', '#2ed2ee', '#12b0dc'],
+    coping: '#ffffff',
+    deck:   ['#fff9ec', '#fdf0d9'],
+    grout:  'rgba(214,186,145,0.30)',
+    yellow: '#ffd34d',
+    orange: '#ff9b4d',
+  };
+
   function prerenderBackground(){
     bg = document.createElement('canvas');
     bg.width = Math.round(W*DPR); bg.height = Math.round(H*DPR);
@@ -75,49 +86,69 @@ const PUZZLE = (function(){
     g.setTransform(DPR,0,0,DPR,0,0);
 
     const horizon = H*0.30;          // kde končí bazén a začínají kachlíky
-    const edgeH   = 26*S;            // bílý obrubník bazénu
+    const edgeH   = 30*S;            // bílý obrubník bazénu
 
-    // obloha / okolí nad bazénem
-    const sky = g.createLinearGradient(0,0,0,horizon*0.55);
-    sky.addColorStop(0,'#bfe9ff'); sky.addColorStop(1,'#e8f7ff');
-    g.fillStyle = sky; g.fillRect(0,0,W,horizon*0.55);
+    // Obloha je jen úzký proužek — v předloze vyplňuje záběr bazén, ne nebe.
+    const poolTop = H*0.055;
+    const sky = g.createLinearGradient(0,0,0,poolTop);
+    sky.addColorStop(0, COL.sky[0]); sky.addColorStop(1, COL.sky[1]);
+    g.fillStyle = sky; g.fillRect(0,0,W,poolTop);
 
-    // bazén — sytá modrá, nahoře světlejší
-    const pool = g.createLinearGradient(0,horizon*0.5,0,horizon);
-    pool.addColorStop(0,'#3fc0f0');
-    pool.addColorStop(0.55,'#159fdc');
-    pool.addColorStop(1,'#0d7fbe');
-    g.fillStyle = pool; g.fillRect(0,horizon*0.5,W,horizon-horizon*0.5+2);
+    // bazén — tyrkysová, nahoře nejsvětlejší
+    const pool = g.createLinearGradient(0,poolTop,0,horizon);
+    pool.addColorStop(0,   COL.water[0]);
+    pool.addColorStop(0.5, COL.water[1]);
+    pool.addColorStop(1,   COL.water[2]);
+    g.fillStyle = pool; g.fillRect(0,poolTop,W,horizon-poolTop+2);
 
-    // rozostřené odlesky na hladině (dojem blurru bez skutečného filtru)
+    // Kaustiky: síť světla na hladině. Kreslí se ve dvou vrstvách — široké
+    // slabé pruhy dělají měkkou zář, tenké jasnější jiskření navrch. Jedna
+    // vrstva ostrých čar vypadá jako škrábance, ne jako světlo pod vodou.
     g.save();
-    g.globalAlpha = 0.5;
-    for(let i=0;i<26;i++){
-      const y = horizon*0.55 + Math.random()*(horizon*0.45);
-      const w = rand(30, 130)*S, h = rand(2.5, 7)*S;
-      g.fillStyle = 'rgba(255,255,255,'+rand(0.12,0.5).toFixed(2)+')';
-      g.beginPath();
-      g.ellipse(rand(0,W), y, w, h, 0, 0, Math.PI*2);
-      g.fill();
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    for(const layer of [{n:26, w:[10,26], a:[0.05,0.13], amp:[6,16]},
+                        {n:30, w:[2,6],   a:[0.16,0.40], amp:[3,9]}]){
+      for(let i=0;i<layer.n;i++){
+        const y0 = poolTop + Math.random()*(horizon-poolTop);
+        const x0 = rand(-60, W);
+        const len = rand(90, 300)*S;
+        const amp = rand(layer.amp[0], layer.amp[1])*S;
+        g.strokeStyle = 'rgba(255,255,255,'+rand(layer.a[0], layer.a[1]).toFixed(2)+')';
+        g.lineWidth = rand(layer.w[0], layer.w[1])*S;
+        g.beginPath();
+        g.moveTo(x0, y0);
+        for(let t=1;t<=10;t++){
+          const px = x0 + len*t/10;
+          g.lineTo(px, y0 + Math.sin(t*0.7 + i)*amp);
+        }
+        g.stroke();
+      }
     }
     g.restore();
 
-    // obrubník bazénu
-    const cop = g.createLinearGradient(0,horizon-edgeH*0.2,0,horizon+edgeH);
-    cop.addColorStop(0,'#ffffff'); cop.addColorStop(1,'#dfd6c6');
-    g.fillStyle = cop; g.fillRect(0,horizon-edgeH*0.2,W,edgeH*1.2);
+    // Barevné akcenty. Patří k dolnímu okraji bazénu a ke krajům — nahoře
+    // sedí skóre, čas a mince, tam by se to tlouklo.
+    drawRing(g, W*0.14, horizon*0.90, 34*S);
+    drawBall(g, W*0.88, horizon*0.84, 20*S);
 
-    // kachlíková podlaha v perspektivě
+    // obrubník bazénu — čistě bílý, měkký stín pod ním
+    g.fillStyle = COL.coping;
+    g.fillRect(0, horizon-edgeH*0.18, W, edgeH*1.25);
+    const csh = g.createLinearGradient(0, horizon+edgeH*1.07, 0, horizon+edgeH*1.6);
+    csh.addColorStop(0,'rgba(196,166,120,0.28)');
+    csh.addColorStop(1,'rgba(196,166,120,0)');
+    g.fillStyle = csh; g.fillRect(0, horizon+edgeH*1.07, W, edgeH*0.6);
+
+    // teplá krémová podlaha
     const tile = g.createLinearGradient(0,horizon,0,H);
-    tile.addColorStop(0,'#f6f0e4');
-    tile.addColorStop(0.5,'#efe6d5');
-    tile.addColorStop(1,'#e3d7c2');
+    tile.addColorStop(0, COL.deck[0]);
+    tile.addColorStop(1, COL.deck[1]);
     g.fillStyle = tile; g.fillRect(0,horizon+edgeH,W,H-horizon-edgeH);
 
     // Spáry podlahy. Sbíhavost držíme malou — scéna je z lehkého nadhledu,
     // takže podlaha nesmí utíkat do dálky jako u pohledu shora.
-    g.strokeStyle = 'rgba(150,132,104,0.35)';
-    g.lineWidth = 1.6*S;
+    g.strokeStyle = COL.grout;
+    g.lineWidth = 1.4*S;
     for(let k=-9;k<=9;k++){
       g.beginPath();
       g.moveTo(VPX + k*70*S*0.92, horizon+edgeH);
@@ -132,14 +163,49 @@ const PUZZLE = (function(){
     }
 
     // sluneční zář na kachlících pod válcem
-    const gl = g.createRadialGradient(W/2, horizon+edgeH+H*0.22, 10, W/2, horizon+edgeH+H*0.22, W*0.6);
-    gl.addColorStop(0,'rgba(255,255,255,0.5)');
-    gl.addColorStop(1,'rgba(255,255,255,0)');
-    g.fillStyle = gl; g.fillRect(0,horizon,W,H-horizon);
+    const sun = g.createRadialGradient(W/2, horizon+edgeH+H*0.20, 10, W/2, horizon+edgeH+H*0.20, W*0.7);
+    sun.addColorStop(0,'rgba(255,247,225,0.75)');
+    sun.addColorStop(1,'rgba(255,247,225,0)');
+    g.fillStyle = sun; g.fillRect(0,horizon,W,H-horizon);
 
     // WebGL vrstva si pozadí drží jako texturu — voda jím prosvítá a láme ho.
     // Je statické, takže stačí nahrát při každém prerenderu (tj. při resize).
     FLUID_GL.setBackground(bg);
+  }
+
+  // nafukovací kruh — žluté a bílé čtvrtiny, jako v předloze
+  function drawRing(g, cx, cy, r){
+    g.save();
+    g.translate(cx, cy);
+    g.scale(1, 0.42);                       // leží na hladině, tedy zploštělý
+    for(let q=0;q<4;q++){
+      g.beginPath();
+      g.arc(0, 0, r, q*Math.PI/2, (q+1)*Math.PI/2);
+      g.arc(0, 0, r*0.52, (q+1)*Math.PI/2, q*Math.PI/2, true);
+      g.closePath();
+      g.fillStyle = q%2 ? '#ffffff' : COL.yellow;
+      g.fill();
+    }
+    g.strokeStyle = 'rgba(0,0,0,0.06)'; g.lineWidth = 2;
+    g.beginPath(); g.arc(0,0,r,0,Math.PI*2); g.stroke();
+    g.restore();
+  }
+
+  // plážový míč — barevné klíny
+  function drawBall(g, cx, cy, r){
+    const cols = [COL.orange, '#ffffff', '#4fc9f0', '#ffffff', '#ff7a6b', '#ffffff'];
+    g.save();
+    g.translate(cx, cy);
+    g.scale(1, 0.5);
+    for(let i=0;i<6;i++){
+      g.beginPath();
+      g.moveTo(0,0);
+      g.arc(0, 0, r, i*Math.PI/3, (i+1)*Math.PI/3);
+      g.closePath();
+      g.fillStyle = cols[i];
+      g.fill();
+    }
+    g.restore();
   }
 
   // ---------------------------------------------------------------- start
