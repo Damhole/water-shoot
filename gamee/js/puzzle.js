@@ -136,7 +136,7 @@ const PUZZLE = (function(){
   // staví stěny, vlastní PBF ji dostává až v každém kroku.
   function resetFluid(){
     FLUID.reset(tune.fluidMax);
-    if(FLUID_LF.isAvailable()) FLUID_LF.reset(tune.fluidMax, CYL_R - GLASS, CYL_H);
+    if(FLUID_LF.isAvailable()) FLUID_LF.reset(tune.fluidMax, CYL_R - GLASS, CYL_H, tune.dropSize);
   }
 
   function init(){

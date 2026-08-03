@@ -78,12 +78,15 @@ const FLUID_GL = (function(){
       float a = smoothstep(uThresh - 0.05, uThresh + 0.05, d);
       if(a <= 0.004) discard;
 
-      // normála = gradient pole hustoty
-      float dx = texture2D(uField, vUv + vec2(uTexel.x, 0.0)).r
-               - texture2D(uField, vUv - vec2(uTexel.x, 0.0)).r;
-      float dy = texture2D(uField, vUv + vec2(0.0, uTexel.y)).r
-               - texture2D(uField, vUv - vec2(0.0, uTexel.y)).r;
-      vec2 g = vec2(dx, dy);
+      // Čtyři vzorky stranou slouží zároveň ke gradientu i k vyhlazení.
+      // Silueta se bere ze syrové hustoty (ostrý okraj), ale stínování z
+      // vyhlazené — jinak se vlnkování mřížky částic propíše do těla jako zrno.
+      float sR = texture2D(uField, vUv + vec2(uTexel.x*2.0, 0.0)).r;
+      float sL = texture2D(uField, vUv - vec2(uTexel.x*2.0, 0.0)).r;
+      float sU = texture2D(uField, vUv + vec2(0.0, uTexel.y*2.0)).r;
+      float sD = texture2D(uField, vUv - vec2(0.0, uTexel.y*2.0)).r;
+      float dS = (d + sR + sL + sU + sD) * 0.2;
+      vec2 g = vec2(sR - sL, sU - sD);
       float glen = length(g);
       vec2 n = glen > 0.0001 ? g / glen : vec2(0.0, 1.0);
 
@@ -93,22 +96,22 @@ const FLUID_GL = (function(){
       vec3 col = mix(bg, uTint, uTintMix);
 
       // vnitřní prosvětlení: hlubší voda je sytější
-      col = mix(col, uTint * 0.78, clamp((d - uThresh) * 0.9, 0.0, 0.5));
+      col = mix(col, uTint * 0.78, clamp((dS - uThresh) * 0.9, 0.0, 0.5));
 
       // obrys — pruh těsně nad prahem. Dělá hodně čitelnosti („je to jeden kus")
-      float edge = 1.0 - smoothstep(uThresh + 0.02, uThresh + 0.20, d);
+      float edge = 1.0 - smoothstep(uThresh + 0.02, uThresh + 0.20, dS);
       col = mix(col, uEdge, edge * 0.85);
 
       // pěna: tam, kde se voda čeří, a jen blízko povrchu
       float agit = f.g / max(d, 0.0015);
-      float nearSurf = 1.0 - smoothstep(0.0, 0.22, d - uThresh);
+      float nearSurf = 1.0 - smoothstep(0.0, 0.22, dS - uThresh);
       float foam = smoothstep(0.28, 0.9, agit) * nearSurf * uFoam;
 
       // světlo shora: plocha otočená vzhůru se rozsvítí (v UV je y dolů)
       float up = clamp(-n.y, 0.0, 1.0);
       col += vec3(0.30, 0.34, 0.36) * up * edge;
       // světlý pás těsně pod hladinou — v předloze je hodně vidět
-      float band = smoothstep(0.0, 0.10, d - uThresh) * (1.0 - smoothstep(0.10, 0.30, d - uThresh));
+      float band = smoothstep(0.0, 0.10, dS - uThresh) * (1.0 - smoothstep(0.10, 0.30, dS - uThresh));
       col = mix(col, vec3(0.92, 0.98, 1.0), band * up * 0.5);
 
       col = mix(col, vec3(1.0), clamp(foam, 0.0, 0.9));

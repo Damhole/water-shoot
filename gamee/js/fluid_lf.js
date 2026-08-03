@@ -15,11 +15,13 @@
 const FLUID_LF = (function(){
 
   const PPM = 100;            // pixelů na metr
-  const RADIUS = 0.05;        // poloměr částice v metrech (5 px)
   const MAX_DEFAULT = 3000;
+  const DROP_DEFAULT = 8;     // poloměr kapky v pixelech (laditelné v HUD)
+  let RADIUS = DROP_DEFAULT/PPM;
   // Naměřeno na testu: 1015 částic o poloměru 0,06 m zaplnilo 8,32 m²,
   // tedy ~2,28·R² na částici. Z toho puzzle počítá, kdy je válec plný.
-  const AREA_PER = 2.28 * (RADIUS*PPM) * (RADIUS*PPM);
+  // Roste s druhou mocninou — dvakrát větší kapky = čtvrtina počtu na stejný objem.
+  function areaPer(){ const r = RADIUS*PPM; return 2.28 * r * r; }
 
   let B = null;               // wasm modul
   let ready = false, failed = false;
@@ -61,9 +63,10 @@ const FLUID_LF = (function(){
     curR = R; curTop = top;
   }
 
-  function reset(cap, R, top){
+  function reset(cap, R, top, dropPx){
     if(!B){ load(); return; }
     maxCount = cap || MAX_DEFAULT;
+    RADIUS = (dropPx || DROP_DEFAULT)/PPM;
     if(world) { world.__destroy__(); world = null; ground = null; }
     world = new B.b2World(new B.b2Vec2(0, -10));
 
@@ -185,5 +188,5 @@ const FLUID_LF = (function(){
   return { load, isReady, isAvailable, reset, spawn, step, count, capacity,
            surfaceY, positions, draw, fillGL,
            get R0(){ return RADIUS*PPM; }, get PPM(){ return PPM; },
-           get areaPerParticle(){ return AREA_PER; } };
+           get areaPerParticle(){ return areaPer(); } };
 })();

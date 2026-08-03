@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v57';
-const WS_CHECKSUM = 'water-shoot-v57';
+const WS_VERSION = 'v58';
+const WS_CHECKSUM = 'water-shoot-v58';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -115,7 +115,8 @@ const tune = {
   fluidMax: 2500,             // strop částic kapaliny v puzzlu (test výkonu na mobilu)
   lfFluid: true,              // kapalina na LiquidFunu (wasm) místo vlastního PBF
   glFluid: true,              // voda kreslená shaderem (metaball + refrakce) místo kruhů
-  glPoint: 11.0,               // velikost jádra částice v poli (× poloměr) — malé jádro = zrnitá voda
+  dropSize: 8,                // poloměr kapky v px — velké kapky se čitelněji trhají a slévají
+  glPoint: 13.0,               // velikost jádra částice v poli (× poloměr) — malé jádro = zrnitá voda
   glGain:  0.034,             // kolik hustoty přidá jedna částice
   glThresh: 0.36,             // práh hladiny
   glTintMix: 0.62,            // kolik barvy vody proti prosvítajícímu pozadí
@@ -2130,6 +2131,15 @@ function setupHUD(){
       if(out) out.textContent = fmt ? fmt(+el.value) : el.value;
     });
   };
+  const slDrop = document.getElementById('sl-drop');
+  if(slDrop){
+    const out = document.getElementById('sl-drop-val');
+    slDrop.value = tune.dropSize; if(out) out.textContent = tune.dropSize;
+    slDrop.addEventListener('input', ()=>{
+      tune.dropSize = +slDrop.value; if(out) out.textContent = slDrop.value;
+      if(isPuzzle()) PUZZLE.resetFluid();   // poloměr se zadává při vzniku systému
+    });
+  }
   slider('sl-glpoint', 'glPoint', v=>v.toFixed(1));
   slider('sl-glthresh', 'glThresh', v=>v.toFixed(2));
   slider('sl-gltint', 'glTintMix', v=>v.toFixed(2));
