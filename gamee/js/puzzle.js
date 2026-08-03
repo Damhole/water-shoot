@@ -293,7 +293,7 @@ const PUZZLE = (function(){
             p => solver.fillGL(p, toScreen),
             { pointSize: solver.R0 * scale * tune.glPoint,
               gain: tune.glGain, thresh: tune.glThresh,
-              tintMix: tune.glTintMix, white: tune.glWhite,
+              tint: tune.glTint, tintMix: tune.glTintMix, white: tune.glWhite,
               capLo: 0.01, capTop: tune.glCap, capBot: tune.glCap * 0.18,
               // odkud kam se šířka bílé zužuje (v = 1 nahoře plátna)
               yTop: 1 - toScreen(0, solver.surfaceY()).y / H,
