@@ -28,6 +28,10 @@ const PUZZLE = (function(){
   const GLASS    = 16;       // tloušťka skla
   const HOLE_R   = 78;       // poloměr napouštěcího otvoru
   const HOLE_DX  = 92;       // otvor je stranou od osy, ať se musí mířit
+  // Otvor je VÝŘEZ V PŘEDNÍ STĚNĚ, ne díra na horní podstavě: po přechodu na
+  // frontální pohled byla horní podstava skoro na ostří a otvor z ní zbyl jako
+  // proužek. Stříká se do něj kolmo, ne obloukem přes okraj.
+  const HOLE_Y   = 0.80;     // výška otvoru jako podíl výšky válce
   // Míra nadhledu: poměr svislé a vodorovné poloosy elips (dno, okraj, otvor).
   // 0 = čistě zepředu, 0,3 = pohled hodně shora. Držíme se nízko — scéna má být
   // z lehkého nadhledu, ne z ptačí perspektivy.
@@ -36,9 +40,12 @@ const PUZZLE = (function(){
   // Kolik kapaliny přibude za jednu částici proudu. NEDÁVAT natvrdo: cíl se
   // mění s velikostí kapek (plocha na částici roste s druhou mocninou poloměru)
   // a s ním se musí měnit i přítok, jinak je puzzle buď triviální, nebo
-  // nesplnitelný. Naměřeno: při přesném míření projde otvorem ~39 % částic
-  // proudu, zbytek mine nebo trefí sklo.
-  const HIT_RATE = 0.39;
+  // nesplnitelný.
+  // Podíl částic, které při přesném míření projdou otvorem. Dokud byl otvor na
+  // horní podstavě, přilétal proud obloukem a trefilo se ~39 %. Do otvoru
+  // v přední stěně se míří přímo a projde skoro všechno — se starou hodnotou
+  // se válec plnil 3x rychleji, než měl (4 s místo 12).
+  const HIT_RATE = 0.95;
   function dropsPerHit(){
     return fullCount() / (tune.emitRate * HIT_RATE * tune.fillSeconds);
   }
@@ -281,7 +288,8 @@ const PUZZLE = (function(){
   }
 
   // ---------------------------------------------------------------- pomocné
-  function holeWorldX(){ return HOLE_DX; }              // střed otvoru
+  function holeWorldX(){ return HOLE_DX; }              // střed otvoru (vodorovně)
+  function holeWorldY(){ return CYL_BOT + CYL_H*HOLE_Y; }  // střed otvoru (svisle)
   function waterTopY(){ return CYL_BOT + CYL_H*fill; }  // hladina uvnitř
   function duckWorldY(){
     // kachnička plave na skutečné hladině kapaliny; než voda dosáhne, sedí na dně
@@ -337,18 +345,23 @@ const PUZZLE = (function(){
   // Vrací true, když částice narazila do válce (a tedy se má spotřebovat).
   function onParticle(p){
     if(state !== 'play') return false;
-    if(Math.abs(p.z - CYL_Z) > 90) return false;
+    // Válec zabírá hloubku od přední po zadní stěnu; dřív se testoval jen úzký
+    // pás kolem osy, protože se mířilo shora na podstavu.
+    if(p.z < CYL_Z - CYL_R - 40 || p.z > CYL_Z + CYL_R + 40) return false;
 
     const topY = CYL_BOT + CYL_H;
-    const hx = holeWorldX();
+    const hx = holeWorldX(), hy = holeWorldY();
 
-    // trefa do otvoru → přitéká dovnitř
-    if(p.y > topY - 30 && p.y < topY + 90 && Math.abs(p.x - hx) < HOLE_R){
-      // proud se v nálevce mění na kapalinu, která už si teče sama
+    // Trefa do otvoru: kruh v rovině přední stěny. Dřív to byl pás u horního
+    // okraje, protože se mířilo shora dolů do podstavy.
+    const dxh = p.x - hx, dyh = p.y - hy;
+    if(dxh*dxh + dyh*dyh < HOLE_R*HOLE_R){
+      // proud se v otvoru mění na kapalinu, která už si teče sama
       dropAcc += dropsPerHit();
       while(dropAcc >= 1){
         dropAcc -= 1;
-        F().spawn(HOLE_DX + rand(-30,30), CYL_H - 14, rand(-15,15), -60);
+        // kapky vtékají v úrovni otvoru a padají dovnitř
+        F().spawn(HOLE_DX + rand(-26,26), CYL_H*HOLE_Y + rand(-20,10), rand(-15,15), -40);
       }
       if(Math.random() < 0.12) splashAt(p.x, p.y, CYL_Z, 1, 1);
       return true;
@@ -364,10 +377,14 @@ const PUZZLE = (function(){
   }
 
   // pro raycast míření v game.js — kam až smí voda „odjištěná" letět
+  // Kam až má proud doletět. Cílem je PŘEDNÍ stěna válce, ne jeho osa — otvor
+  // je v ní a balistika počítá výšku dráhy právě k zadané hloubce. Kdyby se
+  // mířilo na osu, dopadala by voda o kus jinam, než ukazuje zaměřovač.
   function aimZ(sx, sy){
     const s = projS(CYL_Z);
     const wx = unprojX(sx, s), wy = unprojY(sy, s);
-    if(wy > CYL_BOT - 60 && wy < CYL_BOT + CYL_H + 140 && Math.abs(wx) < CYL_R + 120) return CYL_Z;
+    if(wy > CYL_BOT - 60 && wy < CYL_BOT + CYL_H + 140 && Math.abs(wx) < CYL_R + 120)
+      return CYL_Z - CYL_R;
     return WALL_Z;
   }
 
@@ -441,8 +458,19 @@ const PUZZLE = (function(){
     glass.addColorStop(0.45,'rgba(255,255,255,0.30)');
     glass.addColorStop(0.80,'rgba(255,255,255,0.08)');
     glass.addColorStop(1.00,'rgba(255,255,255,0.42)');
+    // Sklo se kreslí jako plocha S DÍROU (even-odd), ne jako obdélník — otvor
+    // je skutečný výřez, ne kolečko namalované navrch. Přes díru je proto vidět
+    // vnitřek válce bez skleněného zákalu.
+    const hx = projX(holeWorldX(), s);
+    const hy = projY(holeWorldY(), s);
+    const hr = HOLE_R*s*S;
+
     ctx.fillStyle = glass;
-    ctx.fillRect(cx-rx, topSy, rx*2, hgt);
+    ctx.beginPath();
+    ctx.rect(cx-rx, topSy, rx*2, hgt);
+    ctx.arc(hx, hy, hr, 0, Math.PI*2);
+    ctx.fill('evenodd');
+
     ctx.strokeStyle = 'rgba(255,255,255,0.85)';
     ctx.lineWidth = 3*S;
     ctx.beginPath(); ctx.moveTo(cx-rx, topSy); ctx.lineTo(cx-rx, bottomSy); ctx.stroke();
@@ -451,16 +479,18 @@ const PUZZLE = (function(){
     ctx.beginPath(); ctx.ellipse(cx, bottomSy, rx, ry, 0, 0, Math.PI*2); ctx.stroke();
     ctx.beginPath(); ctx.ellipse(cx, topSy, rx, ry, 0, 0, Math.PI*2); ctx.stroke();
 
-    // napouštěcí otvor — nálevka stranou od osy
-    const hx = projX(holeWorldX(), s);
-    const hr = HOLE_R*s*S;
-    ctx.fillStyle = '#e8a33a';
-    ctx.beginPath(); ctx.ellipse(hx, topSy, hr, hr*VIEW*1.3, 0, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#3a2a12';
-    ctx.beginPath(); ctx.ellipse(hx, topSy, hr*0.68, hr*VIEW*0.85, 0, 0, Math.PI*2); ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.lineWidth = 2*S;
-    ctx.beginPath(); ctx.ellipse(hx, topSy, hr, hr*VIEW*1.3, 0, Math.PI*1.1, Math.PI*1.9); ctx.stroke();
+    // Hrana výřezu: širší poloprůhledný lem (tloušťka skla v řezu) a přes něj
+    // tenká jasná linka, aby byl otvor jasně čitelný jako cíl.
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = 7*S;
+    ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+    ctx.lineWidth = 2.5*S;
+    ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.stroke();
+    // lesk na horním okraji výřezu
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 3*S;
+    ctx.beginPath(); ctx.arc(hx, hy, hr*0.82, Math.PI*1.15, Math.PI*1.75); ctx.stroke();
 
     ctx.restore();
 
