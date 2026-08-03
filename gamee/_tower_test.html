@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="cs"><head><meta charset="utf-8"><title>LiquidFun — srazí proud věž?</title></head>
+<body style="margin:0;background:#111;color:#eee;font:13px monospace">
+<pre id="out">…</pre>
+<canvas id="c" width="520" height="380" style="border:1px solid #444"></canvas>
+<script src="./lib/entry.js" data-box2d-dir="./lib"></script>
+<script>
+// Riziková otázka před stavbou úrovně s pyramidou:
+// dokáže proud částic srazit stohované bedny, nebo jimi jen protéká?
+// Měří se posun každé bedny proti výchozí poloze — když se nehnou, nemá cenu
+// stavět kolem toho úroveň.
+window.__tower = function(opts){
+  const o = opts || {};
+  return Box2D().then(B => {
+    const world = new B.b2World(new B.b2Vec2(0, -10));
+
+    // země
+    const gnd = world.CreateBody(new B.b2BodyDef());
+    const es = new B.b2EdgeShape();
+    es.SetTwoSided(new B.b2Vec2(-6, 0), new B.b2Vec2(6, 0));
+    gnd.CreateFixture(es, 0);
+
+    // pyramida z krychlí
+    const HS = 0.16;                       // poloviční hrana krychle
+    const boxes = [];
+    const rows = o.rows || 5;
+    for(let r=0; r<rows; r++){
+      const n = rows - r;
+      for(let i=0; i<n; i++){
+        const bd = new B.b2BodyDef();
+        bd.type = 2;
+        bd.position = new B.b2Vec2(1.2 + (i - (n-1)/2)*HS*2.05, HS + r*HS*2.02);
+        const b = world.CreateBody(bd);
+        const ps2 = new B.b2PolygonShape();
+        ps2.SetAsBox(HS, HS);
+        const fd = new B.b2FixtureDef();
+        fd.shape = ps2; fd.density = o.density || 0.6; fd.friction = 0.5; fd.restitution = 0.02;
+        b.CreateFixture(fd);
+        boxes.push({ b, x0: b.GetPosition().get_x(), y0: b.GetPosition().get_y() });
+      }
+    }
+
+    // částicový systém pro proud
+    const psd = new B.b2ParticleSystemDef();
+    psd.radius = 0.05;
+    psd.dampingStrength = 0.2;
+    const ps = world.CreateParticleSystem(psd);
+    ps.SetMaxParticleCount(3000);
+
+    const pdef = new B.b2ParticleDef();
+    const v = new B.b2Vec2(0,0);
+    const SPEED = o.speed || 14;           // rychlost proudu [m/s]
+    let frames = 0;
+
+    // pár kroků, ať se pyramida usadí, teprve pak proud
+    for(let i=0;i<60;i++) world.Step(1/60, 6, 3);
+    const usazeno = boxes.map(bx => ({ x: bx.b.GetPosition().get_x(), y: bx.b.GetPosition().get_y() }));
+
+    for(let f=0; f<600; f++){
+      // tryska zleva dole, míří na spodní řadu
+      for(let k=0;k<6;k++){
+        v.set_x(-1.6); v.set_y(0.30 + Math.random()*0.10);
+        pdef.position = v;
+        v.set_x(SPEED); v.set_y(1.2 + Math.random()*0.6);
+        pdef.velocity = v;
+        ps.CreateParticle(pdef);
+      }
+      world.Step(1/60, 6, 3);
+      // co odletí pryč, zahodíme
+      const n = ps.GetParticleCount();
+      if(n){
+        const p = new Float32Array(B.HEAPF32.buffer, B.getPointer(ps.GetPositionBuffer()), n*2);
+        for(let i=n-1;i>=0;i--) if(p[i*2] > 4.5 || p[i*2+1] < -1) ps.DestroyParticle(i);
+      }
+      frames++;
+    }
+
+    let maxPosun = 0, spadlo = 0;
+    boxes.forEach((bx, i) => {
+      const p = bx.b.GetPosition();
+      const d = Math.hypot(p.get_x()-usazeno[i].x, p.get_y()-usazeno[i].y);
+      if(d > maxPosun) maxPosun = d;
+      if(d > 0.25) spadlo++;
+    });
+    return { beden: boxes.length, rozhozeno: spadlo,
+             nejvetsiPosunM: +maxPosun.toFixed(2), castic: ps.GetParticleCount(),
+             rychlostProudu: SPEED, hustotaBeden: o.density || 0.6 };
+  });
+};
+document.getElementById('out').textContent = 'připraveno — spustí se z konzole';
+</script>
+</body></html>
