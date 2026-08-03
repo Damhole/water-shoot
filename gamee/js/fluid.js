@@ -420,11 +420,10 @@ const FLUID = (function(){
   }
 
   // Souřadnice a rozvíření pro WebGL vrstvu (fluid_gl.js).
-  function fillGL(outPos, outSpd, toScreen){
+  function fillGL(outPos, toScreen){
     for(let i=0;i<n;i++){
       const s = toScreen(px[i], py[i]);
       outPos[i*2] = s.x; outPos[i*2+1] = s.y;
-      outSpd[i] = Math.min(1, Math.hypot(vx[i], vy[i])/900);
     }
     return n;
   }

@@ -39,14 +39,11 @@ const PUZZLE = (function(){
     return fullCount() / (tune.emitRate * HIT_RATE * tune.fillSeconds);
   }
   const WIN_LEVEL     = 0.95;    // jak plno musí být, aby kachnička přeplavala okraj
-  // Kolik částic zaplní válec: plocha vnitřku / plocha připadající na částici
-  // při hexagonálním rozložení. Bez tohohle by se naplnění počítalo z výšky
-  // a jediná kapka u okraje by hlásila plno.
+  // Kolik kapek je potřeba na plný válec. Slouží UŽ JEN ke kalibraci přítoku
+  // (viz dropsPerHit) — zobrazovaná plnost se měří z hladiny.
   function fullCount(){
     const area = 2*(CYL_R-GLASS) * CYL_H;
-    // plochu na částici hlásí solver — LiquidFun a vlastní PBF mají jinak
-    // velké částice a jinak husté rozložení
-    return Math.min(Math.round(area/F().areaPerParticle), Math.round(F().capacity()*0.85));
+    return Math.min(Math.round(area/F().areaPerParticle), F().capacity());
   }
   const TILT_MAX     = 0.30;     // za tímhle náklonem začne voda vyšplíchávat
   const TILT_PER_HIT = 0.02;     // příspěvek jedné kapky do rozhoupání
@@ -182,7 +179,10 @@ const PUZZLE = (function(){
     const G = 1400;
     F().step(dt, { R: CYL_R - GLASS, top: CYL_H,
                      gx: Math.sin(tilt)*G, gy: -Math.cos(tilt)*G });
-    fill = clamp(F().count()/fullCount(), 0, 1);
+    // Plnost se MĚŘÍ z hladiny, nepočítá z počtu částic: kapalina se pod
+    // vlastní vahou stlačuje (naměřeno 1,44 × r² na kapku u mělké vody proti
+    // 1,04 × r² u hluboké), takže žádný pevný přepočet nesedí v celém rozsahu.
+    fill = clamp(F().surfaceY() / CYL_H, 0, 1);
     // Kachnička plave na hladině, ale ne na každé vlnce — dojíždí za ní.
     // Nahoru rychleji než dolů: voda ji nadnáší hned, klesá s ubývajícím objemem.
     const targetY = Math.max(70, F().surfaceY() + 46);
@@ -279,10 +279,11 @@ const PUZZLE = (function(){
       const solver = F();
       const glcv = tune.glFluid && FLUID_GL.available()
         ? FLUID_GL.render(W, H, GL_RES, solver.count(),
-            (p, sp) => solver.fillGL(p, sp, toScreen),
+            p => solver.fillGL(p, toScreen),
             { pointSize: solver.R0 * scale * tune.glPoint,
               gain: tune.glGain, thresh: tune.glThresh,
-              tintMix: tune.glTintMix, foam: tune.glFoam })
+              tintMix: tune.glTintMix, white: tune.glWhite,
+              capLo: 0.01, capHi: tune.glCap })
         : null;
       if(glcv) ctx.drawImage(glcv, 0, 0, W, H);
       else solver.draw(ctx, toScreen, scale, { R: CYL_R - GLASS, top: CYL_H });

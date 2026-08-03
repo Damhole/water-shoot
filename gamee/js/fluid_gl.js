@@ -21,27 +21,23 @@ const FLUID_GL = (function(){
   let progField = null, progComp = null;
   let fbo = null, fieldTex = null, fieldW = 0, fieldH = 0;
   let bgTex = null, bgReady = false;
-  let vboPos = null, vboSpd = null, vboQuad = null;
-  let cpuPos = null, cpuSpd = null;
+  let vboPos = null, vboQuad = null;
+  let cpuPos = null;
   const FIELD_SCALE = 0.5;
 
   const VS_FIELD = `
     attribute vec2 aPos;
-    attribute float aSpd;
     uniform vec2 uRes;
     uniform float uSize;
-    varying float vSpd;
     void main(){
       vec2 c = (aPos / uRes) * 2.0 - 1.0;
       gl_Position = vec4(c.x, -c.y, 0.0, 1.0);
       gl_PointSize = uSize;
-      vSpd = aSpd;
     }`;
 
   // Měkký kopeček místo tvrdého kolečka — z jejich součtu vznikne spojité pole.
   const FS_FIELD = `
     precision mediump float;
-    varying float vSpd;
     uniform float uGain;
     void main(){
       vec2 d = gl_PointCoord * 2.0 - 1.0;
@@ -49,7 +45,7 @@ const FLUID_GL = (function(){
       if(r2 > 1.0) discard;
       float w = 1.0 - r2;
       w = w * w;
-      gl_FragColor = vec4(w * uGain, w * uGain * vSpd, 0.0, 1.0);
+      gl_FragColor = vec4(w * uGain, 0.0, 0.0, 1.0);
     }`;
 
   const VS_COMP = `
@@ -70,7 +66,9 @@ const FLUID_GL = (function(){
     uniform vec3 uTint;
     uniform vec3 uEdge;
     uniform float uTintMix;
-    uniform float uFoam;
+    uniform float uWhite;
+    uniform float uCapLo;
+    uniform float uCapHi;
 
     void main(){
       vec4 f = texture2D(uField, vUv);
@@ -93,32 +91,21 @@ const FLUID_GL = (function(){
       // průhlednost: pozadí prosvítá, jen posunuté podle normály
       vec2 off = n * 0.010 * min(glen * 10.0, 1.0);
       vec3 bg = texture2D(uBg, clamp(vUv - off, 0.001, 0.999)).rgb;
+
+      // Tělo vody je JEDNOLITÉ — žádný přechod uvnitř. Ve Where's My Water
+      // není bílá zvláštní veličina: bílá je tenká voda. Letící kapka je malá
+      // a tenká, takže je celá bílá; hladina je tenká vrstva, takže má bílou
+      // čepičku; hluboké tělo je tlusté, takže je plná barva.
       vec3 col = mix(bg, uTint, uTintMix);
 
-      // vnitřní prosvětlení: hlubší voda je sytější
-      col = mix(col, uTint * 0.78, clamp((dS - uThresh) * 0.9, 0.0, 0.5));
+      // bílá podle tloušťky — jediný zdroj bělosti ve scéně
+      float white = 1.0 - smoothstep(uThresh + uCapLo, uThresh + uCapHi, dS);
+      col = mix(col, vec3(1.0), white * uWhite);
 
-      // obrys — pruh těsně nad prahem. Dělá hodně čitelnosti („je to jeden kus")
-      float edge = 1.0 - smoothstep(uThresh + 0.02, uThresh + 0.20, dS);
-      col = mix(col, uEdge, edge * 0.85);
+      // obrys — úzká tmavá linka po obvodu, kreslí se přes bílou
+      float edge = 1.0 - smoothstep(uThresh + 0.005, uThresh + 0.055, dS);
+      col = mix(col, uEdge, edge * 0.8);
 
-      // Pěna. G nese hustotu váženou zpěněností částic, takže podíl G/D je
-      // „kolik z téhle vody je zpěněné". Uvnitř tělesa je vidět slaběji —
-      // je to provzdušněná voda, ne bílá barva.
-      float agit = f.g / max(d, 0.0015);
-      float nearSurf = 1.0 - smoothstep(0.0, 0.22, dS - uThresh);
-      float foam = smoothstep(0.14, 0.68, agit) * mix(0.22, 1.0, nearSurf) * uFoam;
-
-      // světlo shora: plocha otočená vzhůru se rozsvítí (v UV je y dolů)
-      float up = clamp(-n.y, 0.0, 1.0);
-      col += vec3(0.30, 0.34, 0.36) * up * edge;
-      // světlý pás těsně pod hladinou — v předloze je hodně vidět
-      float band = smoothstep(0.0, 0.10, dS - uThresh) * (1.0 - smoothstep(0.10, 0.30, dS - uThresh));
-      col = mix(col, vec3(0.92, 0.98, 1.0), band * up * 0.5);
-
-      col = mix(col, vec3(0.97, 0.99, 1.0), clamp(foam, 0.0, 0.95));
-      // zpěněná voda je krycí — jinak by přes bílou prosvítalo pozadí
-      a = clamp(a + foam * 0.5 * a, 0.0, 1.0);
       gl_FragColor = vec4(col, a);
     }`;
 
@@ -149,7 +136,7 @@ const FLUID_GL = (function(){
       if(!gl) throw new Error('WebGL není k dispozici');
       progField = link(VS_FIELD, FS_FIELD);
       progComp  = link(VS_COMP,  FS_COMP);
-      vboPos = gl.createBuffer(); vboSpd = gl.createBuffer();
+      vboPos = gl.createBuffer();
       vboQuad = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, vboQuad);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
@@ -197,10 +184,7 @@ const FLUID_GL = (function(){
   }
 
   function ensureCpu(n){
-    if(!cpuPos || cpuPos.length < n*2){
-      cpuPos = new Float32Array(Math.max(n*2, 4096));
-      cpuSpd = new Float32Array(Math.max(n, 2048));
-    }
+    if(!cpuPos || cpuPos.length < n*2) cpuPos = new Float32Array(Math.max(n*2, 8192));
   }
 
   // pts: souřadnice v pixelech plátna, spd: 0..1 rozvíření. Vrací canvas
@@ -212,7 +196,7 @@ const FLUID_GL = (function(){
     const w = Math.max(1, Math.round(cssW*rs)), h = Math.max(1, Math.round(cssH*rs));
     resize(w, h);
     ensureCpu(n);
-    fillFn(cpuPos, cpuSpd);      // volající naplní pole (projekce zná puzzle)
+    fillFn(cpuPos);              // volající naplní pozice (projekci zná puzzle)
 
     const o = opts || {};
     // --- 1) pole hustoty
@@ -229,11 +213,6 @@ const FLUID_GL = (function(){
     gl.bufferData(gl.ARRAY_BUFFER, cpuPos.subarray(0, n*2), gl.DYNAMIC_DRAW);
     gl.enableVertexAttribArray(aPos);
     gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
-    const aSpd = gl.getAttribLocation(progField, 'aSpd');
-    gl.bindBuffer(gl.ARRAY_BUFFER, vboSpd);
-    gl.bufferData(gl.ARRAY_BUFFER, cpuSpd.subarray(0, n), gl.DYNAMIC_DRAW);
-    gl.enableVertexAttribArray(aSpd);
-    gl.vertexAttribPointer(aSpd, 1, gl.FLOAT, false, 0, 0);
     gl.drawArrays(gl.POINTS, 0, n);
 
     // --- 2) z pole udělat vodu
@@ -253,7 +232,9 @@ const FLUID_GL = (function(){
     gl.uniform3f(gl.getUniformLocation(progComp, 'uTint'), tint[0], tint[1], tint[2]);
     gl.uniform3f(gl.getUniformLocation(progComp, 'uEdge'), edge[0], edge[1], edge[2]);
     gl.uniform1f(gl.getUniformLocation(progComp, 'uTintMix'), o.tintMix === undefined ? 0.55 : o.tintMix);
-    gl.uniform1f(gl.getUniformLocation(progComp, 'uFoam'), o.foam === undefined ? 1.0 : o.foam);
+    gl.uniform1f(gl.getUniformLocation(progComp, 'uWhite'), o.white === undefined ? 0.9 : o.white);
+    gl.uniform1f(gl.getUniformLocation(progComp, 'uCapLo'), o.capLo === undefined ? 0.01 : o.capLo);
+    gl.uniform1f(gl.getUniformLocation(progComp, 'uCapHi'), o.capHi === undefined ? 0.22 : o.capHi);
     const aXY = gl.getAttribLocation(progComp, 'aXY');
     gl.bindBuffer(gl.ARRAY_BUFFER, vboQuad);
     gl.enableVertexAttribArray(aXY);

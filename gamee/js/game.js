@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v61';
-const WS_CHECKSUM = 'water-shoot-v61';
+const WS_VERSION = 'v62';
+const WS_CHECKSUM = 'water-shoot-v62';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -112,7 +112,9 @@ const tune = {
   // za dolet a hráč ho vůbec nezaregistruje.
   jetRampT: 0.7,
   specialMode: true,          // sběr královských kachen → duhový režim
-  fluidMax: 2500,             // strop částic kapaliny v puzzlu (test výkonu na mobilu)
+  fluidMax: 8200,             // strop částic kapaliny v puzzlu. Na plný válec je při
+                              // 5px kapkách potřeba ~7800, při 7px jen ~4000 — na mobilu
+                              // se vyplatí větší kapky, viz posuvník velikosti
   lfFluid: true,              // kapalina na LiquidFunu (wasm) místo vlastního PBF
   glFluid: true,              // voda kreslená shaderem (metaball + refrakce) místo kruhů
   fillSeconds: 12,            // za kolik sekund přesného stříkání se válec naplní
@@ -121,7 +123,8 @@ const tune = {
   glGain:  0.034,             // kolik hustoty přidá jedna částice
   glThresh: 0.36,             // práh hladiny
   glTintMix: 0.62,            // kolik barvy vody proti prosvítajícímu pozadí
-  glFoam: 1.0,                // síla pěny v rozvířené vodě
+  glWhite: 0.9,               // síla bílé u tenké vody (letící kapky, čepička na hladině)
+  glCap: 0.22,                // jak tlustá vrstva u hladiny ještě bílá je
 };
 let rampT = 0;                // jak dlouho už tryska nabíhá
 
@@ -2145,6 +2148,7 @@ function setupHUD(){
   slider('sl-glpoint', 'glPoint', v=>v.toFixed(1));
   slider('sl-glthresh', 'glThresh', v=>v.toFixed(2));
   slider('sl-gltint', 'glTintMix', v=>v.toFixed(2));
+  slider('sl-glcap', 'glCap', v=>v.toFixed(2));
 
   const cbg = document.getElementById('cb-gl');
   if(cbg){

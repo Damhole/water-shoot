@@ -18,10 +18,12 @@ const FLUID_LF = (function(){
   const MAX_DEFAULT = 3000;
   const DROP_DEFAULT = 5;     // poloměr kapky v pixelech (laditelné v HUD)
   let RADIUS = DROP_DEFAULT/PPM;
-  // Naměřeno na testu: 1015 částic o poloměru 0,06 m zaplnilo 8,32 m²,
-  // tedy ~2,28·R² na částici. Z toho puzzle počítá, kdy je válec plný.
-  // Roste s druhou mocninou — dvakrát větší kapky = čtvrtina počtu na stejný objem.
-  function areaPer(){ const r = RADIUS*PPM; return 2.28 * r * r; }
+  // Plocha na částici v USAZENÉ vodě. Měřeno přímo ve válci: kapalina se pod
+  // vlastní vahou stlačuje, takže hodnota klesá s hloubkou — 1,44·r² u mělké
+  // vody, 0,69·r² u plného válce. Bereme hodnotu pro plný válec, protože podle
+  // ní se kalibruje napouštění po okraj. (Původních 2,28·r² pocházelo z mřížky,
+  // ve které se částice rodí — ta je řidší než rovnováha.)
+  function areaPer(){ const r = RADIUS*PPM; return 0.69 * r * r; }
 
   let B = null;               // wasm modul
   let ready = false, failed = false;
@@ -30,14 +32,6 @@ const FLUID_LF = (function(){
   let curR = 0, curTop = 0;   // geometrie nádoby, pro kterou stojí stěny
   let tmpDef = null, tmpVec = null;
   let posView = null, posPtr = 0;   // pohled do wasm paměti s pozicemi
-  // Pěna má PAMĚŤ: vznikne při nárazu nebo rychlém pohybu a pak vyprchává.
-  // Bez toho zmizí ve chvíli, kdy se voda uklidní, a nikdy není vidět.
-  let foam = null, prevVX = null, prevVY = null;
-  const FOAM_LIFE   = 1.5;    // sekundy do vyprchání u hladiny (exponenciálně)
-  const FOAM_LIFE_DEEP = 0.30;// pod hladinou se pěna rozpustí mnohem rychleji
-  const FOAM_DEPTH  = 0.45;   // hloubka [m], od které se počítá „pod hladinou"
-  const FOAM_IMPACT = 2.6;    // změna rychlosti [m/s] za snímek na plnou pěnu
-  const FOAM_SPEED  = 7.0;    // rychlost [m/s], nad kterou se voda sama pění
 
   // Načtení je asynchronní; než doběhne, hra jede na starém solveru.
   function load(){
@@ -88,9 +82,6 @@ const FLUID_LF = (function(){
     ps.SetMaxParticleCount(maxCount);
 
     posPtr = 0; posView = null;
-    foam = new Float32Array(maxCount);
-    prevVX = new Float32Array(maxCount);
-    prevVY = new Float32Array(maxCount);
     buildContainer(R || 134, top || 500);
     ready = true;
   }
@@ -105,9 +96,7 @@ const FLUID_LF = (function(){
     tmpDef.position = tmpVec;
     tmpVec.set_x((ivx||0)/PPM); tmpVec.set_y((ivy||0)/PPM);
     tmpDef.velocity = tmpVec;
-    const i = ps.GetParticleCount();
     ps.CreateParticle(tmpDef);
-    if(i < maxCount){ foam[i] = 1; prevVX[i] = (ivx||0)/PPM; prevVY[i] = (ivy||0)/PPM; }
     return true;
   }
 
@@ -141,33 +130,6 @@ const FLUID_LF = (function(){
     // gravitace nese náklon nádoby (gx, gy jsou v px/s², převedeme na m/s²)
     world.SetGravity(new B.b2Vec2(container.gx/PPM, container.gy/PPM));
     world.Step(dt, 4, 2);
-    updateFoam(dt);
-  }
-
-  // Pěna vzniká tam, kde voda dostane ránu — tedy kde se rychlost skokem změní
-  // (dopad proudu, sražení dvou hladin, náraz do stěny) — a tam, kde letí rychle.
-  function updateFoam(dt){
-    const n = ps.GetParticleCount();
-    if(n === 0) return;
-    const v = velocities();
-    const p = positions();
-    if(!v || !p) return;
-    const surf = surfaceY()/PPM;                       // hladina v metrech
-    const decayTop  = Math.exp(-dt/FOAM_LIFE);
-    const decayDeep = Math.exp(-dt/FOAM_LIFE_DEEP);
-    for(let i=0;i<n;i++){
-      const vx = v[i*2], vy = v[i*2+1];
-      const dvx = vx - prevVX[i], dvy = vy - prevVY[i];
-      const impact = Math.sqrt(dvx*dvx + dvy*dvy) / FOAM_IMPACT;
-      const speed  = (Math.sqrt(vx*vx + vy*vy) / FOAM_SPEED) * 0.6;
-      const born = impact > speed ? impact : speed;
-      // pěna je jev hladiny — co se potopí, to se rozpustí
-      const depth = surf - p[i*2+1];
-      const decay = depth > FOAM_DEPTH ? decayDeep : decayTop;
-      const kept = foam[i] * decay;
-      foam[i] = Math.min(1, kept > born ? kept : born);
-      prevVX[i] = vx; prevVY[i] = vy;
-    }
   }
 
   // Co přeteče přes okraj nebo propadne pod dno, je nenávratně pryč —
@@ -178,17 +140,9 @@ const FLUID_LF = (function(){
     const p = positions();
     if(!p) return;
     const lim = (container.top*1.6)/PPM, side = (container.R*3)/PPM;
-    let live = n;
     for(let i=n-1;i>=0;i--){
       const x = p[i*2], y = p[i*2+1];
-      if(y < -0.5 || y > lim || x < -side || x > side){
-        ps.DestroyParticle(i);
-        // stejné odstranění v našich polích, ať pěna zůstane u svých částic
-        foam.copyWithin(i, i+1, live);
-        prevVX.copyWithin(i, i+1, live);
-        prevVY.copyWithin(i, i+1, live);
-        live--;
-      }
+      if(y < -0.5 || y > lim || x < -side || x > side) ps.DestroyParticle(i);
     }
   }
 
@@ -232,7 +186,7 @@ const FLUID_LF = (function(){
   }
 
   // Souřadnice (v pixelech lokální soustavy) a rozvíření pro WebGL vrstvu.
-  function fillGL(outPos, outSpd, toScreen){
+  function fillGL(outPos, toScreen){
     const n = count();
     if(n === 0) return 0;
     const p = positions();
@@ -240,7 +194,6 @@ const FLUID_LF = (function(){
     for(let i=0;i<n;i++){
       const s = toScreen(p[i*2]*PPM, p[i*2+1]*PPM);
       outPos[i*2] = s.x; outPos[i*2+1] = s.y;
-      outSpd[i] = foam[i];
     }
     return n;
   }
