@@ -17,10 +17,10 @@ const TOWER = (function(){
   const GROUND   = -560;     // úroveň dlažby (world y)
   const VIEW     = 0.13;     // stejný lehký nadhled jako u nádoby
 
-  const BOX      = 44;       // hrana bedny
+  const BOX      = 58;       // hrana bedny
   const BEAM_Y   = 250;      // výška bidla nad zemí
-  const BEAM_HW  = 258;      // poloviční délka bidla
-  const BEAM_HH  = 13;       // poloviční tloušťka bidla
+  const BEAM_HW  = 330;      // poloviční délka bidla
+  const BEAM_HH  = 17;       // poloviční tloušťka bidla
 
   // Materiály. Rozdíl dělá HUSTOTA — těžší bedna se při stejném impulzu vody
   // pohne míň, takže shoditelnost vyjde z fyziky a nemusí se nikde zvlášť
@@ -34,6 +34,11 @@ const TOWER = (function(){
              vrch:'#cdd2d6', bok:'#6d747b',
              predek:['#b3b9bf','#9ba1a8','#888e95'],
              spara:'rgba(45,52,60,0.30)', obrys:'rgba(48,54,60,0.75)' },
+    // Sklo je lehké a křehké — spadne snadno, ale je zavalené zbytkem věže.
+    sklo:  { hustota: 0.9, sklenene: true,
+             vrch:'rgba(210,245,255,0.55)', bok:'rgba(150,205,230,0.45)',
+             predek:['rgba(225,250,255,0.42)','rgba(190,235,250,0.30)','rgba(210,245,255,0.42)'],
+             spara:'rgba(255,255,255,0.45)', obrys:'rgba(255,255,255,0.9)' },
   };
 
   // Impulz od jedné částice. Jediná veličina, která řídí obtížnost — čím míň,
@@ -55,11 +60,12 @@ const TOWER = (function(){
   const PUSH_Z   = 9;        // přírůstek rychlosti do hloubky za jeden zásah
   const Z_DAMP   = 0.9;      // odpor prostředí v ose z (1/s)
   const Z_MAX    = 320;      // dál bedna neodletí (byla by na obrazovce moc malá)
-  const BEAM_ZH  = 78;       // hloubková polovina bidla — co vyjede ven, spadne
-  const ROW_Z    = 42;       // rozestup dvou řad beden do hloubky
+  const BEAM_ZH  = 100;      // hloubková polovina bidla — co vyjede ven, spadne
+  const ROW_Z    = 56;       // rozestup dvou řad beden do hloubky
 
   let boxes = [], beam = null;
   let letici = [];           // bedny za bidlem — dopad si dopočítají samy
+  let volnaKachna = null;    // kachnička po prasknutí skla
   let state = 'play';        // 'play' | 'won'
   let bg = null;
   let rozbito = 0;
@@ -98,7 +104,7 @@ const TOWER = (function(){
   // ---------------------------------------------------------------- start
   function init(){
     state = 'play'; rozbito = 0;
-    boxes = []; beam = null; letici = [];
+    boxes = []; beam = null; letici = []; volnaKachna = null;
     if(!FLUID_LF.isAvailable()){ prerenderBackground(); return; }
 
     // Podlaha je TLUSTÝ blok, ne úsečka — do tenké hrany rychlá bedna prolétne.
@@ -127,9 +133,16 @@ const TOWER = (function(){
         for(let i=0;i<patro.n;i++){
           const x = (i-(patro.n-1)/2)*(BOX*1.07);
           const y = y0 + r*(BOX*1.03);
-          const m = MAT[patro.mat];
+          // Doprostřed přední řady jedna SKLENĚNÁ s kachničkou. Je lehká, ale
+          // zavalená zbytkem věže — dostat se k ní je smysl celé úrovně.
+          const jeSklo = rada.layer === 1 && r === 2 && i === ((patro.n/2)|0);
+          const m = jeSklo ? MAT.sklo : MAT[patro.mat];
           const h = FLUID_LF.addBox(x, y, BOX/2, BOX/2, m.hustota, 1, { layer: rada.layer });
-          if(h){ h.z = rada.z; h.vz = 0; h.mat = m; boxes.push(h); }
+          if(h){
+            h.z = rada.z; h.vz = 0; h.mat = m;
+            if(jeSklo) h.kachnicka = true;
+            boxes.push(h);
+          }
         }
       });
     }
@@ -162,7 +175,8 @@ const TOWER = (function(){
       if(Math.abs(h.z || 0) > BEAM_ZH){
         letici.push({ x: p.x, y: p.y, vx: p.vx*0.35, vy: p.vy*0.35,
                       z: h.z, vz: h.vz||0, rot: p.angle, spin: rand(-2.5, 2.5),
-                      halfW: h.halfW, halfH: h.halfH, mat: h.mat });
+                      halfW: h.halfW, halfH: h.halfH, mat: h.mat,
+                      kachnicka: !!h.kachnicka });
         FLUID_LF.removeBody(h);
         boxes.splice(i,1);
         continue;
@@ -173,8 +187,9 @@ const TOWER = (function(){
         FLUID_LF.removeBody(h);
         boxes.splice(i,1);
         rozbito++;
-        splashAt(p.x, GROUND + p.y, Z, 10, 0);
-        addFloater(sx, sy, 'PRÁSK!');
+        splashAt(p.x, GROUND + p.y, Z + (h.z||0), h.kachnicka ? 22 : 10, 0);
+        addFloater(sx, sy, h.kachnicka ? 'OSVOBOZENA!' : 'PRÁSK!');
+        if(h.kachnicka) volnaKachna = { x: p.x, y: BOX*0.5, z: h.z||0, t: 0 };
       }
     }
 
@@ -188,11 +203,23 @@ const TOWER = (function(){
       f.vz -= f.vz * Math.min(1, Z_DAMP*dt);
       if(f.y <= f.halfH){
         const sd = projS(Z + f.z);
-        splashAt(f.x, GROUND + f.halfH, Z + f.z, 10, 0);
-        addFloater(projX(f.x, sd), projY(GROUND + f.halfH, sd), 'PRÁSK!');
+        splashAt(f.x, GROUND + f.halfH, Z + f.z, f.kachnicka ? 22 : 10, 0);
+        addFloater(projX(f.x, sd), projY(GROUND + f.halfH, sd),
+                   f.kachnicka ? 'OSVOBOZENA!' : 'PRÁSK!');
+        if(f.kachnicka){
+          // sklo puklo — kachnička je venku a odplouvá
+          volnaKachna = { x: f.x, y: f.halfH, z: f.z, t: 0 };
+        }
         letici.splice(i,1);
         rozbito++;
       }
+    }
+
+    // osvobozená kachnička poskočí a odpluje
+    if(volnaKachna){
+      volnaKachna.t += dt;
+      volnaKachna.y += Math.max(0, 90 - volnaKachna.t*70) * dt;
+      volnaKachna.x += 26*dt;
     }
 
     if(state === 'play' && boxes.length === 0 && letici.length === 0) state = 'won';
@@ -269,6 +296,17 @@ const TOWER = (function(){
     ctx.translate(sx, sy);
     ctx.rotate(-p.angle);
     kresliKrychli(w, ht, side, h.mat);
+    // kachnička uvnitř skleněné bedny
+    if(h.kachnicka){
+      const sz = ht*1.55;
+      ctx.drawImage(duckSprite, -sz*0.53, -sz*0.60, sz, sz);
+      // odlesk na skle až přes ni, ať je čitelné, že je zavřená
+      ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 2.5*S;
+      ctx.beginPath();
+      ctx.moveTo(-w*0.55, -ht*0.75); ctx.lineTo(-w*0.15, ht*0.7);
+      ctx.moveTo(-w*0.15, -ht*0.78); ctx.lineTo(w*0.1, ht*0.2);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -281,6 +319,10 @@ const TOWER = (function(){
     ctx.translate(projX(f.x, s), projY(GROUND + f.y, s));
     ctx.rotate(-f.rot);
     kresliKrychli(f.halfW*scale, f.halfH*scale, 0, f.mat);
+    if(f.kachnicka){
+      const sz = f.halfH*scale*1.55;
+      ctx.drawImage(duckSprite, -sz*0.53, -sz*0.60, sz, sz);
+    }
     ctx.restore();
   }
 
@@ -312,6 +354,16 @@ const TOWER = (function(){
     const poradi = boxes.slice().sort((a,b)=> (b.z||0) - (a.z||0));
     for(const f of letici.slice().sort((a,b)=> b.z - a.z)) drawFlying(f);
     for(const h of poradi) drawBox(h);
+
+    if(volnaKachna){
+      const sd = projS(Z + volnaKachna.z);
+      const sz = 150*sd*S;
+      ctx.save();
+      ctx.translate(projX(volnaKachna.x, sd), projY(GROUND + volnaKachna.y, sd));
+      ctx.rotate(Math.sin(volnaKachna.t*4)*0.10);
+      ctx.drawImage(duckSprite, -sz*0.53, -sz*0.62, sz, sz);
+      ctx.restore();
+    }
 
     ctx.restore();
   }
