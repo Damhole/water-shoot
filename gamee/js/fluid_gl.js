@@ -102,10 +102,12 @@ const FLUID_GL = (function(){
       float edge = 1.0 - smoothstep(uThresh + 0.02, uThresh + 0.20, dS);
       col = mix(col, uEdge, edge * 0.85);
 
-      // pěna: tam, kde se voda čeří, a jen blízko povrchu
+      // Pěna. G nese hustotu váženou zpěněností částic, takže podíl G/D je
+      // „kolik z téhle vody je zpěněné". Uvnitř tělesa je vidět slaběji —
+      // je to provzdušněná voda, ne bílá barva.
       float agit = f.g / max(d, 0.0015);
       float nearSurf = 1.0 - smoothstep(0.0, 0.22, dS - uThresh);
-      float foam = smoothstep(0.28, 0.9, agit) * nearSurf * uFoam;
+      float foam = smoothstep(0.14, 0.68, agit) * mix(0.22, 1.0, nearSurf) * uFoam;
 
       // světlo shora: plocha otočená vzhůru se rozsvítí (v UV je y dolů)
       float up = clamp(-n.y, 0.0, 1.0);
@@ -114,7 +116,9 @@ const FLUID_GL = (function(){
       float band = smoothstep(0.0, 0.10, dS - uThresh) * (1.0 - smoothstep(0.10, 0.30, dS - uThresh));
       col = mix(col, vec3(0.92, 0.98, 1.0), band * up * 0.5);
 
-      col = mix(col, vec3(1.0), clamp(foam, 0.0, 0.9));
+      col = mix(col, vec3(0.97, 0.99, 1.0), clamp(foam, 0.0, 0.95));
+      // zpěněná voda je krycí — jinak by přes bílou prosvítalo pozadí
+      a = clamp(a + foam * 0.5 * a, 0.0, 1.0);
       gl_FragColor = vec4(col, a);
     }`;
 
