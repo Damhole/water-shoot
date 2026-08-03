@@ -163,6 +163,10 @@ const FLUID_LF = (function(){
     // Spojitá detekce kolizí: bez ní rychlá bedna prolétne tenkou podlahou.
     // Naměřeno — první bedna skončila 60 m pod scénou.
     bd.bullet = !o.static;
+    // Tlumení: bez něj se zbytková rychlost z řešiče nikdy nevynuluje, bedny
+    // neusnou a celý stoh se pomalu plazí do strany (naměřeno ~1,5 px/s).
+    bd.linearDamping = o.static ? 0 : 0.6;
+    bd.angularDamping = o.static ? 0 : 0.7;
     bd.position = new B.b2Vec2(x/PPM, y/PPM);
     const body = world.CreateBody(bd);
     const box = new B.b2PolygonShape();
@@ -170,8 +174,8 @@ const FLUID_LF = (function(){
     const fd = new B.b2FixtureDef();
     fd.shape = box;
     fd.density = density === undefined ? 4 : density;
-    fd.friction = 0.6;
-    fd.restitution = 0.02;
+    fd.friction = 0.85;
+    fd.restitution = 0.0;
     // Hloubkové vrstvy: 2D simulace o hloubce neví, takže dvě bedny stojící
     // za sebou by se srazily, i když je mezi nimi kus prostoru. Každá vrstva
     // proto dostane vlastní bit a sráží se jen sama se sebou a se statickými
@@ -271,7 +275,10 @@ const FLUID_LF = (function(){
     cull(container);
     // gravitace nese náklon nádoby (gx, gy jsou v px/s², převedeme na m/s²)
     world.SetGravity(new B.b2Vec2(container.gx/PPM, container.gy/PPM));
-    world.Step(dt, 4, 2);
+    // 8/3 místo 4/2: u řetězu dotýkajících se beden se při nízkém počtu
+    // iterací hromadí chyba jedním směrem a celá řada se posune do strany
+    // (naměřeno 30 px doprava během první vteřiny).
+    world.Step(dt, 8, 3);
     if(bodies.length) uprightBodies(dt);
   }
 

@@ -111,7 +111,7 @@ const TOWER = (function(){
   // ---------------------------------------------------------------- start
   function init(){
     state = 'play'; rozbito = 0;
-    boxes = []; beam = null; letici = []; ziskana = null; trisky = [];
+    boxes = []; beam = null; letici = []; ziskana = null; trisky = []; kusy = []; prach = [];
     if(!FLUID_LF.isAvailable()){ prerenderBackground(); return; }
 
     // Podlaha je TLUSTÝ blok, ne úsečka — do tenké hrany rychlá bedna prolétne.
@@ -128,17 +128,21 @@ const TOWER = (function(){
     // Skladba materiálů dělá hádanku: kamenný základ se nedá odfouknout, takže
     // se musí začít od dřeva nahoře, nebo do kamene tlačit dlouho.
     const y0 = BEAM_Y + BEAM_HH + BOX/2;
+    // Počty beden v patrech mají STEJNOU PARITU, takže každá bedna stojí
+    // přímo nad jinou, ne na spáře mezi dvěma. Pyramida se spárami se rozjíždí
+    // vlastní vahou: horní bedna roztlačuje ty pod sebou do stran a řešič tu
+    // sílu rozpouští nesymetricky — naměřeno 30 px doprava za první vteřinu.
     const patra = [
       { n: 6, mat: 'kamen' },
-      { n: 5, mat: 'drevo' },
+      { n: 4, mat: 'drevo' },
       { n: 4, mat: 'kamen' },
-      { n: 3, mat: 'drevo' },
+      { n: 2, mat: 'drevo' },
       { n: 2, mat: 'drevo' },
     ];
     for(const rada of [{ layer: 0, z: -ROW_Z }, { layer: 1, z: ROW_Z }]){
       patra.forEach((patro, r) => {
         for(let i=0;i<patro.n;i++){
-          const x = (i-(patro.n-1)/2)*(BOX*1.07);
+          const x = (i-(patro.n-1)/2)*(BOX*1.12);
           const y = y0 + r*(BOX*1.03);
           // Doprostřed přední řady jedna SKLENĚNÁ s kachničkou. Je lehká, ale
           // zavalená zbytkem věže — dostat se k ní je smysl celé úrovně.
@@ -153,6 +157,11 @@ const TOWER = (function(){
         }
       });
     }
+    // Nechat věž usadit JEŠTĚ PŘED startem kola. Box2D si při vzniku srovná
+    // dotyky a stoh se přitom nepatrně sesype; když se to stane až za běhu,
+    // vypadá to, že do věže něco strká.
+    for(let i=0;i<45;i++) FLUID_LF.step(1/60, { halfW: 1200, top: 2000, gx: 0, gy: -1400 });
+
     prerenderBackground();
   }
 
@@ -194,8 +203,8 @@ const TOWER = (function(){
         FLUID_LF.removeBody(h);
         boxes.splice(i,1);
         rozbito++;
-        splashAt(p.x, GROUND + p.y, Z + (h.z||0), h.kachnicka ? 22 : 10, 0);
-        odstrelTrisky(p.x, p.y, h.z||0, h.mat, h.kachnicka ? 16 : 10, 110);
+        splashAt(p.x, GROUND + p.y, Z + (h.z||0), h.kachnicka ? 22 : 8, 0);
+        rozbijBednu(p.x, p.y, h.z||0, h.mat, h.halfW);
         addFloater(sx, sy, h.kachnicka ? 'OSVOBOZENA!' : 'PRÁSK!');
         if(h.kachnicka) ziskana = { t: 0, sx, sy };
       }
@@ -211,8 +220,8 @@ const TOWER = (function(){
       f.vz -= f.vz * Math.min(1, Z_DAMP*dt);
       if(f.y <= f.halfH){
         const sd = projS(Z + f.z);
-        splashAt(f.x, GROUND + f.halfH, Z + f.z, f.kachnicka ? 22 : 10, 0);
-        odstrelTrisky(f.x, f.halfH, f.z, f.mat, f.kachnicka ? 16 : 10, 110);
+        splashAt(f.x, GROUND + f.halfH, Z + f.z, f.kachnicka ? 22 : 8, 0);
+        rozbijBednu(f.x, f.halfH, f.z, f.mat, f.halfW);
         addFloater(projX(f.x, sd), projY(GROUND + f.halfH, sd),
                    f.kachnicka ? 'OSVOBOZENA!' : 'PRÁSK!');
         if(f.kachnicka){
@@ -225,6 +234,7 @@ const TOWER = (function(){
     }
 
     updateTrisky(dt);
+    updateRozbiti(dt);
 
     if(ziskana){
       ziskana.t += dt;
@@ -232,6 +242,73 @@ const TOWER = (function(){
     }
 
     if(state === 'play' && boxes.length === 0 && letici.length === 0) state = 'won';
+  }
+
+  // ---------------------------------------------------------------- rozbití
+  // Bedna se při dopadu roztříští na kusy, které se rozletí, převalují a
+  // vyprchají. Samotné zmizení s obláčkem se čte jako „bedna se vypařila";
+  // kusy dají divákovi vědět, že to bylo dřevo nebo kámen a že se to rozbilo.
+  let kusy = [], prach = [];
+
+  function rozbijBednu(x, y, z, mat, pulHrana){
+    // čtyři kusy z rohů původní bedny — každý si nese směr od středu
+    for(let i=0;i<4;i++){
+      const sx = (i%2 ? 1 : -1), sy = (i<2 ? 1 : -1);
+      kusy.push({
+        x: x + sx*pulHrana*0.5, y: y + sy*pulHrana*0.5, z,
+        vx: sx*rand(40,130), vy: rand(90,240), vz: rand(-25,45),
+        rot: rand(0,6.28), spin: rand(-7,7),
+        pul: pulHrana*rand(0.34,0.52),
+        life: rand(0.7,1.2), mat,
+      });
+    }
+    // prachový prstenec na zemi
+    prach.push({ x, z, r: pulHrana*0.6, t: 0, dl: 0.45 });
+    odstrelTrisky(x, y, z, mat, 14, 130);
+  }
+
+  function updateRozbiti(dt){
+    for(let i=kusy.length-1;i>=0;i--){
+      const k = kusy[i];
+      k.vy -= 1400*dt;
+      k.x += k.vx*dt; k.y += k.vy*dt; k.z += k.vz*dt;
+      k.rot += k.spin*dt;
+      if(k.y < k.pul){                     // odskok od země a doznění
+        k.y = k.pul; k.vy = -k.vy*0.32; k.vx *= 0.6; k.spin *= 0.5;
+      }
+      k.life -= dt;
+      if(k.life <= 0) kusy.splice(i,1);
+    }
+    for(let i=prach.length-1;i>=0;i--){
+      prach[i].t += dt;
+      if(prach[i].t > prach[i].dl) prach.splice(i,1);
+    }
+  }
+
+  function drawRozbiti(){
+    for(const p of prach){
+      const k = p.t/p.dl;
+      const sd = projS(Z + p.z), sc = sd*S;
+      ctx.save();
+      ctx.globalAlpha = (1-k)*0.5;
+      ctx.strokeStyle = 'rgba(190,170,140,0.9)';
+      ctx.lineWidth = 3*sc;
+      ctx.beginPath();
+      ctx.ellipse(projX(p.x, sd), projY(GROUND, sd),
+                  p.r*sc*(1+k*3), p.r*sc*(1+k*3)*VIEW*1.6, 0, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    for(const k of kusy){
+      const sd = projS(Z + k.z), sc = sd*S;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, k.life*2.5);
+      ctx.translate(projX(k.x, sd), projY(GROUND + k.y, sd));
+      ctx.rotate(-k.rot);
+      kresliKrychli(k.pul*sc, k.pul*sc, k.pul*sc*0.25, k.mat);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
   }
 
   // Odštěpky z bedny. Nesou barvu svého materiálu, takže z kamene odletí
@@ -409,6 +486,7 @@ const TOWER = (function(){
     if(beam) drawBox(beam);                       // pak bidlo
     for(const h of naBidle) drawBox(h);           // pak bedny na něm
     for(const f of predBidlem) drawFlying(f);     // a nakonec co letí před ním
+    drawRozbiti();
     drawTrisky();
 
 
