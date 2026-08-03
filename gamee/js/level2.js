@@ -29,6 +29,14 @@ const TOWER = (function(){
   // Pod touhle výškou se bedna počítá za dopadlou na zem a rozbije se.
   const CRASH_Y  = BOX*0.85;
 
+  // Odhazování DO HLOUBKY. Simulace je 2D, takže se hloubka nesimuluje — každá
+  // bedna si nese vlastní posun v ose z, který se promítne do perspektivy:
+  // čím dál doletí, tím je menší a tím blíž k úběžníku. Voda přilétá od hráče,
+  // takže je logické, že bedny odhazuje od nás.
+  const PUSH_Z   = 9;        // přírůstek rychlosti do hloubky za jeden zásah
+  const Z_DAMP   = 0.9;      // tlumení letu do hloubky (1/s)
+  const Z_MAX    = 320;      // dál než tohle bedna neodletí (byla by moc malá)
+
   let boxes = [], beam = null;
   let state = 'play';        // 'play' | 'won'
   let bg = null;
@@ -83,12 +91,12 @@ const TOWER = (function(){
     for(let i=0;i<5;i++){
       const x = (i-2)*(BOX*1.06);
       const h = FLUID_LF.addBox(x, y0, BOX/2, BOX/2, 2.2, 1);
-      if(h) boxes.push(h);
+      if(h){ h.zOff = 0; h.vz = 0; boxes.push(h); }
     }
     for(let i=0;i<3;i++){
       const x = (i-1)*(BOX*1.06);
       const h = FLUID_LF.addBox(x, y0 + BOX*1.02, BOX/2, BOX/2, 2.2, 1);
-      if(h) boxes.push(h);
+      if(h){ h.zOff = 0; h.vz = 0; boxes.push(h); }
     }
     prerenderBackground();
   }
@@ -104,6 +112,14 @@ const TOWER = (function(){
       const h = boxes[i];
       const p = FLUID_LF.floaterPos(h);
       if(!p) { boxes.splice(i,1); continue; }
+
+      // Let do hloubky. Dokud bedna stojí na bidle, drží ji sousedé a stojka,
+      // takže se posouvá jen nepatrně; jakmile se dá do pohybu, pustí se.
+      if(h.vz){
+        const volna = Math.abs(p.vy) > 12 || Math.abs(p.vx) > 12;
+        h.zOff = Math.min(Z_MAX, (h.zOff || 0) + h.vz * dt * (volna ? 95 : 6));
+        h.vz -= h.vz * Math.min(1, Z_DAMP*dt);
+      }
       if(p.y < CRASH_Y){
         const sx = projX(p.x, projS(Z)), sy = projY(GROUND + p.y, projS(Z));
         FLUID_LF.removeBody(h);
@@ -130,6 +146,7 @@ const TOWER = (function(){
     // směr strčení podle toho, odkud voda přilétá
     const dir = lx >= 0 ? 1 : -1;
     FLUID_LF.pushBody(h, lx, ly, PUSH*dir*0.5, PUSH*0.10);
+    h.vz = (h.vz || 0) + PUSH_Z*0.01;      // voda letí od hráče → tlačí dozadu
     if(Math.random() < 0.18) splashAt(p.x, p.y, p.z, 1, 0);
     return true;
   }
@@ -142,9 +159,12 @@ const TOWER = (function(){
   // jejíž šířka roste se vzdáleností od středu obrazu. Stěny se kreslí v lokální
   // soustavě tělesa, takže při otočení se horní stěna natočí do strany — což je
   // u krychle rotující kolem osy do hloubky fyzikálně správně, ne trik.
-  function drawBox(h, s, scale){
+  function drawBox(h){
     const p = FLUID_LF.floaterPos(h);
     if(!p) return;
+    // vlastní hloubka bedny → vlastní měřítko perspektivy
+    const s = projS(Z + (h.zOff || 0));
+    const scale = s*S;
     const sx = projX(p.x, s), sy = projY(GROUND + p.y, s);
     const w = h.halfW*scale, ht = h.halfH*scale;
     const top = ht*VIEW*2.2;                       // hloubka horní stěny
@@ -204,9 +224,12 @@ const TOWER = (function(){
       ctx.fillRect(px - 7*scale, beamSy, 14*scale, groundSy - beamSy);
     }
     // bidlo
-    if(beam) drawBox(beam, s, scale);
+    if(beam) drawBox(beam);
 
-    for(const h of boxes) drawBox(h, s, scale);
+    // Vzdálenější bedny se kreslí první, aby je bližší překryly — bez toho by
+    // se prostorový dojem rozbil hned, jak jedna odletí dozadu.
+    const poradi = boxes.slice().sort((a,b)=> (b.zOff||0) - (a.zOff||0));
+    for(const h of poradi) drawBox(h);
 
     ctx.restore();
   }
