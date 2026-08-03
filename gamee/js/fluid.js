@@ -249,7 +249,7 @@ const FLUID = (function(){
   // vyskočí k okraji nádoby (naměřeno: 502 px místo 75 px). Hladina je místo,
   // kde voda přestane být souvislá — hledá se tedy zdola histogramem výšek.
   function surfaceFromHistogram(getY, n, R, areaPerP, areaPerLoose){
-    if(n === 0 || !R) return 0;
+    if(n === 0 || !width) return 0;
     const BIN = 8;                                  // px
     const bins = 90;
     const hist = new Int32Array(bins);
@@ -278,7 +278,7 @@ const FLUID = (function(){
   }
 
   function surfaceY(){
-    return surfaceFromHistogram(i => py[i], n, lastR, R0*R0*0.87, R0*R0*1.3);
+    return surfaceFromHistogram(i => py[i], n, 2*lastR, R0*R0*0.87, R0*R0*1.3);
   }
 
   // Vykreslení: metaballs přes rozmazání a kontrast, když to prohlížeč umí,

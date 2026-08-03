@@ -31,7 +31,6 @@ const FLUID_LF = (function(){
   let ready = false, failed = false;
   let world = null, ps = null, ground = null;
   let maxCount = MAX_DEFAULT;
-  let curR = 0, curTop = 0;   // geometrie nádoby, pro kterou stojí stěny
   let tmpDef = null, tmpVec = null;
   let posView = null, posPtr = 0;   // pohled do wasm paměti s pozicemi
 
@@ -50,27 +49,30 @@ const FLUID_LF = (function(){
   function isReady(){ return ready; }
   function isAvailable(){ return !!B; }
 
-  // Stěny nádoby: dno + dvě svislé stěny. Nakloněná nádoba se — stejně jako
-  // u vlastního solveru — řeší otočením gravitace, ne přestavbou geometrie.
-  function buildContainer(R, top){
+  // Stěny nádoby jsou SEZNAM ÚSEČEK v pixelech lokální soustavy, ne „poloměr
+  // a výška". Díky tomu může mít nádoba libovolný tvar (U, nálevka, trubka)
+  // a nové úrovně jsou data, ne kód. Naklonění se — stejně jako dřív — řeší
+  // otočením gravitace, ne přestavbou geometrie.
+  let curWalls = null;
+  function buildWalls(segments){
     if(!ground) ground = world.CreateBody(new B.b2BodyDef());
     else {
       let f = ground.GetFixtureList();
       while(f && B.getPointer(f) !== 0){ const nx = f.GetNext(); ground.DestroyFixture(f); f = nx; }
     }
-    const r = R/PPM, t = top/PPM;
     const sh = new B.b2EdgeShape();
-    const edge = (x1,y1,x2,y2)=>{ sh.SetTwoSided(new B.b2Vec2(x1,y1), new B.b2Vec2(x2,y2)); ground.CreateFixture(sh, 0); };
-    edge(-r, 0, r, 0);          // dno
-    edge(-r, 0, -r, t*1.4);     // stěny vedeme výš než okraj, ať voda neuteče bokem
-    edge( r, 0,  r, t*1.4);
-    curR = R; curTop = top;
+    for(const [x1,y1,x2,y2] of segments){
+      sh.SetTwoSided(new B.b2Vec2(x1/PPM, y1/PPM), new B.b2Vec2(x2/PPM, y2/PPM));
+      ground.CreateFixture(sh, 0);
+    }
+    curWalls = segments;
   }
 
-  function reset(cap, R, top, dropPx){
+  function reset(cap, walls, dropPx){
     if(!B){ load(); return; }
     maxCount = cap || MAX_DEFAULT;
     RADIUS = (dropPx || DROP_DEFAULT)/PPM;
+    bodies = [];
     if(world) { world.__destroy__(); world = null; ground = null; }
     world = new B.b2World(new B.b2Vec2(0, -10));
 
@@ -84,8 +86,36 @@ const FLUID_LF = (function(){
     ps.SetMaxParticleCount(maxCount);
 
     posPtr = 0; posView = null;
-    buildContainer(R || 134, top || 500);
+    if(walls) buildWalls(walls);
     ready = true;
+  }
+
+  // ---- plovoucí tělesa (kachnička) ----
+  // Hustota pod 1 znamená lehčí než voda, takže těleso vyplave. Tvar je kruh:
+  // přesný obrys kachničky by fyzice nic nepřidal a stál by výkon.
+  let bodies = [];
+  function addFloater(x, y, rPx, density){
+    if(!ready) return null;
+    const bd = new B.b2BodyDef();
+    bd.type = 2;                                   // dynamické těleso
+    bd.position = new B.b2Vec2(x/PPM, y/PPM);
+    const body = world.CreateBody(bd);
+    const cir = new B.b2CircleShape();
+    cir.set_m_radius(rPx/PPM);
+    const fd = new B.b2FixtureDef();
+    fd.shape = cir;
+    fd.density = density === undefined ? 0.35 : density;
+    fd.friction = 0.2;
+    fd.restitution = 0.05;
+    body.CreateFixture(fd);
+    const h = { body, r: rPx };
+    bodies.push(h);
+    return h;
+  }
+  function floaterPos(h){
+    if(!h) return null;
+    const p = h.body.GetPosition();
+    return { x: p.get_x()*PPM, y: p.get_y()*PPM, angle: h.body.GetAngle() };
   }
 
   function count(){ return ready ? ps.GetParticleCount() : 0; }
@@ -123,7 +153,6 @@ const FLUID_LF = (function(){
 
   function step(dtFull, container){
     if(!ready) return;
-    if(container.R !== curR || container.top !== curTop) buildContainer(container.R, container.top);
     const dt = Math.min(dtFull, 1/50);
     // Culling PŘED krokem: DestroyParticle jen označí zombie a uklidí se až
     // v Step(). Když stejné indexy vyhodíme i z našich polí teď, po kroku
@@ -141,19 +170,37 @@ const FLUID_LF = (function(){
     if(n === 0) return;
     const p = positions();
     if(!p) return;
-    const lim = (container.top*1.6)/PPM, side = (container.R*3)/PPM;
+    const lim = (container.top*1.8)/PPM, side = (container.halfW*2.5)/PPM;
     for(let i=n-1;i>=0;i--){
       const x = p[i*2], y = p[i*2+1];
       if(y < -0.5 || y > lim || x < -side || x > side) ps.DestroyParticle(i);
     }
   }
 
+  // Odebere částice uvnitř kruhu a vrátí, kolik jich bylo. Slouží k úniku
+  // otvorem: ten je v PŘEDNÍ stěně, kterou 2D simulace nezná, takže vytékání
+  // nevznikne z kolizí a musí se udělat odebráním.
+  function destroyIn(cx, cy, r){
+    if(!ready) return 0;
+    const n = ps.GetParticleCount();
+    if(n === 0) return 0;
+    const p = positions();
+    if(!p) return 0;
+    const x0 = cx/PPM, y0 = cy/PPM, rr = (r/PPM)*(r/PPM);
+    let odebrano = 0;
+    for(let i=n-1;i>=0;i--){
+      const dx = p[i*2]-x0, dy = p[i*2+1]-y0;
+      if(dx*dx + dy*dy < rr){ ps.DestroyParticle(i); odebrano++; }
+    }
+    return odebrano;
+  }
+
   // Hladina se NEDÁ počítat percentilem výšky částic: padající proud je svislý
   // sloupec od otvoru až dolů, takže percentil skončí uprostřed proudu a hladina
   // vyskočí k okraji nádoby (naměřeno: 502 px místo 75 px). Hladina je místo,
   // kde voda přestane být souvislá — hledá se tedy zdola histogramem výšek.
-  function surfaceFromHistogram(getY, n, R, areaPerP, areaPerLoose){
-    if(n === 0 || !R) return 0;
+  function surfaceFromHistogram(getY, n, width, areaPerP, areaPerLoose){
+    if(n === 0 || !width) return 0;
     const BIN = 8;                                  // px
     const bins = 90;
     const hist = new Int32Array(bins);
@@ -161,7 +208,7 @@ const FLUID_LF = (function(){
       const b = (getY(i)/BIN)|0;
       if(b >= 0 && b < bins) hist[b]++;
     }
-    const full = (BIN * 2*R) / areaPerP;            // kolik částic má plná vrstva
+    const full = (BIN * width) / areaPerP;          // kolik částic má plná vrstva
     const MIN = full * 0.25;                        // proud dá na vrstvu jednotky procent
     let top = 0;
     for(let b=0;b<bins;b++){
@@ -177,16 +224,28 @@ const FLUID_LF = (function(){
     // není co zaplavit. MUSÍ počítat s NEJŘIDŠÍM balením — je to horní odhad.
     // (Když jsem sem dal hodnotu pro stlačenou vodu, strop usekával skutečnou
     // hladinu u částečně plné nádoby a ukazatel hlásil míň, než ve válci bylo.)
-    const byVolume = (n * areaPerLoose) / (2*R) * 1.15;
+    const byVolume = (n * areaPerLoose) / width * 1.15;
     return Math.min(h, byVolume);
   }
 
-  function surfaceY(){
+  // Hladina ve vodorovném výseku x0..x1 (v pixelech lokální soustavy). U tvaru U
+  // má každé rameno vlastní hladinu — kdyby se měřila celá nádoba najednou,
+  // vyšla by hladina někde mezi rameny, kde žádná voda není.
+  function surfaceY(x0, x1){
     const n = count();
     if(n === 0) return 0;
     const p = positions();
     if(!p) return 0;
-    return surfaceFromHistogram(i => p[i*2+1]*PPM, n, curR, areaPer(), areaPerLoose());
+    if(x0 === undefined){ x0 = -1e6; x1 = 1e6; }
+    const width = Math.max(1, x1 - x0);
+    // do histogramu jdou jen částice z výseku
+    const idx = [];
+    for(let i=0;i<n;i++){
+      const x = p[i*2]*PPM;
+      if(x >= x0 && x <= x1) idx.push(i);
+    }
+    if(idx.length === 0) return 0;
+    return surfaceFromHistogram(k => p[idx[k]*2+1]*PPM, idx.length, width, areaPer(), areaPerLoose());
   }
 
   // Souřadnice (v pixelech lokální soustavy) a rozvíření pro WebGL vrstvu.
@@ -219,6 +278,7 @@ const FLUID_LF = (function(){
 
   return { load, isReady, isAvailable, reset, spawn, step, count, capacity,
            surfaceY, positions, velocities, draw, fillGL,
+           buildWalls, addFloater, floaterPos, destroyIn,
            get R0(){ return RADIUS*PPM; }, get PPM(){ return PPM; },
            get areaPerParticle(){ return areaPer(); } };
 })();

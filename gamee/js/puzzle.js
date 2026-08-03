@@ -21,21 +21,57 @@ const PUZZLE = (function(){
   const GL_RES = 1;
 
   // ---- geometrie scény (world souřadnice, viz projekce v game.js) ----
-  const CYL_Z    = 780;      // hloubka válce
-  const CYL_R    = 150;      // vnitřní poloměr
-  const CYL_BOT  = -560;     // dno válce
-  const CYL_H    = 500;      // výška válce
+  const CYL_Z    = 780;      // hloubka nádoby
+  const CYL_BOT  = -560;     // dno nádoby
   const GLASS    = 16;       // tloušťka skla
-  const HOLE_R   = 78;       // poloměr napouštěcího otvoru
-  const HOLE_DX  = 92;       // otvor je stranou od osy, ať se musí mířit
-  // Otvor je VÝŘEZ V PŘEDNÍ STĚNĚ, ne díra na horní podstavě: po přechodu na
-  // frontální pohled byla horní podstava skoro na ostří a otvor z ní zbyl jako
-  // proužek. Stříká se do něj kolmo, ne obloukem přes okraj.
-  const HOLE_Y   = 0.80;     // výška otvoru jako podíl výšky válce
-  // Míra nadhledu: poměr svislé a vodorovné poloosy elips (dno, okraj, otvor).
-  // 0 = čistě zepředu, 0,3 = pohled hodně shora. Držíme se nízko — scéna má být
-  // z lehkého nadhledu, ne z ptačí perspektivy.
-  const VIEW = 0.13;
+  // Míra nadhledu: poměr svislé a vodorovné poloosy elips (ústí ramen, podstavec).
+  // 0 = čistě zepředu, 0,3 = pohled hodně shora.
+  const VIEW     = 0.13;
+
+  // Nádoba ve tvaru U. Levým ramenem se napouští, v pravém stoupá kachnička.
+  // Rozměry jsou v lokální soustavě nádoby: x od -HALF do +HALF, y od 0 nahoru.
+  //
+  // Kanál dole je schválně NIŽŠÍ NEŽ PRŮMĚR kachničky (45 proti 90), takže se
+  // do levého ramene nedostane a hádanka zůstane čitelná: lije se vlevo,
+  // vyplouvá vpravo.
+  const ARM_W    = 110;      // vnitřní šířka ramene
+  const ARM_GAP  = 120;      // mezera mezi rameny (šířka středového sloupu)
+  const CH_H     = 35;       // výška propojovacího kanálu u dna (půlka kachničky)
+  const HALF     = ARM_GAP/2 + ARM_W;             // 170 — vnější poloviční šířka
+
+  // Levé rameno je VYŠŠÍ než pravé, a to z fyzikální nutnosti: spojené nádoby
+  // se srovnají k nejnižšímu odtoku, takže hladina nikdy nepřeroste napouštěcí
+  // otvor. Kdyby byl otvor ve stejně vysokém rameni, kachnička by neměla jak
+  // přelézt svůj okraj (naměřeno: hladina se ustálila a kachnička uvázla).
+  // Takhle je otvor nad úrovní pravého okraje a voda kachničku vyplaví ven.
+  const ARM_H_L  = 620;      // výška levého (napouštěcího) ramene
+  const ARM_H_R  = 430;      // výška pravého ramene, odkud kachnička vylézá
+  const CYL_H    = ARM_H_L;  // celková výška nádoby
+
+  // Kachnička musí mít v rameni VŮLI. S poloměrem 45 v rameni širokém 110 ho
+  // skoro ucpala, voda neměla kudy okolo, přetekla přes ni a přitlačila ji ke
+  // dnu — naměřeno: stoupla na 336 a pak spadla na 49 při plné nádobě.
+  const DUCK_R   = 35;       // poloměr kachničky jako tělesa
+  const DUCK_DENS = 0.25;    // hustota proti vodě (1) — čím níž, tím víc plave
+
+  const armL = { x0: -HALF,        x1: -ARM_GAP/2, h: ARM_H_L };   // napouštěcí
+  const armR = { x0:  ARM_GAP/2,   x1:  HALF,      h: ARM_H_R };   // kachnička
+
+  // Stěny pro solver: seznam úseček. Nová úroveň = jiný seznam, ne jiný kód.
+  const WALLS = [
+    [armL.x0, ARM_H_L, armL.x0, 0],        // vnější stěna levého ramene
+    [armL.x0, 0,       armR.x1, 0],        // dno přes celou šířku
+    [armR.x1, 0,       armR.x1, ARM_H_R],  // vnější stěna pravého ramene
+    [armL.x1, ARM_H_L, armL.x1, CH_H],     // vnitřní stěna levého ramene
+    [armR.x0, ARM_H_R, armR.x0, CH_H],     // vnitřní stěna pravého ramene
+    [armL.x1, CH_H,    armR.x0, CH_H],     // strop kanálu
+  ];
+
+  const HOLE_R   = 62;       // poloměr napouštěcího otvoru
+  const HOLE_DX  = (armL.x0 + armL.x1)/2;   // otvor uprostřed levého ramene
+  // Otvor je v levém rameni NAD úrovní pravého okraje — jinak by hladina
+  // pravé rameno nikdy nepřeplavila a kachnička by nevylezla.
+  const HOLE_Y   = 0.88;     // podíl výšky LEVÉHO ramene
 
   // Kolik kapaliny přibude za jednu částici proudu. NEDÁVAT natvrdo: cíl se
   // mění s velikostí kapek (plocha na částici roste s druhou mocninou poloměru)
@@ -53,7 +89,7 @@ const PUZZLE = (function(){
   // Kolik kapek je potřeba na plný válec. Slouží UŽ JEN ke kalibraci přítoku
   // (viz dropsPerHit) — zobrazovaná plnost se měří z hladiny.
   function fullCount(){
-    const area = 2*(CYL_R-GLASS) * CYL_H;
+    const area = 2*ARM_W*CYL_H + ARM_GAP*CH_H;      // obě ramena + kanál
     return Math.min(Math.round(area/F().areaPerParticle), F().capacity());
   }
   const TILT_MAX     = 0.30;     // za tímhle náklonem začne voda vyšplíchávat
@@ -65,7 +101,8 @@ const PUZZLE = (function(){
   let dropAcc = 0;           // zbytkové kapky do dalšího spawnu
   let tilt = 0, tiltV = 0;   // náklon na čepu
   let bob = 0;               // pohupování kachničky
-  let duckY = -1;            // vyhlazená výška plavání (hladina sama poskakuje s vlnami)
+  let duckX = 0, duckY = 0, duckAng = 0;   // poloha kachničky ze simulace
+  let leakT = 0;             // doběh efektu vytékání z otvoru
   let state = 'play';        // 'play' | 'escape' | 'done'
   let escT = 0;              // čas útěku
   let escX = 0, escY = 0;    // pozice kachničky při útěku
@@ -275,14 +312,21 @@ const PUZZLE = (function(){
   // ---------------------------------------------------------------- start
   // Reset kapaliny drží geometrii nádoby na jednom místě — LiquidFun si z ní
   // staví stěny, vlastní PBF ji dostává až v každém kroku.
+  let duckBody = null;
   function resetFluid(){
     FLUID.reset(tune.fluidMax);
-    if(FLUID_LF.isAvailable()) FLUID_LF.reset(tune.fluidMax, CYL_R - GLASS, CYL_H, tune.dropSize);
+    if(FLUID_LF.isAvailable()){
+      FLUID_LF.reset(tune.fluidMax, WALLS, tune.dropSize);
+      // Kachnička je skutečné plovoucí těleso, ne kresba na změřené hladině.
+      // Díky tomu funguje v jakémkoli tvaru nádoby — nové úrovně nepotřebují
+      // říkat, kde se má hladina měřit.
+      duckBody = FLUID_LF.addFloater((armR.x0+armR.x1)/2, DUCK_R + 6, DUCK_R, DUCK_DENS);
+    }
   }
 
   function init(){
     fill = 0; tilt = 0; tiltV = 0; bob = 0; dropAcc = 0;
-    state = 'play'; escT = 0; spillT = 0; duckY = -1;
+    state = 'play'; escT = 0; spillT = 0; duckX = 0; duckY = 0; duckAng = 0; leakT = 0;
     resetFluid();
     prerenderBackground();
   }
@@ -313,22 +357,38 @@ const PUZZLE = (function(){
     // řešíme otočením gravitace — voda se pak sama nakloní a při velkém úhlu
     // přeteče přes okraj a je nenávratně pryč.
     const G = 1400;
-    F().step(dt, { R: CYL_R - GLASS, top: CYL_H,
-                     gx: Math.sin(tilt)*G, gy: -Math.cos(tilt)*G });
+    F().step(dt, { halfW: HALF, top: CYL_H,
+                   gx: Math.sin(tilt)*G, gy: -Math.cos(tilt)*G });
+
+    // Únik otvorem. Otvor je v PŘEDNÍ stěně, kterou 2D simulace nezná, takže
+    // vytékání nevznikne z kolizí — částice v kruhu otvoru se odeberou a místo
+    // nich se pustí viditelné kapky padající před sklem.
+    if(F() === FLUID_LF && state === 'play'){
+      const unik = FLUID_LF.destroyIn(HOLE_DX, CYL_H*HOLE_Y, HOLE_R*0.72);
+      if(unik > 0){
+        leakT = 0.25;
+        if(Math.random() < 0.5)
+          splashAt(HOLE_DX, CYL_BOT + CYL_H*HOLE_Y, CYL_Z - HALF, 1, 1);
+      }
+    }
+    if(leakT > 0) leakT -= dt;
     // Plnost se MĚŘÍ z hladiny, nepočítá z počtu částic: kapalina se pod
     // vlastní vahou stlačuje (naměřeno 1,44 × r² na kapku u mělké vody proti
     // 1,04 × r² u hluboké), takže žádný pevný přepočet nesedí v celém rozsahu.
-    fill = clamp(F().surfaceY() / CYL_H, 0, 1);
-    // Kachnička plave na hladině, ale ne na každé vlnce — dojíždí za ní.
-    // Nahoru rychleji než dolů: voda ji nadnáší hned, klesá s ubývajícím objemem.
-    const targetY = Math.max(70, F().surfaceY() + 46);
-    if(duckY < 0) duckY = targetY;
-    else duckY += (targetY - duckY) * Math.min(1, dt * (targetY > duckY ? 3.5 : 1.8));
+    // Plnost se měří v PRAVÉM rameni — tam stoupá kachnička a o to jde.
+    // Měřit celou nádobu najednou nelze, hladina by vyšla mezi rameny.
+    fill = clamp(F().surfaceY(armR.x0, armR.x1) / ARM_H_R, 0, 1);
 
-    if(state === 'play' && fill >= WIN_LEVEL){
+    // Kachnička je těleso, takže její výšku nepočítáme — čteme ji ze simulace.
+    const dpos = duckBody ? FLUID_LF.floaterPos(duckBody) : null;
+    if(dpos){ duckX = dpos.x; duckY = dpos.y; duckAng = dpos.angle; }
+
+    // Vyhráno, až kachnička vyleze nad okraj svého ramene.
+    // vyhráno, až kachnička přeleze okraj SVÉHO (pravého) ramene
+    if(state === 'play' && dpos && dpos.y > ARM_H_R - DUCK_R*0.2){
       state = 'escape'; escT = 0;
       const s = projS(CYL_Z);
-      escX = projX(0, s); escY = projY(CYL_BOT + CYL_H + 40, s);
+      escX = projX(duckX, s); escY = projY(CYL_BOT + duckY, s);
       addFloater(escX, escY - 40*S, 'OSVOBOZENA!');
     }
 
@@ -347,7 +407,7 @@ const PUZZLE = (function(){
     if(state !== 'play') return false;
     // Válec zabírá hloubku od přední po zadní stěnu; dřív se testoval jen úzký
     // pás kolem osy, protože se mířilo shora na podstavu.
-    if(p.z < CYL_Z - CYL_R - 40 || p.z > CYL_Z + CYL_R + 40) return false;
+    if(p.z < CYL_Z - HALF - 40 || p.z > CYL_Z + HALF + 40) return false;
 
     const topY = CYL_BOT + CYL_H;
     const hx = holeWorldX(), hy = holeWorldY();
@@ -360,15 +420,17 @@ const PUZZLE = (function(){
       dropAcc += dropsPerHit();
       while(dropAcc >= 1){
         dropAcc -= 1;
-        // kapky vtékají v úrovni otvoru a padají dovnitř
-        F().spawn(HOLE_DX + rand(-26,26), CYL_H*HOLE_Y + rand(-20,10), rand(-15,15), -40);
+        // Kapky vtékají POD otvor, ne přesně do něj — v kruhu otvoru je odsává
+        // únik a voda by se vůbec nezačala hromadit (naměřeno: drželo se 20 kapek).
+        F().spawn(HOLE_DX + rand(-24,24), CYL_H*HOLE_Y - HOLE_R*1.05 + rand(-12,12),
+                  rand(-15,15), -60);
       }
       if(Math.random() < 0.12) splashAt(p.x, p.y, CYL_Z, 1, 1);
       return true;
     }
 
     // trefa do skla → válec se rozkýve
-    if(p.y > CYL_BOT && p.y < topY + 40 && Math.abs(p.x) < CYL_R + GLASS*2){
+    if(p.y > CYL_BOT && p.y < topY + 40 && Math.abs(p.x) < HALF + GLASS*2){
       tiltAccum += (p.x >= 0 ? 1 : -1) * TILT_PER_HIT;
       if(Math.random() < 0.2) splashAt(p.x, p.y, p.z, 1, 0);
       return true;
@@ -383,8 +445,8 @@ const PUZZLE = (function(){
   function aimZ(sx, sy){
     const s = projS(CYL_Z);
     const wx = unprojX(sx, s), wy = unprojY(sy, s);
-    if(wy > CYL_BOT - 60 && wy < CYL_BOT + CYL_H + 140 && Math.abs(wx) < CYL_R + 120)
-      return CYL_Z - CYL_R;
+    if(wy > CYL_BOT - 60 && wy < CYL_BOT + CYL_H + 140 && Math.abs(wx) < HALF + 120)
+      return CYL_Z - HALF;
     return WALL_Z;
   }
 
@@ -393,40 +455,49 @@ const PUZZLE = (function(){
   // ---------------------------------------------------------------- kresba
   function drawBackground(){ if(bg) ctx.drawImage(bg, 0, 0, W, H); }
 
+  // Obrys vnitřní dutiny ve tvaru U — jedna cesta, kterou používá jak sklo,
+  // tak ořez kapaliny. Nová úroveň znamená jiné body, ne jinou kresbu.
+  function cavityPath(toX, toY){
+    const p = new Path2D();
+    p.moveTo(toX(armL.x0), toY(ARM_H_L));
+    p.lineTo(toX(armL.x0), toY(0));
+    p.lineTo(toX(armR.x1), toY(0));
+    p.lineTo(toX(armR.x1), toY(ARM_H_R));
+    p.lineTo(toX(armR.x0), toY(ARM_H_R));
+    p.lineTo(toX(armR.x0), toY(CH_H));
+    p.lineTo(toX(armL.x1), toY(CH_H));
+    p.lineTo(toX(armL.x1), toY(ARM_H_L));
+    p.closePath();
+    return p;
+  }
+
   function drawScene(){
     const s = projS(CYL_Z);
-    const cx = projX(0, s);
+    const scale = s*S;
     const bottomSy = projY(CYL_BOT, s);
-    const topSy = projY(CYL_BOT + CYL_H, s);
-    const rx = CYL_R*s*S;
-    const hgt = bottomSy - topSy;
-    const ry = rx*VIEW;                 // zploštění elipsy dané nadhledem
+    const toX = lx => projX(lx, s);
+    const toY = ly => bottomSy - ly*scale;
+    const topSy = toY(ARM_H_R);
+    const ry = (HALF*scale)*VIEW*0.5;
 
     ctx.save();
-    ctx.translate(cx, bottomSy);
-    ctx.rotate(tilt*0.35);              // náklon na čepu
-    ctx.translate(-cx, -bottomSy);
+    ctx.translate(toX(0), bottomSy);
+    ctx.rotate(tilt*0.35);
+    ctx.translate(-toX(0), -bottomSy);
 
-    // čep a podstavec
-    ctx.fillStyle = '#8c7a5e';
-    ctx.beginPath(); ctx.ellipse(cx, bottomSy + 10*S, rx*0.5, ry*0.6, 0, 0, Math.PI*2); ctx.fill();
-    ctx.fillStyle = '#b9a583';
-    ctx.fillRect(cx - rx*0.16, bottomSy - 6*S, rx*0.32, 20*S);
+    const cavity = cavityPath(toX, toY);
 
-    // kapalina uvnitř — každá částice na svém místě, ne plochý obdélník
+    // podstavec pod nádobou
+    ctx.fillStyle = 'rgba(120,100,70,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(toX(0), bottomSy + 8*S, HALF*scale*0.9, ry*0.8, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // ---- kapalina, ořezaná tvarem dutiny ----
     if(F().count() > 0){
-      const scale = s*S;
-      const toScreen = (lx, ly) => ({ x: cx + lx*scale, y: bottomSy - ly*scale });
+      const toScreen = (lx, ly) => ({ x: toX(lx), y: toY(ly) });
       ctx.save();
-      // Ořez kopíruje SKUTEČNÝ tvar válce i s vykrouženým dnem. S obdélníkem
-      // měla voda dole rovnou hranu, zatímco sklo oblouk — a bylo to vidět.
-      ctx.beginPath();
-      ctx.moveTo(cx-rx, topSy - 40*S);
-      ctx.lineTo(cx-rx, bottomSy);
-      ctx.ellipse(cx, bottomSy, rx, ry, 0, Math.PI, 0, true);   // přední oblouk dna
-      ctx.lineTo(cx+rx, topSy - 40*S);
-      ctx.closePath();
-      ctx.clip();
+      ctx.clip(cavity);
       const solver = F();
       const glcv = tune.glFluid && FLUID_GL.available()
         ? FLUID_GL.render(W, H, GL_RES, solver.count(),
@@ -435,68 +506,81 @@ const PUZZLE = (function(){
               gain: tune.glGain, thresh: tune.glThresh,
               tint: tune.glTint, tintMix: tune.glTintMix, white: tune.glWhite,
               capLo: 0.01, capTop: tune.glCap, capBot: tune.glCap * 0.18,
-              // odkud kam se šířka bílé zužuje (v = 1 nahoře plátna)
-              yTop: 1 - toScreen(0, solver.surfaceY()).y / H,
+              yTop: 1 - toY(solver.surfaceY(armR.x0, armR.x1)) / H,
               yBot: 1 - bottomSy / H })
         : null;
       if(glcv) ctx.drawImage(glcv, 0, 0, W, H);
-      else solver.draw(ctx, toScreen, scale, { R: CYL_R - GLASS, top: CYL_H });
+      else solver.draw(ctx, toScreen, scale, { R: ARM_W/2, top: CYL_H });
       ctx.restore();
     }
 
-    // kachnička uvnitř (dokud neutekla)
+    // ---- kachnička (těleso ze simulace) ----
     if(state === 'play'){
-      const dy = projY(CYL_BOT + (duckY < 0 ? 70 : duckY), s) + Math.sin(bob)*3*S;
-      const sz = 150*s*S;
-      ctx.drawImage(duckSprite, cx - sz*0.53, dy - sz*0.75, sz, sz);
+      const sz = 150*scale;
+      ctx.save();
+      ctx.translate(toX(duckX), toY(duckY));
+      ctx.rotate(-duckAng);
+      ctx.drawImage(duckSprite, -sz*0.53, -sz*0.62, sz, sz);
+      ctx.restore();
     }
 
-    // sklo válce
-    const glass = ctx.createLinearGradient(cx-rx, 0, cx+rx, 0);
+    // ---- sklo ----
+    const glass = ctx.createLinearGradient(toX(-HALF), 0, toX(HALF), 0);
     glass.addColorStop(0.00,'rgba(255,255,255,0.42)');
     glass.addColorStop(0.16,'rgba(255,255,255,0.10)');
     glass.addColorStop(0.45,'rgba(255,255,255,0.30)');
     glass.addColorStop(0.80,'rgba(255,255,255,0.08)');
     glass.addColorStop(1.00,'rgba(255,255,255,0.42)');
-    // Sklo se kreslí jako plocha S DÍROU (even-odd), ne jako obdélník — otvor
-    // je skutečný výřez, ne kolečko namalované navrch. Přes díru je proto vidět
-    // vnitřek válce bez skleněného zákalu.
-    const hx = projX(holeWorldX(), s);
-    const hy = projY(holeWorldY(), s);
-    const hr = HOLE_R*s*S;
 
+    const hx = toX(HOLE_DX), hy = toY(CYL_H*HOLE_Y), hr = HOLE_R*scale;
+
+    // sklo jako plocha S DÍROU — otvor je skutečný výřez, ne kolečko navrch
+    const sklo = new Path2D();
+    sklo.addPath(cavity);
+    sklo.arc(hx, hy, hr, 0, Math.PI*2);
     ctx.fillStyle = glass;
-    ctx.beginPath();
-    ctx.rect(cx-rx, topSy, rx*2, hgt);
-    ctx.arc(hx, hy, hr, 0, Math.PI*2);
-    ctx.fill('evenodd');
+    ctx.fill(sklo, 'evenodd');
 
+    // obrys nádoby
     ctx.strokeStyle = 'rgba(255,255,255,0.85)';
     ctx.lineWidth = 3*S;
-    ctx.beginPath(); ctx.moveTo(cx-rx, topSy); ctx.lineTo(cx-rx, bottomSy); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx+rx, topSy); ctx.lineTo(cx+rx, bottomSy); ctx.stroke();
-    // dno a horní okraj
-    ctx.beginPath(); ctx.ellipse(cx, bottomSy, rx, ry, 0, 0, Math.PI*2); ctx.stroke();
-    ctx.beginPath(); ctx.ellipse(cx, topSy, rx, ry, 0, 0, Math.PI*2); ctx.stroke();
+    ctx.stroke(cavity);
 
-    // Hrana výřezu: širší poloprůhledný lem (tloušťka skla v řezu) a přes něj
-    // tenká jasná linka, aby byl otvor jasně čitelný jako cíl.
+    // ústí ramen (otevřený horní okraj)
+    ctx.lineWidth = 2.5*S;
+    for(const a of [armL, armR]){
+      ctx.beginPath();
+      ctx.ellipse((toX(a.x0)+toX(a.x1))/2, toY(a.h), (toX(a.x1)-toX(a.x0))/2, ry*0.6, 0, 0, Math.PI*2);
+      ctx.stroke();
+    }
+
+    // hrana výřezu: široký poloprůhledný lem (sklo v řezu) + tenká jasná linka
     ctx.strokeStyle = 'rgba(255,255,255,0.45)';
     ctx.lineWidth = 7*S;
     ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.stroke();
     ctx.strokeStyle = 'rgba(255,255,255,0.95)';
     ctx.lineWidth = 2.5*S;
     ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.stroke();
-    // lesk na horním okraji výřezu
     ctx.strokeStyle = 'rgba(255,255,255,0.7)';
     ctx.lineWidth = 3*S;
     ctx.beginPath(); ctx.arc(hx, hy, hr*0.82, Math.PI*1.15, Math.PI*1.75); ctx.stroke();
+
+    // pramínek vytékající z otvoru, když hladina dosáhne nad něj
+    if(leakT > 0){
+      ctx.strokeStyle = 'rgba(180,225,255,0.75)';
+      ctx.lineWidth = 5*S;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(hx, hy + hr*0.5);
+      ctx.quadraticCurveTo(hx + 6*S, hy + hr*1.6, hx + 2*S, hy + hr*2.6);
+      ctx.stroke();
+    }
 
     ctx.restore();
 
     // uniklá kachnička letí do bazénu
     if(state === 'escape' || state === 'done'){
-      const sz = 150*s*S * (1 - Math.min(escT/2.2,1)*0.45);
+      const sz = 150*scale * (1 - Math.min(escT/2.2,1)*0.45);
       ctx.save();
       ctx.globalAlpha = 1 - Math.max(0, (escT-1.4)/0.8);
       ctx.translate(escX, escY);
@@ -511,8 +595,8 @@ const PUZZLE = (function(){
     const s = projS(CYL_Z);
     const cx = projX(0, s);
     const bottomSy = projY(CYL_BOT, s);
-    const topSy = projY(CYL_BOT + CYL_H, s);
-    const bx = cx + CYL_R*s*S + 26*S, bw = 14*S;
+    const topSy = projY(CYL_BOT + ARM_H_R, s);
+    const bx = projX(HALF, s) + 26*S, bw = 14*S;
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
     ctx.fillRect(bx, topSy, bw, bottomSy-topSy);
     ctx.fillStyle = '#159fdc';
@@ -531,5 +615,7 @@ const PUZZLE = (function(){
 
   return { init, update, onParticle, aimZ, isWon, resetFluid,
            prerenderBackground, drawBackground, drawScene, drawHud,
-           get fill(){ return fill; }, get state(){ return state; } };
+           get fill(){ return fill; }, get state(){ return state; },
+           get duckY(){ return duckY; }, get duckX(){ return duckX; },
+           get duckBody(){ return duckBody; } };
 })();
