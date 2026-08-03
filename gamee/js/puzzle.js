@@ -53,6 +53,7 @@ const PUZZLE = (function(){
   // dnu — naměřeno: stoupla na 336 a pak spadla na 49 při plné nádobě.
   const DUCK_R   = 35;       // poloměr kachničky jako tělesa
   const DUCK_DENS = 0.25;    // hustota proti vodě (1) — čím níž, tím víc plave
+  const DUCK_TILT = 0.5;     // největší náklon kachničky (rad, ~29°)
 
   const armL = { x0: -HALF,        x1: -ARM_GAP/2, h: ARM_H_L };   // napouštěcí
   const armR = { x0:  ARM_GAP/2,   x1:  HALF,      h: ARM_H_R };   // kachnička
@@ -320,7 +321,10 @@ const PUZZLE = (function(){
       // Kachnička je skutečné plovoucí těleso, ne kresba na změřené hladině.
       // Díky tomu funguje v jakémkoli tvaru nádoby — nové úrovně nepotřebují
       // říkat, kde se má hladina měřit.
-      duckBody = FLUID_LF.addFloater((armR.x0+armR.x1)/2, DUCK_R + 6, DUCK_R, DUCK_DENS);
+      duckBody = FLUID_LF.addFloater((armR.x0+armR.x1)/2, DUCK_R + 6, DUCK_R, DUCK_DENS,
+        { comDrop: DUCK_R*0.6,     // těžiště pod středem → sama se narovná
+          maxAngle: DUCK_TILT,     // dál se nenakloní, na záda se nepřetočí
+          upright: 10 });
     }
   }
 

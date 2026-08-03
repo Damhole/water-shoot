@@ -94,11 +94,15 @@ const FLUID_LF = (function(){
   // Hustota pod 1 znamená lehčí než voda, takže těleso vyplave. Tvar je kruh:
   // přesný obrys kachničky by fyzice nic nepřidal a stál by výkon.
   let bodies = [];
-  function addFloater(x, y, rPx, density){
+  // opts: { comDrop } — o kolik pixelů níž než střed leží těžiště,
+  //       { maxAngle } — strop náklonu v radiánech, { upright } — síla vzpřímení
+  function addFloater(x, y, rPx, density, opts){
     if(!ready) return null;
+    const o = opts || {};
     const bd = new B.b2BodyDef();
     bd.type = 2;                                   // dynamické těleso
     bd.position = new B.b2Vec2(x/PPM, y/PPM);
+    bd.angularDamping = o.angularDamping === undefined ? 2.2 : o.angularDamping;
     const body = world.CreateBody(bd);
     const cir = new B.b2CircleShape();
     cir.set_m_radius(rPx/PPM);
@@ -108,9 +112,41 @@ const FLUID_LF = (function(){
     fd.friction = 0.2;
     fd.restitution = 0.05;
     body.CreateFixture(fd);
-    const h = { body, r: rPx };
+
+    // Těžiště NÍŽ než střed tvaru. Vztlak působí zhruba ve středu ponořené
+    // části, takže když je hmota níž, vzniká vzpřimovací moment — přesně jako
+    // u gumové kachničky, která se sama narovná. Kruh má těžiště ve středu,
+    // proto se dosud převracela stejně snadno na obě strany.
+    const comDrop = (o.comDrop === undefined ? rPx*0.55 : o.comDrop)/PPM;
+    if(comDrop > 0){
+      const md = new B.b2MassData();
+      body.GetMassData(md);
+      md.center = new B.b2Vec2(0, -comDrop);
+      body.SetMassData(md);
+    }
+
+    const h = { body, r: rPx,
+                maxAngle: o.maxAngle === undefined ? 0.55 : o.maxAngle,
+                upright:  o.upright  === undefined ? 9 : o.upright };
     bodies.push(h);
     return h;
+  }
+
+  // Vzpřimování a strop náklonu. Samotné nízké těžiště pomáhá, ale ve zvířené
+  // vodě to nestačí — pružina k nule drží kachničku rozumně vzhůru a tvrdý
+  // strop zaručí, že se nikdy nepřetočí na záda.
+  function uprightBodies(dt){
+    for(const h of bodies){
+      const a = h.body.GetAngle();
+      const w = h.body.GetAngularVelocity();
+      h.body.ApplyTorque((-a*h.upright - w*1.5) * h.body.GetMass(), true);
+      if(a > h.maxAngle || a < -h.maxAngle){
+        const cl = a > 0 ? h.maxAngle : -h.maxAngle;
+        const p = h.body.GetPosition();
+        h.body.SetTransform(p, cl);
+        h.body.SetAngularVelocity(w * 0.2);
+      }
+    }
   }
   function floaterPos(h){
     if(!h) return null;
@@ -161,6 +197,7 @@ const FLUID_LF = (function(){
     // gravitace nese náklon nádoby (gx, gy jsou v px/s², převedeme na m/s²)
     world.SetGravity(new B.b2Vec2(container.gx/PPM, container.gy/PPM));
     world.Step(dt, 4, 2);
+    if(bodies.length) uprightBodies(dt);
   }
 
   // Co přeteče přes okraj nebo propadne pod dno, je nenávratně pryč —
