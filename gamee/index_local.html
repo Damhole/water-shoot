@@ -70,6 +70,7 @@
 // dev cache-bust — vždy čerstvý game.js
 (function(){
   const t = new URLSearchParams(location.search).get('t') || Date.now();
+  document.write('<scr' + 'ipt src="./js/puzzle.js?t=' + encodeURIComponent(t) + '"><\/scr' + 'ipt>');
   document.write('<scr' + 'ipt src="./js/game.js?t=' + encodeURIComponent(t) + '"><\/scr' + 'ipt>');
 })();
 </script>

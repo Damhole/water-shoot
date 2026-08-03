@@ -10,6 +10,10 @@ const WS_CHECKSUM = 'water-shoot-v48';
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
 const WS_PARAMS = new URLSearchParams(location.search);
 const STRESS = WS_PARAMS.get('stress') === '1';
+// Mód hry: 'ducks' = střelnice (dosavadní), 'puzzle' = osvobozování kachniček.
+// Přepíná se přes ?mode= nebo tlačítkem na overlay konce kola.
+const MODE = (WS_PARAMS.get('mode') === 'puzzle') ? 'puzzle' : 'ducks';
+const isPuzzle = () => MODE === 'puzzle';
 
 // ---------------------------------------------------------------- util
 function _safeGamee(fn){ try{ fn(); }catch(e){ console.warn('[gamee]', e); } }
@@ -593,8 +597,8 @@ function resize(){
   ctx.setTransform(DPR,0,0,DPR,0,0);
   VPX = W/2; VPY = H*0.30;
   cannon.aimSX = W/2; cannon.aimSY = H*0.45;
-  prerenderBackground();
   prerenderDuck();
+  if(isPuzzle()) PUZZLE.prerenderBackground(); else prerenderBackground();
   if(running) resetEntities();
 }
 
@@ -785,6 +789,7 @@ const JET_SPEED = 1500;       // world px/s
 // cíle. Částice smí ubližovat až od ní: damage dává jen KONEC proudu, ne voda
 // letící obloukem nad bližšími kachničkami.
 function computeAimZ(){
+  if(isPuzzle()) return PUZZLE.aimZ(cannon.aimSX, cannon.aimSY);
   const order = [2,1,0];               // dráhy od nejbližší (z 700 → 900)
   for(const l of order){
     const L = LANES[l], s = projS(L.z);
@@ -865,13 +870,16 @@ function update(dt){
       updateWaterBar();
     }
 
-    // cíl ve světě: pointer promítnutý na zadní stěnu
-    const ws = projS(WALL_Z);
+    // Cíl ve světě: pointer promítnutý do hloubky, na kterou hráč míří.
+    // Dřív se počítalo vždy na zadní stěnu, takže voda bližší předměty
+    // podlétala — u drah blízko stěny to nevadilo, u válce v puzzlu ano.
+    const targetZ = computeAimZ();
+    const ws = projS(targetZ);
     const tx = unprojX(cannon.aimSX, ws);
     const ty = unprojY(cannon.aimSY, ws);
     const m = cannon.muzzle;
     m.x = tx*0.08;            // ústí lehce uhýbá za cílem
-    const dx = tx-m.x, dy = ty-m.y, dz = WALL_Z-m.z;
+    const dx = tx-m.x, dy = ty-m.y, dz = targetZ-m.z;
     const dist = Math.sqrt(dx*dx+dy*dy+dz*dz);
     const tFly = dist/JET_SPEED;
     // kompenzace gravitace, aby proud dopadal ~na pointer
@@ -890,7 +898,7 @@ function update(dt){
       vx *= p; vy *= p; vz *= p;
     }
 
-    const armZ = computeAimZ() - 80;   // odjištění až u cílové hloubky
+    const armZ = targetZ - 80;         // odjištění až u cílové hloubky
     // úzký proud = kam míříš, tam voda dopadne (bez toho se rozstřik rozlije
     // po celém tělíčku a přesnost přestane rozhodovat)
     // při náběhu je proud i o něco rozstřikovanější, než se srovná do linie
@@ -1001,7 +1009,13 @@ function update(dt){
     }
   }
 
-  // rotace hodnotových tierů mezi drahami
+  if(isPuzzle()){
+    PUZZLE.update(dt);
+    if(PUZZLE.isWon()) endRound('Kachnička osvobozena!');
+  }
+
+  // rotace hodnotových tierů mezi drahami — jen ve střelnici
+  if(!isPuzzle()){
   tierRotateT -= dt;
   if(tierRotateT <= 0){
     tierRotateT = TIER_ROTATE_T;
@@ -1067,6 +1081,8 @@ function update(dt){
     else if(p.state==='out' && p.t>0.25){ p.state='hidden'; }
   }
 
+  }  // konec sekcí jen pro střelnici
+
   // částice: integrace + kolize + dopady
   for(let i=0;i<POOL_HARD_MAX;i++){
     const p = pool[i];
@@ -1079,7 +1095,9 @@ function update(dt){
 
     if(p.type===0){
       let dead = false;
-      if(tune.collisions){
+      if(isPuzzle()){
+        if(tune.collisions && p.z >= p.armZ && PUZZLE.onParticle(p)) dead = true;
+      } else if(tune.collisions){
         // damage jen odjištěnou částicí (konec proudu) — voda letící obloukem
         // nad bližšími kachničkami jim neubližuje
         const armed = p.z >= p.armZ;
@@ -1269,10 +1287,11 @@ function hitPopup(t, p, bull){
 
 // ---------------------------------------------------------------- draw
 function draw(){
-  ctx.drawImage(bgCanvas, 0, 0, W, H);
+  if(isPuzzle()){ PUZZLE.drawBackground(); PUZZLE.drawScene(); }
+  else ctx.drawImage(bgCanvas, 0, 0, W, H);
 
-  // pop-up terče (na stěně)
-  for(const t of popups){
+  // pop-up terče (na stěně) — jen ve střelnici
+  if(!isPuzzle()) for(const t of popups){
     if(t.state==='hidden') continue;
     let sc = 1;
     if(t.state==='in') sc = t.t/0.25;
@@ -1294,7 +1313,7 @@ function draw(){
 
   // kachničky — od nejvzdálenější dráhy; po každé dráze přední hrana žlabu.
   // Zasažená kachnička se POTÁPÍ pod hladinu — clip na linii žlabu ji ořízne.
-  for(let l=0;l<LANES.length;l++){
+  if(!isPuzzle()) for(let l=0;l<LANES.length;l++){
     const L = LANES[l], s = projS(L.z);
     const spriteSz = L.duckSize*1.1*s*S;
     const ly = projY(L.y, s);
@@ -1481,7 +1500,8 @@ function draw(){
   ctx.textBaseline = 'alphabetic';
 
   drawWaterTank();
-  if(tune.specialMode) drawRoyalTracker();
+  if(isPuzzle()) PUZZLE.drawHud();
+  else if(tune.specialMode) drawRoyalTracker();
   drawFlyCoins();
   drawCurtain();
   drawFps();          // nad vším včetně opony — kvůli měření na mobilech
@@ -2119,6 +2139,7 @@ function startRound(){
   for(const f of flyCoins) f.alive = false;
   coinPop = 0;
   resetEntities();
+  if(isPuzzle()) PUZZLE.init();
   document.getElementById('overlay').hidden = true;
   // opona se rozhrne; dokud jede, čas neběží a dělo nestříká
   curtain = 0; curtainState = 'opening'; curtainT = 0;
