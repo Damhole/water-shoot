@@ -83,3 +83,6 @@ _(neotříděné nápady sem)_
 | v47 | **Fix překryvů:** královská hledá volné místo — 24 kandidátů ve vstupní části dráhy s kontrolou odstupu (76 % překryvů → 0 %, min odstup 1,05× kachnička). Opraveno i míchání drah (Fisher-Yates místo `sort()` s náhodným komparátorem) | e175227 | 2026-07-30 |
 | v49 | Puzzle mód: bazénové prostředí, skleněný válec na čepu s uvězněnou kachničkou, napouštění otvorem; **fix** balistiky — mířila vždy na zadní stěnu, proto se muselo mířit výš | 5513ab5 | 2026-08-03 |
 | v50 | Skutečná kapalina (2D Position Based Fluids): mřížka sousedů, tlakový řešič, viskozita, povrchové napětí, metaball render. Kachnička plave na reálné hladině, slider počtu částic v HUD | e17e5db | 2026-08-03 |
+| v55 | Přepínač módů: úvodní obrazovka s volbou Střelnice/Puzzle + tlačítko „Zkusit …" na overlay konce kola; `MODE` je proměnná, přepíná se za běhu bez reloadu, volba se propisuje do `?mode=` | 9f0e810 | 2026-08-03 |
+| v56 | Kapalina na **LiquidFunu** (Box2D particles, wasm, `liquidfun-wasm@6.0.4-lf.1`) jako druhý solver za shodným rozhraním, přepínač v ⚙ HUD. Naměřeno 0,17 µs vs 7,3 µs na částici a krok (~40×) | c893bd6 | 2026-08-03 |
+| v57 | **WebGL render kapaliny** (screen-space fluid): pole hustoty z měkkých jader, práh → silueta, gradient → normála, refrakce pozadí, obrys, pěna z rozvíření. Posuvníky jádro/práh/sytost v HUD | — | 2026-08-03 |

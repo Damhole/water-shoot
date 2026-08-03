@@ -2,7 +2,7 @@
 <html lang="cs">
 <head>
   <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-  <title>Golden Ducks v56</title>
+  <title>Golden Ducks v57</title>
   <script type="text/javascript" src="./lib/gamee-js-stub.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
   <!-- Dev/Pages only: „Přidat na plochu" spustí hru fullscreen bez lišty prohlížeče.
@@ -16,7 +16,7 @@
 </head>
 <body onload="initGame()">
 <canvas id="game-canvas"></canvas>
-<div id="version-badge"><span class="game-name">Golden Ducks</span> <span class="ver-num">v56</span></div>
+<div id="version-badge"><span class="game-name">Golden Ducks</span> <span class="ver-num">v57</span></div>
 <div id="topbar">
   <span><span class="lbl">skóre </span><span id="score-val">0</span></span>
   <span><span class="lbl">čas </span><span id="time-val">60</span></span>
@@ -51,6 +51,15 @@
   <label>kapalina (částic)
     <div class="sl-row"><input type="range" id="sl-fluid" min="100" max="6000" step="100"><span class="sl-val" id="sl-fluid-val"></span></div>
   </label>
+  <label>voda — jádro částice
+    <div class="sl-row"><input type="range" id="sl-glpoint" min="5" max="18" step="0.5"><span class="sl-val" id="sl-glpoint-val"></span></div>
+  </label>
+  <label>voda — práh hladiny
+    <div class="sl-row"><input type="range" id="sl-glthresh" min="0.12" max="0.60" step="0.01"><span class="sl-val" id="sl-glthresh-val"></span></div>
+  </label>
+  <label>voda — sytost
+    <div class="sl-row"><input type="range" id="sl-gltint" min="0" max="1" step="0.05"><span class="sl-val" id="sl-gltint-val"></span></div>
+  </label>
   <div class="cb-row">
     <label><input type="checkbox" id="cb-coll"> kolize</label>
     <label><input type="checkbox" id="cb-add"> glow</label>
@@ -59,6 +68,7 @@
     <label><input type="checkbox" id="cb-rel"> rel. míření</label>
     <label><input type="checkbox" id="cb-special"> special mód</label>
     <label><input type="checkbox" id="cb-lf"> LiquidFun</label>
+    <label><input type="checkbox" id="cb-gl"> shader voda</label>
   </div>
 </div>
 <div id="start-overlay" hidden>
@@ -96,6 +106,7 @@
   document.write('<scr' + 'ipt src="./lib/entry.js" data-box2d-dir="./lib"><\/scr' + 'ipt>');
   document.write('<scr' + 'ipt src="./js/fluid.js?t=' + encodeURIComponent(t) + '"><\/scr' + 'ipt>');
   document.write('<scr' + 'ipt src="./js/fluid_lf.js?t=' + encodeURIComponent(t) + '"><\/scr' + 'ipt>');
+  document.write('<scr' + 'ipt src="./js/fluid_gl.js?t=' + encodeURIComponent(t) + '"><\/scr' + 'ipt>');
   document.write('<scr' + 'ipt src="./js/puzzle.js?t=' + encodeURIComponent(t) + '"><\/scr' + 'ipt>');
   document.write('<scr' + 'ipt src="./js/game.js?t=' + encodeURIComponent(t) + '"><\/scr' + 'ipt>');
 })();

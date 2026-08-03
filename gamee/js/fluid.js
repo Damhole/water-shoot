@@ -390,7 +390,17 @@ const FLUID = (function(){
     return sum/n;
   }
 
-  return { reset, spawn, step, draw, count, capacity, surfaceY, meanSpeed,
+  // Souřadnice a rozvíření pro WebGL vrstvu (fluid_gl.js).
+  function fillGL(outPos, outSpd, toScreen){
+    for(let i=0;i<n;i++){
+      const s = toScreen(px[i], py[i]);
+      outPos[i*2] = s.x; outPos[i*2+1] = s.y;
+      outSpd[i] = Math.min(1, Math.hypot(vx[i], vy[i])/900);
+    }
+    return n;
+  }
+
+  return { reset, spawn, step, draw, count, capacity, surfaceY, meanSpeed, fillGL,
            get R0(){ return R0; },
            get areaPerParticle(){ return R0*R0*0.87; } };
 })();

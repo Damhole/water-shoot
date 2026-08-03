@@ -16,6 +16,9 @@ const PUZZLE = (function(){
   // Aktivní solver kapaliny: vlastní PBF (fluid.js) nebo LiquidFun (fluid_lf.js).
   // Přepíná se v ⚙ HUD; dokud se wasm nenačte, jede se na vlastním.
   const F = () => (tune.lfFluid && FLUID_LF.isReady()) ? FLUID_LF : FLUID;
+  // Kapalina se kreslí v 1 CSS px na pixel — na retině by 2x rozlišení bylo
+  // 4x práce a voda je stejně měkká, na ostrosti tu nezáleží.
+  const GL_RES = 1;
 
   // ---- geometrie scény (world souřadnice, viz projekce v game.js) ----
   const CYL_Z    = 780;      // hloubka válce
@@ -122,6 +125,10 @@ const PUZZLE = (function(){
     gl.addColorStop(0,'rgba(255,255,255,0.5)');
     gl.addColorStop(1,'rgba(255,255,255,0)');
     g.fillStyle = gl; g.fillRect(0,horizon,W,H-horizon);
+
+    // WebGL vrstva si pozadí drží jako texturu — voda jím prosvítá a láme ho.
+    // Je statické, takže stačí nahrát při každém prerenderu (tj. při resize).
+    FLUID_GL.setBackground(bg);
   }
 
   // ---------------------------------------------------------------- start
@@ -255,7 +262,16 @@ const PUZZLE = (function(){
       ctx.beginPath();                      // ořez tvarem válce, ať netryská skrz sklo
       ctx.rect(cx-rx, topSy - 40*S, rx*2, (bottomSy-topSy) + 40*S);
       ctx.clip();
-      F().draw(ctx, toScreen, scale, { R: CYL_R - GLASS, top: CYL_H });
+      const solver = F();
+      const glcv = tune.glFluid && FLUID_GL.available()
+        ? FLUID_GL.render(W, H, GL_RES, solver.count(),
+            (p, sp) => solver.fillGL(p, sp, toScreen),
+            { pointSize: solver.R0 * scale * tune.glPoint,
+              gain: tune.glGain, thresh: tune.glThresh,
+              tintMix: tune.glTintMix, foam: tune.glFoam })
+        : null;
+      if(glcv) ctx.drawImage(glcv, 0, 0, W, H);
+      else solver.draw(ctx, toScreen, scale, { R: CYL_R - GLASS, top: CYL_H });
       ctx.restore();
     }
 

@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v56';
-const WS_CHECKSUM = 'water-shoot-v56';
+const WS_VERSION = 'v57';
+const WS_CHECKSUM = 'water-shoot-v57';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -114,6 +114,12 @@ const tune = {
   specialMode: true,          // sběr královských kachen → duhový režim
   fluidMax: 2500,             // strop částic kapaliny v puzzlu (test výkonu na mobilu)
   lfFluid: true,              // kapalina na LiquidFunu (wasm) místo vlastního PBF
+  glFluid: true,              // voda kreslená shaderem (metaball + refrakce) místo kruhů
+  glPoint: 11.0,               // velikost jádra částice v poli (× poloměr) — malé jádro = zrnitá voda
+  glGain:  0.034,             // kolik hustoty přidá jedna částice
+  glThresh: 0.36,             // práh hladiny
+  glTintMix: 0.62,            // kolik barvy vody proti prosvítajícímu pozadí
+  glFoam: 1.0,                // síla pěny v rozvířené vodě
 };
 let rampT = 0;                // jak dlouho už tryska nabíhá
 
@@ -2113,6 +2119,25 @@ function setupHUD(){
       tune.lfFluid = cbl.checked;
       if(isPuzzle()) PUZZLE.resetFluid();   // solver se mění, nádoba začíná prázdná
     });
+  }
+  const slider = (id, key, fmt)=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    const out = document.getElementById(id + '-val');
+    el.value = tune[key]; if(out) out.textContent = fmt ? fmt(tune[key]) : tune[key];
+    el.addEventListener('input', ()=>{
+      tune[key] = +el.value;
+      if(out) out.textContent = fmt ? fmt(+el.value) : el.value;
+    });
+  };
+  slider('sl-glpoint', 'glPoint', v=>v.toFixed(1));
+  slider('sl-glthresh', 'glThresh', v=>v.toFixed(2));
+  slider('sl-gltint', 'glTintMix', v=>v.toFixed(2));
+
+  const cbg = document.getElementById('cb-gl');
+  if(cbg){
+    cbg.checked = tune.glFluid;
+    cbg.addEventListener('change', ()=>{ tune.glFluid = cbg.checked; });
   }
   const cbr = document.getElementById('cb-rel');
   cbr.checked = tune.relativeAim;

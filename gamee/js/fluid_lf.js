@@ -151,6 +151,22 @@ const FLUID_LF = (function(){
     return (tops.length ? tops[0] : hi) * PPM;
   }
 
+  // Souřadnice (v pixelech lokální soustavy) a rozvíření pro WebGL vrstvu.
+  function fillGL(outPos, outSpd, toScreen){
+    const n = count();
+    if(n === 0) return 0;
+    const p = positions();
+    if(!p) return 0;
+    const vptr = B.getPointer(ps.GetVelocityBuffer());
+    const v = new Float32Array(B.HEAPF32.buffer, vptr, n*2);
+    for(let i=0;i<n;i++){
+      const s = toScreen(p[i*2]*PPM, p[i*2+1]*PPM);
+      outPos[i*2] = s.x; outPos[i*2+1] = s.y;
+      outSpd[i] = Math.min(1, Math.hypot(v[i*2], v[i*2+1])/9);
+    }
+    return n;
+  }
+
   // Dočasné kreslení: prosté kruhy. Slouží jen k ověření fyziky — pořádný
   // vzhled (metaball, pěna, refrakce) dělá až WebGL vrstva ve fluid_gl.js.
   function draw(g, toScreen, scale){
@@ -167,7 +183,7 @@ const FLUID_LF = (function(){
   }
 
   return { load, isReady, isAvailable, reset, spawn, step, count, capacity,
-           surfaceY, positions, draw,
+           surfaceY, positions, draw, fillGL,
            get R0(){ return RADIUS*PPM; }, get PPM(){ return PPM; },
            get areaPerParticle(){ return AREA_PER; } };
 })();
