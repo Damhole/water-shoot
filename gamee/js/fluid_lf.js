@@ -137,6 +137,10 @@ const FLUID_LF = (function(){
   // strop zaručí, že se nikdy nepřetočí na záda.
   function uprightBodies(dt){
     for(const h of bodies){
+      // Vzpřimování patří jen plovoucím tělesům. Bedny ho nemají a bez téhle
+      // podmínky se jim do momentu dostalo NaN (chybějící konstanty), poloha
+      // se rozsypala a přestaly se kreslit.
+      if(h.upright === undefined) continue;
       const a = h.body.GetAngle();
       const w = h.body.GetAngularVelocity();
       h.body.ApplyTorque((-a*h.upright - w*1.5) * h.body.GetMass(), true);
@@ -148,6 +152,60 @@ const FLUID_LF = (function(){
       }
     }
   }
+  // Hranatá bedna do věže. Vrací úchyt se stavem výdrže — bourání se neřídí
+  // jen hybností vody (naměřeno: mezi „vystřelí do vesmíru" a „ani se nehne"
+  // je hrana, na které tentýž vstup jednou věž složí a podruhé ne).
+  function addBox(x, y, halfW, halfH, density, hp){
+    if(!ready) return null;
+    const bd = new B.b2BodyDef();
+    bd.type = 2;
+    bd.position = new B.b2Vec2(x/PPM, y/PPM);
+    const body = world.CreateBody(bd);
+    const box = new B.b2PolygonShape();
+    box.SetAsBox(halfW/PPM, halfH/PPM);
+    const fd = new B.b2FixtureDef();
+    fd.shape = box;
+    fd.density = density === undefined ? 4 : density;
+    fd.friction = 0.6;
+    fd.restitution = 0.02;
+    body.CreateFixture(fd);
+    const h = { body, halfW, halfH, hp: hp === undefined ? 100 : hp,
+                hp0: hp === undefined ? 100 : hp, box: true, alive: true };
+    bodies.push(h);
+    return h;
+  }
+
+  function removeBody(h){
+    if(!h || !h.alive) return;
+    world.DestroyBody(h.body);
+    h.alive = false;
+    const i = bodies.indexOf(h);
+    if(i >= 0) bodies.splice(i, 1);
+  }
+
+  // Impulz do tělesa v daném bodě (v pixelech lokální soustavy).
+  function pushBody(h, px, py, ix, iy){
+    if(!h || !h.alive) return;
+    h.body.ApplyLinearImpulse(new B.b2Vec2(ix/PPM, iy/PPM),
+                              new B.b2Vec2(px/PPM, py/PPM), true);
+  }
+
+  // Které těleso obsahuje daný bod? Slouží k vyhodnocení zásahu proudem.
+  function bodyAt(px, py){
+    for(const h of bodies){
+      if(!h.alive || !h.box) continue;
+      const p = h.body.GetPosition();
+      const a = -h.body.GetAngle();
+      const dx = px/PPM - p.get_x(), dy = py/PPM - p.get_y();
+      const lx = dx*Math.cos(a) - dy*Math.sin(a);
+      const ly = dx*Math.sin(a) + dy*Math.cos(a);
+      if(Math.abs(lx) <= h.halfW/PPM && Math.abs(ly) <= h.halfH/PPM) return h;
+    }
+    return null;
+  }
+
+  function bodyList(){ return bodies; }
+
   function floaterPos(h){
     if(!h) return null;
     const p = h.body.GetPosition();
@@ -316,6 +374,7 @@ const FLUID_LF = (function(){
   return { load, isReady, isAvailable, reset, spawn, step, count, capacity,
            surfaceY, positions, velocities, draw, fillGL,
            buildWalls, addFloater, floaterPos, destroyIn,
+           addBox, removeBody, pushBody, bodyAt, bodyList,
            get R0(){ return RADIUS*PPM; }, get PPM(){ return PPM; },
            get areaPerParticle(){ return areaPer(); } };
 })();

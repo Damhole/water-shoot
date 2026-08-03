@@ -84,6 +84,7 @@ html, body {
   -webkit-tap-highlight-color:transparent;
 }
 #perf-hud .hud-btns button:active { transform:translateY(1px); }
+#perf-hud .hud-btns button.sel { background:#e8c34a; color:#3a2412; border-color:#e8c34a; }
 #perf-hud .hud-note { font-size:11px; color:rgba(255,255,255,0.45); }
 
 /* ---- overlay konce kola ---- */

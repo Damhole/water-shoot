@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v75';
-const WS_CHECKSUM = 'water-shoot-v75';
+const WS_VERSION = 'v76';
+const WS_CHECKSUM = 'water-shoot-v76';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -15,6 +15,11 @@ const STRESS = WS_PARAMS.get('stress') === '1';
 // přes refresh a dá se poslat odkazem.
 let MODE = (WS_PARAMS.get('mode') === 'puzzle') ? 'puzzle' : 'ducks';
 const isPuzzle = () => MODE === 'puzzle';
+// Úroveň puzzlu: 1 = kachnička v nádobě U, 2 = bourání pyramidy.
+// Každá úroveň je samostatný modul se stejným rozhraním, takže hra neví,
+// kterou zrovna hraje — přidání další znamená přidat modul, ne větvit kód.
+let LEVEL = (WS_PARAMS.get('level') === '2') ? 2 : 1;
+const LVL = () => (LEVEL === 2 ? TOWER : PUZZLE);
 const otherMode = () => isPuzzle() ? 'ducks' : 'puzzle';
 
 // ---------------------------------------------------------------- nastavení
@@ -86,7 +91,12 @@ function resetTune(){
   }
   try{ localStorage.removeItem(TUNE_KEY); }catch(e){}
   syncHUD();
-  if(isPuzzle()) PUZZLE.resetFluid();
+  if(isPuzzle()) LVL().resetFluid();
+}
+
+function syncLevelButtons(){
+  for(const b of document.querySelectorAll('[data-level]'))
+    b.classList.toggle('sel', +b.dataset.level === LEVEL);
 }
 
 // Přepíše ovládací prvky podle aktuálních hodnot (po načtení i po resetu).
@@ -714,7 +724,7 @@ function resize(){
   VPX = W/2; VPY = H*0.30;
   cannon.aimSX = W/2; cannon.aimSY = H*0.45;
   prerenderDuck();
-  if(isPuzzle()) PUZZLE.prerenderBackground(); else prerenderBackground();
+  if(isPuzzle()) LVL().prerenderBackground(); else prerenderBackground();
   if(running) resetEntities();
 }
 
@@ -905,7 +915,7 @@ const JET_SPEED = 1500;       // world px/s
 // cíle. Částice smí ubližovat až od ní: damage dává jen KONEC proudu, ne voda
 // letící obloukem nad bližšími kachničkami.
 function computeAimZ(){
-  if(isPuzzle()) return PUZZLE.aimZ(cannon.aimSX, cannon.aimSY);
+  if(isPuzzle()) return LVL().aimZ(cannon.aimSX, cannon.aimSY);
   const order = [2,1,0];               // dráhy od nejbližší (z 700 → 900)
   for(const l of order){
     const L = LANES[l], s = projS(L.z);
@@ -1126,8 +1136,8 @@ function update(dt){
   }
 
   if(isPuzzle()){
-    PUZZLE.update(dt);
-    if(PUZZLE.isWon()) endRound('Kachnička osvobozena!');
+    LVL().update(dt);
+    if(LVL().isWon()) endRound('Kachnička osvobozena!');
   }
 
   // rotace hodnotových tierů mezi drahami — jen ve střelnici
@@ -1212,7 +1222,7 @@ function update(dt){
     if(p.type===0){
       let dead = false;
       if(isPuzzle()){
-        if(tune.collisions && p.z >= p.armZ && PUZZLE.onParticle(p)) dead = true;
+        if(tune.collisions && p.z >= p.armZ && LVL().onParticle(p)) dead = true;
       } else if(tune.collisions){
         // damage jen odjištěnou částicí (konec proudu) — voda letící obloukem
         // nad bližšími kachničkami jim neubližuje
@@ -1403,7 +1413,7 @@ function hitPopup(t, p, bull){
 
 // ---------------------------------------------------------------- draw
 function draw(){
-  if(isPuzzle()){ PUZZLE.drawBackground(); PUZZLE.drawScene(); }
+  if(isPuzzle()){ LVL().drawBackground(); LVL().drawScene(); }
   else ctx.drawImage(bgCanvas, 0, 0, W, H);
 
   // pop-up terče (na stěně) — jen ve střelnici
@@ -1616,7 +1626,7 @@ function draw(){
   ctx.textBaseline = 'alphabetic';
 
   drawWaterTank();
-  if(isPuzzle()) PUZZLE.drawHud();
+  if(isPuzzle()) LVL().drawHud();
   else if(tune.specialMode) drawRoyalTracker();
   drawFlyCoins();
   drawCurtain();
@@ -2193,6 +2203,18 @@ function setupHUD(){
   panel.addEventListener('input',  saveTune);
   panel.addEventListener('change', saveTune);
 
+  for(const b of document.querySelectorAll('[data-level]')){
+    b.addEventListener('click', ()=>{
+      LEVEL = +b.dataset.level;
+      const u = new URL(location.href);
+      u.searchParams.set('level', LEVEL);
+      history.replaceState(null, '', u);
+      syncLevelButtons();
+      if(isPuzzle()) startRound();
+    });
+  }
+  syncLevelButtons();
+
   const btnReset = document.getElementById('tune-reset');
   if(btnReset) btnReset.addEventListener('click', ()=>{
     resetTune();
@@ -2217,7 +2239,7 @@ function setupHUD(){
     const out = document.getElementById('sl-fluid-val');
     slF.value = tune.fluidMax; out.textContent = tune.fluidMax;
     slF.addEventListener('input', ()=>{ tune.fluidMax = +slF.value; out.textContent = slF.value;
-      if(isPuzzle()) PUZZLE.resetFluid(); });
+      if(isPuzzle()) LVL().resetFluid(); });
   }
   const cb = document.getElementById('cb-coll');
   cb.checked = tune.collisions;
@@ -2239,7 +2261,7 @@ function setupHUD(){
     cbl.checked = tune.lfFluid;
     cbl.addEventListener('change', ()=>{
       tune.lfFluid = cbl.checked;
-      if(isPuzzle()) PUZZLE.resetFluid();   // solver se mění, nádoba začíná prázdná
+      if(isPuzzle()) LVL().resetFluid();   // solver se mění, nádoba začíná prázdná
     });
   }
   const slider = (id, key, fmt)=>{
@@ -2259,7 +2281,7 @@ function setupHUD(){
     slDrop.value = tune.dropSize; if(out) out.textContent = tune.dropSize;
     slDrop.addEventListener('input', ()=>{
       tune.dropSize = +slDrop.value; if(out) out.textContent = slDrop.value;
-      if(isPuzzle()) PUZZLE.resetFluid();   // poloměr se zadává při vzniku systému
+      if(isPuzzle()) LVL().resetFluid();   // poloměr se zadává při vzniku systému
     });
   }
   slider('sl-glpoint', 'glPoint', v=>v.toFixed(1));
@@ -2317,7 +2339,7 @@ function setMode(m){
   const u = new URL(location.href);
   u.searchParams.set('mode', MODE);
   history.replaceState(null, '', u);
-  if(isPuzzle()) PUZZLE.prerenderBackground(); else prerenderBackground();
+  if(isPuzzle()) LVL().prerenderBackground(); else prerenderBackground();
 }
 
 // Úvodní obrazovka s volbou módu — hráč se do puzzlu nemusí proklikávat přes prohru.
@@ -2355,7 +2377,7 @@ function startRound(){
   for(const f of flyCoins) f.alive = false;
   coinPop = 0;
   resetEntities();
-  if(isPuzzle()) PUZZLE.init();
+  if(isPuzzle()) LVL().init();
   document.getElementById('overlay').hidden = true;
   // opona se rozhrne; dokud jede, čas neběží a dělo nestříká
   curtain = 0; curtainState = 'opening'; curtainT = 0;
