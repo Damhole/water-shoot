@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v55';
-const WS_CHECKSUM = 'water-shoot-v55';
+const WS_VERSION = 'v56';
+const WS_CHECKSUM = 'water-shoot-v56';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -112,7 +112,8 @@ const tune = {
   // za dolet a hráč ho vůbec nezaregistruje.
   jetRampT: 0.7,
   specialMode: true,          // sběr královských kachen → duhový režim
-  fluidMax: 700,              // strop částic kapaliny v puzzlu (test výkonu na mobilu)
+  fluidMax: 2500,             // strop částic kapaliny v puzzlu (test výkonu na mobilu)
+  lfFluid: true,              // kapalina na LiquidFunu (wasm) místo vlastního PBF
 };
 let rampT = 0;                // jak dlouho už tryska nabíhá
 
@@ -2088,7 +2089,7 @@ function setupHUD(){
     const out = document.getElementById('sl-fluid-val');
     slF.value = tune.fluidMax; out.textContent = tune.fluidMax;
     slF.addEventListener('input', ()=>{ tune.fluidMax = +slF.value; out.textContent = slF.value;
-      if(isPuzzle()) FLUID.reset(tune.fluidMax); });
+      if(isPuzzle()) PUZZLE.resetFluid(); });
   }
   const cb = document.getElementById('cb-coll');
   cb.checked = tune.collisions;
@@ -2105,6 +2106,14 @@ function setupHUD(){
     tune.specialMode = cbm.checked;
     if(!tune.specialMode){ royalCollected = 0; rainbowT = -1; }
   });
+  const cbl = document.getElementById('cb-lf');
+  if(cbl){
+    cbl.checked = tune.lfFluid;
+    cbl.addEventListener('change', ()=>{
+      tune.lfFluid = cbl.checked;
+      if(isPuzzle()) PUZZLE.resetFluid();   // solver se mění, nádoba začíná prázdná
+    });
+  }
   const cbr = document.getElementById('cb-rel');
   cbr.checked = tune.relativeAim;
   cbr.addEventListener('change', ()=>{ tune.relativeAim = cbr.checked; });
@@ -2216,6 +2225,7 @@ function showEndOverlay(reason){
 // ---------------------------------------------------------------- init + Gamee lifecycle
 function initGame(){
   console.log('[WS] Golden Ducks '+WS_VERSION);
+  FLUID_LF.load();          // wasm se stahuje na pozadí, hra na něj nečeká
   canvas = document.getElementById('game-canvas');
   ctx = canvas.getContext('2d');
   window.addEventListener('resize', resize);

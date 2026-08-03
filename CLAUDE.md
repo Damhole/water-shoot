@@ -53,7 +53,7 @@ Po každém commitu `vXX: ...`:
 ## Gamee deployment
 
 ```bash
-cd gamee && rm -f ../water-shoot-gamee.zip && zip -r ../water-shoot-gamee.zip . -x "index_local.html" "lib/gamee-js-stub.js" "*.DS_Store"
+cd gamee && rm -f ../water-shoot-gamee.zip && zip -r ../water-shoot-gamee.zip . -x "index_local.html" "lib/gamee-js-stub.js" "_*.html" "lib/*.d.ts" "*.DS_Store"
 ```
 
 Upload do Gamee admin (zip musí mít `index.html` v rootu).

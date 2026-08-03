@@ -391,5 +391,6 @@ const FLUID = (function(){
   }
 
   return { reset, spawn, step, draw, count, capacity, surfaceY, meanSpeed,
-           get R0(){ return R0; } };
+           get R0(){ return R0; },
+           get areaPerParticle(){ return R0*R0*0.87; } };
 })();

@@ -13,6 +13,10 @@
 
 const PUZZLE = (function(){
 
+  // Aktivní solver kapaliny: vlastní PBF (fluid.js) nebo LiquidFun (fluid_lf.js).
+  // Přepíná se v ⚙ HUD; dokud se wasm nenačte, jede se na vlastním.
+  const F = () => (tune.lfFluid && FLUID_LF.isReady()) ? FLUID_LF : FLUID;
+
   // ---- geometrie scény (world souřadnice, viz projekce v game.js) ----
   const CYL_Z    = 780;      // hloubka válce
   const CYL_R    = 150;      // vnitřní poloměr
@@ -29,8 +33,9 @@ const PUZZLE = (function(){
   // a jediná kapka u okraje by hlásila plno.
   function fullCount(){
     const area = 2*(CYL_R-GLASS) * CYL_H;
-    const per  = FLUID.R0*FLUID.R0*0.87;
-    return Math.min(Math.round(area/per), Math.round(FLUID.capacity()*0.85));
+    // plochu na částici hlásí solver — LiquidFun a vlastní PBF mají jinak
+    // velké částice a jinak husté rozložení
+    return Math.min(Math.round(area/F().areaPerParticle), Math.round(F().capacity()*0.85));
   }
   const TILT_MAX     = 0.30;     // za tímhle náklonem začne voda vyšplíchávat
   const TILT_PER_HIT = 0.02;     // příspěvek jedné kapky do rozhoupání
@@ -120,10 +125,17 @@ const PUZZLE = (function(){
   }
 
   // ---------------------------------------------------------------- start
+  // Reset kapaliny drží geometrii nádoby na jednom místě — LiquidFun si z ní
+  // staví stěny, vlastní PBF ji dostává až v každém kroku.
+  function resetFluid(){
+    FLUID.reset(tune.fluidMax);
+    if(FLUID_LF.isAvailable()) FLUID_LF.reset(tune.fluidMax, CYL_R - GLASS, CYL_H);
+  }
+
   function init(){
     fill = 0; tilt = 0; tiltV = 0; bob = 0; dropAcc = 0;
     state = 'play'; escT = 0; spillT = 0;
-    FLUID.reset(tune.fluidMax);
+    resetFluid();
     prerenderBackground();
   }
 
@@ -152,9 +164,9 @@ const PUZZLE = (function(){
     // řešíme otočením gravitace — voda se pak sama nakloní a při velkém úhlu
     // přeteče přes okraj a je nenávratně pryč.
     const G = 1400;
-    FLUID.step(dt, { R: CYL_R - GLASS, top: CYL_H,
+    F().step(dt, { R: CYL_R - GLASS, top: CYL_H,
                      gx: Math.sin(tilt)*G, gy: -Math.cos(tilt)*G });
-    fill = clamp(FLUID.count()/fullCount(), 0, 1);
+    fill = clamp(F().count()/fullCount(), 0, 1);
 
     if(state === 'play' && fill >= WIN_LEVEL){
       state = 'escape'; escT = 0;
@@ -187,7 +199,7 @@ const PUZZLE = (function(){
       dropAcc += DROPS_PER_HIT;
       while(dropAcc >= 1){
         dropAcc -= 1;
-        FLUID.spawn(HOLE_DX + rand(-30,30), CYL_H - 14, rand(-15,15), -60);
+        F().spawn(HOLE_DX + rand(-30,30), CYL_H - 14, rand(-15,15), -60);
       }
       if(Math.random() < 0.12) splashAt(p.x, p.y, CYL_Z, 1, 1);
       return true;
@@ -236,20 +248,20 @@ const PUZZLE = (function(){
     ctx.fillRect(cx - rx*0.16, bottomSy - 6*S, rx*0.32, 20*S);
 
     // kapalina uvnitř — každá částice na svém místě, ne plochý obdélník
-    if(FLUID.count() > 0){
+    if(F().count() > 0){
       const scale = s*S;
       const toScreen = (lx, ly) => ({ x: cx + lx*scale, y: bottomSy - ly*scale });
       ctx.save();
       ctx.beginPath();                      // ořez tvarem válce, ať netryská skrz sklo
       ctx.rect(cx-rx, topSy - 40*S, rx*2, (bottomSy-topSy) + 40*S);
       ctx.clip();
-      FLUID.draw(ctx, toScreen, scale, { R: CYL_R - GLASS, top: CYL_H });
+      F().draw(ctx, toScreen, scale, { R: CYL_R - GLASS, top: CYL_H });
       ctx.restore();
     }
 
     // kachnička uvnitř (dokud neutekla)
     if(state === 'play'){
-      const dy = projY(CYL_BOT + Math.max(70, FLUID.surfaceY() + 46), s) + Math.sin(bob)*3*S;
+      const dy = projY(CYL_BOT + Math.max(70, F().surfaceY() + 46), s) + Math.sin(bob)*3*S;
       const sz = 150*s*S;
       ctx.drawImage(duckSprite, cx - sz*0.53, dy - sz*0.75, sz, sz);
     }
@@ -315,11 +327,11 @@ const PUZZLE = (function(){
     ctx.fillText(Math.round(fill*100)+' %', bx + bw + 6*S, topSy + 10*S);
     ctx.font = '600 '+Math.round(12*S)+'px Arial, sans-serif';
     ctx.fillStyle = 'rgba(37,80,110,0.75)';
-    ctx.fillText(FLUID.count()+'/'+FLUID.capacity()+' kapek', bx + bw + 6*S, topSy + 26*S);
+    ctx.fillText(F().count()+'/'+F().capacity()+' kapek', bx + bw + 6*S, topSy + 26*S);
     ctx.textBaseline = 'alphabetic';
   }
 
-  return { init, update, onParticle, aimZ, isWon,
+  return { init, update, onParticle, aimZ, isWon, resetFluid,
            prerenderBackground, drawBackground, drawScene, drawHud,
            get fill(){ return fill; }, get state(){ return state; } };
 })();

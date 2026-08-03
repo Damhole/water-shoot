@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head><meta charset="utf-8"><title>LiquidFun bench</title></head>
+<body style="margin:0;background:#111;color:#eee;font:13px monospace">
+<pre id="out">načítám…</pre>
+<canvas id="c" width="360" height="480" style="border:1px solid #444"></canvas>
+<script src="./lib/entry.js" data-box2d-dir="./lib"></script>
+<script>
+// Bench běží synchronně v dávce, ne přes requestAnimationFrame — skrytý panel
+// prohlížeče rAF zaškrtí a naměřené časy by byly nesmysl.
+const out = document.getElementById('out');
+const log = m => { out.textContent += '\n' + m; console.log(m); };
+out.textContent = 'start';
+
+const RESULTS = [];
+
+Box2D().then(B => {
+  const simd = WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]));
+  log('modul načten, SIMD=' + simd);
+
+  // Cíl: kolik částic uneseme na 60 FPS. Rozpočet na simulaci ~8 ms/frame
+  // (zbytek snímku patří renderu a zbytku hry).
+  function bench(halfW, halfH, steps){
+    const world = new B.b2World(new B.b2Vec2(0, -10));
+    const gnd = world.CreateBody(new B.b2BodyDef());
+    const shape = new B.b2EdgeShape();
+    const edge = (x1,y1,x2,y2)=>{ shape.SetTwoSided(new B.b2Vec2(x1,y1), new B.b2Vec2(x2,y2)); gnd.CreateFixture(shape, 0); };
+    edge(-1.6, 0, 1.6, 0); edge(-1.6, 0, -1.6, 6); edge(1.6, 0, 1.6, 6);
+
+    const psd = new B.b2ParticleSystemDef();
+    psd.radius = 0.06;
+    psd.dampingStrength = 0.2;
+    const ps = world.CreateParticleSystem(psd);
+    const pgd = new B.b2ParticleGroupDef();
+    pgd.flags = B.b2_waterParticle;
+    const box = new B.b2PolygonShape();
+    box.SetAsBox(halfW, halfH, new B.b2Vec2(0, halfH + 1.2), 0);
+    pgd.shape = box;
+    ps.CreateParticleGroup(pgd);
+    const n = ps.GetParticleCount();
+
+    // pár kroků na rozhýbání, teprve pak se měří (první kroky jsou levné, mřížka ještě nespadla)
+    for(let i=0;i<60;i++) world.Step(1/60, 8, 3);
+    const t0 = performance.now();
+    for(let i=0;i<steps;i++) world.Step(1/60, 8, 3);
+    const ms = (performance.now() - t0)/steps;
+    RESULTS.push({n, ms:+ms.toFixed(2), fpsCap: Math.round(1000/ms)});
+    log('částic ' + String(n).padStart(5) + '  →  ' + ms.toFixed(2) + ' ms/krok   (strop ' + Math.round(1000/ms) + ' FPS, kdyby se nic jiného nedělalo)');
+    return {world, ps, n};
+  }
+
+  bench(0.8, 0.8, 240);
+  bench(1.2, 1.4, 240);
+  bench(1.55, 2.4, 200);
+  const last = bench(1.55, 4.6, 150);
+  window.__lfBench = RESULTS;
+  log('\nhotovo');
+
+  // vizuální kontrola posledního běhu
+  const ctx = document.getElementById('c').getContext('2d');
+  const SC = 70, OX = 180, OY = 475;
+  const ptr = B.getPointer(last.ps.GetPositionBuffer());
+  const mem = new Float32Array(B.HEAPF32.buffer, ptr, last.n*2);
+  ctx.fillStyle = '#111'; ctx.fillRect(0,0,360,480);
+  ctx.fillStyle = '#5bc8ff';
+  for(let i=0;i<last.n;i++){
+    ctx.beginPath();
+    ctx.arc(OX + mem[i*2]*SC, OY - mem[i*2+1]*SC, 0.06*SC, 0, 6.283);
+    ctx.fill();
+  }
+}).catch(e => log('CHYBA: ' + e.message + '\n' + e.stack));
+</script>
+</body>
+</html>
