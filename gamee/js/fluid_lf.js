@@ -155,10 +155,14 @@ const FLUID_LF = (function(){
   // Hranatá bedna do věže. Vrací úchyt se stavem výdrže — bourání se neřídí
   // jen hybností vody (naměřeno: mezi „vystřelí do vesmíru" a „ani se nehne"
   // je hrana, na které tentýž vstup jednou věž složí a podruhé ne).
-  function addBox(x, y, halfW, halfH, density, hp){
+  function addBox(x, y, halfW, halfH, density, hp, opts){
     if(!ready) return null;
+    const o = opts || {};
     const bd = new B.b2BodyDef();
-    bd.type = 2;
+    bd.type = o.static ? 0 : 2;
+    // Spojitá detekce kolizí: bez ní rychlá bedna prolétne tenkou podlahou.
+    // Naměřeno — první bedna skončila 60 m pod scénou.
+    bd.bullet = !o.static;
     bd.position = new B.b2Vec2(x/PPM, y/PPM);
     const body = world.CreateBody(bd);
     const box = new B.b2PolygonShape();
@@ -170,7 +174,8 @@ const FLUID_LF = (function(){
     fd.restitution = 0.02;
     body.CreateFixture(fd);
     const h = { body, halfW, halfH, hp: hp === undefined ? 100 : hp,
-                hp0: hp === undefined ? 100 : hp, box: true, alive: true };
+                hp0: hp === undefined ? 100 : hp, box: true, alive: true,
+                stat: !!o.static };
     bodies.push(h);
     return h;
   }
@@ -193,7 +198,7 @@ const FLUID_LF = (function(){
   // Které těleso obsahuje daný bod? Slouží k vyhodnocení zásahu proudem.
   function bodyAt(px, py){
     for(const h of bodies){
-      if(!h.alive || !h.box) continue;
+      if(!h.alive || !h.box || h.stat) continue;
       const p = h.body.GetPosition();
       const a = -h.body.GetAngle();
       const dx = px/PPM - p.get_x(), dy = py/PPM - p.get_y();
@@ -207,9 +212,11 @@ const FLUID_LF = (function(){
   function bodyList(){ return bodies; }
 
   function floaterPos(h){
-    if(!h) return null;
+    if(!h || !h.alive && h.alive !== undefined) return null;
     const p = h.body.GetPosition();
-    return { x: p.get_x()*PPM, y: p.get_y()*PPM, angle: h.body.GetAngle() };
+    const v = h.body.GetLinearVelocity();
+    return { x: p.get_x()*PPM, y: p.get_y()*PPM, angle: h.body.GetAngle(),
+             vx: v.get_x()*PPM, vy: v.get_y()*PPM };
   }
 
   function count(){ return ready ? ps.GetParticleCount() : 0; }

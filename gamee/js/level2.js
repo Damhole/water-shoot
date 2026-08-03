@@ -1,15 +1,13 @@
 'use strict';
-// Golden Ducks — úroveň 2: bourání pyramidy.
+// Golden Ducks — úroveň 2: shazování beden z bidla.
 //
-// Kachnička sedí na vrcholu pyramidy z beden. Proud vody bedny rozbíjí, věž se
-// hroutí a kachnička spadne dolů na dlažbu — tím je osvobozená.
+// Bedny stojí na bidle nad zemí. Dělo je NEROZBÍJÍ — jen do nich strká. Rozbijí
+// se samy, až dopadnou na zem. Voda tak není zbraň, ale páka: hráč nehledá, kam
+// tlouct, ale kam strčit, aby to spadlo.
 //
-// Proč bedny mají VÝDRŽ a nespoléhá se jen na hybnost vody: měření v
-// _tower_test.html ukázalo, že mezi „proud bedny vystřelí o sto metrů" (lehké
-// bedny) a „ani se nehnou" (těžké) je úzká hrana, na které tentýž vstup jednou
-// pyramidu složí a podruhé jen zahoupe. Na tom se hra postavit nedá. Voda proto
-// bednám ubírá život a zároveň do nich mírně strká; hroucení pak dělá gravitace,
-// která je spolehlivá.
+// Předchozí verze bedny ničila proudem a nešla vyladit: s ubráním 1,35 za zásah
+// padla pyramida za 2,4 s, s 0,35 nespadla za 31 s ani jedna bedna. Tenhle návrh
+// ten problém celý obchází — o zničení rozhoduje pád, ne kalibrace poškození.
 //
 // Používá projekci a pomocné funkce z game.js, fyziku z fluid_lf.js.
 
@@ -20,22 +18,21 @@ const TOWER = (function(){
   const VIEW     = 0.13;     // stejný lehký nadhled jako u nádoby
 
   const BOX      = 46;       // hrana bedny
-  const ROWS     = 4;        // řad pyramidy (dole 4, nahoře 1)
-  const BOX_HP   = 100;      // výdrž bedny
-  // Kalibrace přes měření: proud vypustí ~400 částic/s a do jedné bedny jich
-  // trefí zhruba třetinu. S 1,35 padla bedna za pětinu sekundy (celá pyramida
-  // za 2,4 s), s 0,35 nepadla za 31 s ani jedna, protože při přejíždění proud
-  // na jedné bedně tak dlouho nevydrží. 0,8 vychází na ~1 s drženého proudu.
-  const DMG      = 0.8;      // ubraný život za jednu částici proudu
-  const PUSH     = 34;       // impulz od jedné částice (držet nízko, ať to netryská)
+  const BEAM_Y   = 250;      // výška bidla nad zemí
+  const BEAM_HW  = 175;      // poloviční délka bidla
+  const BEAM_HH  = 12;       // poloviční tloušťka bidla
 
-  const DUCK_R   = 34;
-  const WIN_Y    = 70;       // pod touhle výškou je kachnička dole na dlažbě
+  // Impulz od jedné částice. Jediná veličina, která řídí obtížnost — čím míň,
+  // tím déle trvá bednu dostrkat přes okraj.
+  const PUSH     = 26;
 
-  let boxes = [], duck = null;
+  // Pod touhle výškou se bedna počítá za dopadlou na zem a rozbije se.
+  const CRASH_Y  = BOX*0.85;
+
+  let boxes = [], beam = null;
   let state = 'play';        // 'play' | 'won'
   let bg = null;
-  let shakeT = 0;
+  let rozbito = 0;
 
   // ---------------------------------------------------------------- pozadí
   let bgImg = null;
@@ -70,27 +67,29 @@ const TOWER = (function(){
 
   // ---------------------------------------------------------------- start
   function init(){
-    state = 'play'; shakeT = 0;
-    boxes = []; duck = null;
+    state = 'play'; rozbito = 0;
+    boxes = []; beam = null;
     if(!FLUID_LF.isAvailable()){ prerenderBackground(); return; }
 
-    // Prázdný svět bez kapaliny — voda se tu nehromadí, jen tluče do beden.
-    // Podlaha je jediná stěna, kterou pyramida potřebuje.
-    FLUID_LF.reset(200, [[-1200, 0, 1200, 0]], tune.dropSize);
+    // Podlaha je TLUSTÝ blok, ne úsečka — do tenké hrany rychlá bedna prolétne.
+    FLUID_LF.reset(200, null, tune.dropSize);
+    FLUID_LF.addBox(0, -60, 1200, 60, 0, 1, { static: true });
 
-    // pyramida: dole ROWS beden, nahoře jedna
-    for(let r=0; r<ROWS; r++){
-      const n = ROWS - r;
-      for(let i=0; i<n; i++){
-        const x = (i - (n-1)/2) * (BOX*1.04);
-        const y = BOX/2 + r*(BOX*1.02);
-        const h = FLUID_LF.addBox(x, y, BOX/2, BOX/2, 4, BOX_HP);
-        if(h){ h.rot = 0; boxes.push(h); }
-      }
+    // bidlo, na kterém všechno stojí
+    beam = FLUID_LF.addBox(0, BEAM_Y, BEAM_HW, BEAM_HH, 0, 1, { static: true });
+
+    // Bedny na bidle: spodní řada přes celou délku, na ní kratší patro.
+    const y0 = BEAM_Y + BEAM_HH + BOX/2;
+    for(let i=0;i<5;i++){
+      const x = (i-2)*(BOX*1.06);
+      const h = FLUID_LF.addBox(x, y0, BOX/2, BOX/2, 2.2, 1);
+      if(h) boxes.push(h);
     }
-    // kachnička na vrcholu
-    duck = FLUID_LF.addFloater(0, ROWS*(BOX*1.02) + DUCK_R, DUCK_R, 1.2,
-                               { comDrop: DUCK_R*0.6, maxAngle: 0.6, upright: 8 });
+    for(let i=0;i<3;i++){
+      const x = (i-1)*(BOX*1.06);
+      const h = FLUID_LF.addBox(x, y0 + BOX*1.02, BOX/2, BOX/2, 2.2, 1);
+      if(h) boxes.push(h);
+    }
     prerenderBackground();
   }
 
@@ -98,37 +97,40 @@ const TOWER = (function(){
   function update(dt){
     if(!FLUID_LF.isReady()) return;
     FLUID_LF.step(dt, { halfW: 1200, top: 2000, gx: 0, gy: -1400 });
-    if(shakeT > 0) shakeT -= dt;
 
-    // Cílem je ZBOURAT PYRAMIDU, ne sundat kachničku. Když se vyhrávalo jejím
-    // pádem, dal se level projít za 4 s tím, že ji proud shodil z vrcholu, aniž
-    // se rozbila jediná bedna — naměřeno.
+    // Bedna se rozbije DOPADEM NA ZEM, ne proudem. Nemusí se tedy nic
+    // kalibrovat — o zničení rozhoduje to, jestli spadla z bidla.
+    for(let i=boxes.length-1; i>=0; i--){
+      const h = boxes[i];
+      const p = FLUID_LF.floaterPos(h);
+      if(!p) { boxes.splice(i,1); continue; }
+      if(p.y < CRASH_Y){
+        const sx = projX(p.x, projS(Z)), sy = projY(GROUND + p.y, projS(Z));
+        FLUID_LF.removeBody(h);
+        boxes.splice(i,1);
+        rozbito++;
+        splashAt(p.x, GROUND + p.y, Z, 10, 0);
+        addFloater(sx, sy, 'PRÁSK!');
+      }
+    }
+
     if(state === 'play' && boxes.length === 0) state = 'won';
   }
 
-  // Zásah částicí proudu: ubere život a mírně strčí. Hroucení pak obstará
-  // gravitace — spolehlivěji než tlak vody.
+  // Zásah proudem bednu NEPOŠKODÍ, jen do ní strčí. Ničení má na starosti pád.
   function onParticle(p){
     if(state !== 'play') return false;
     if(Math.abs(p.z - Z) > 120) return false;
-    const lx = p.x, ly = p.y - GROUND;          // do lokální soustavy pyramidy
+    const lx = p.x, ly = p.y - GROUND;
     if(ly < -20 || ly > 2000) return false;
 
     const h = FLUID_LF.bodyAt(lx, ly);
     if(!h) return false;
 
-    h.hp -= DMG;
-    FLUID_LF.pushBody(h, lx, ly, PUSH * (p.vx > 0 ? 1 : (p.vx < 0 ? -1 : 1)) * 0.35, PUSH*0.12);
-    if(Math.random() < 0.25) splashAt(p.x, p.y, p.z, 1, 0);
-
-    if(h.hp <= 0){
-      FLUID_LF.removeBody(h);
-      const i = boxes.indexOf(h);
-      if(i >= 0) boxes.splice(i, 1);
-      shakeT = 0.18;
-      splashAt(p.x, p.y, p.z, 8, 0);
-      addFloater(projX(p.x, projS(Z)), projY(p.y, projS(Z)), 'PRASK!');
-    }
+    // směr strčení podle toho, odkud voda přilétá
+    const dir = lx >= 0 ? 1 : -1;
+    FLUID_LF.pushBody(h, lx, ly, PUSH*dir*0.5, PUSH*0.10);
+    if(Math.random() < 0.18) splashAt(p.x, p.y, p.z, 1, 0);
     return true;
   }
 
@@ -148,7 +150,6 @@ const TOWER = (function(){
     const top = ht*VIEW*2.2;                       // hloubka horní stěny
     const side = clamp((sx - projX(0, s)) / (W*0.5), -1, 1) * w * 0.5;
 
-    const poskozeni = 1 - h.hp/h.hp0;              // čím míň života, tím tmavší
 
     ctx.save();
     ctx.translate(sx, sy);
@@ -177,11 +178,6 @@ const TOWER = (function(){
     // spáry prken
     ctx.strokeStyle = 'rgba(90,55,20,0.35)'; ctx.lineWidth = 1.5*S;
     ctx.beginPath(); ctx.moveTo(-w, 0); ctx.lineTo(w, 0); ctx.stroke();
-    // poškození: tmavne a praská
-    if(poskozeni > 0.05){
-      ctx.fillStyle = 'rgba(40,20,5,'+(poskozeni*0.45).toFixed(2)+')';
-      ctx.fillRect(-w, -ht, w*2, ht*2);
-    }
     ctx.strokeStyle = 'rgba(60,35,10,0.7)'; ctx.lineWidth = 2*S;
     ctx.strokeRect(-w, -ht, w*2, ht*2);
     ctx.restore();
@@ -192,30 +188,26 @@ const TOWER = (function(){
     const scale = s*S;
 
     ctx.save();
-    if(shakeT > 0){                                 // otřes při prasknutí bedny
-      const k = shakeT/0.18;
-      ctx.translate(rand(-3,3)*k*S, rand(-2,2)*k*S);
-    }
 
-    // stín pyramidy na dlažbě
-    ctx.fillStyle = 'rgba(120,90,50,0.22)';
+    // stín na dlažbě
+    ctx.fillStyle = 'rgba(120,90,50,0.20)';
     ctx.beginPath();
-    ctx.ellipse(projX(0, s), projY(GROUND, s) + 6*S, ROWS*BOX*0.62*scale, ROWS*BOX*0.10*scale, 0, 0, Math.PI*2);
+    ctx.ellipse(projX(0, s), projY(GROUND, s) + 6*S, BEAM_HW*scale, BEAM_HW*0.14*scale, 0, 0, Math.PI*2);
     ctx.fill();
+
+    // stojky bidla
+    const beamSy = projY(GROUND + BEAM_Y, s);
+    const groundSy = projY(GROUND, s);
+    ctx.fillStyle = '#7d5327';
+    for(const sx of [-BEAM_HW*0.82, BEAM_HW*0.82]){
+      const px = projX(sx, s);
+      ctx.fillRect(px - 7*scale, beamSy, 14*scale, groundSy - beamSy);
+    }
+    // bidlo
+    if(beam) drawBox(beam, s, scale);
 
     for(const h of boxes) drawBox(h, s, scale);
 
-    if(duck){
-      const p = FLUID_LF.floaterPos(duck);
-      if(p){
-        const sz = 150*scale;
-        ctx.save();
-        ctx.translate(projX(p.x, s), projY(GROUND + p.y, s));
-        ctx.rotate(-p.angle);
-        ctx.drawImage(duckSprite, -sz*0.53, -sz*0.62, sz, sz);
-        ctx.restore();
-      }
-    }
     ctx.restore();
   }
 
@@ -225,7 +217,7 @@ const TOWER = (function(){
     ctx.textAlign = 'right';
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 3*S;
-    const t = 'beden: ' + zbyva;
+    const t = 'shodit: ' + zbyva;
     ctx.strokeText(t, W - 14*S, H*0.30);
     ctx.fillText(t, W - 14*S, H*0.30);
     ctx.textAlign = 'left';
