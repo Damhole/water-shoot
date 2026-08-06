@@ -453,9 +453,11 @@ const PUZZLE = (function(){
     const ly = nd.y - CYL_BOT;
     if(ly < -20 || ly > ARM_H_L + 40) return false;
     if(Math.abs(nd.x) > HALF + GLASS) return false;
-    // uvnitř otvoru proud pokračuje dovnitř
+    // Otvorem proud projde, ale jen KOUSEK za jeho rovinu — voda se tam mění
+    // na kapalinu. Dřív letěl až k zadní stěně nádoby a stuha ho kreslila přes
+    // celý vnitřek, takže z otvoru „couhal" ocásek.
     const dxh = nd.x - HOLE_DX, dyh = ly - CYL_H*HOLE_Y;
-    if(dxh*dxh + dyh*dyh < HOLE_R*HOLE_R) return nd.z > CYL_Z + HALF*0.4;
+    if(dxh*dxh + dyh*dyh < HOLE_R*HOLE_R) return nd.z > CYL_Z - HALF + 70;
     return true;
   }
 

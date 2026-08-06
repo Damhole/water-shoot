@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v92';
-const WS_CHECKSUM = 'water-shoot-v92';
+const WS_VERSION = 'v93';
+const WS_CHECKSUM = 'water-shoot-v93';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -1080,7 +1080,13 @@ function update(dt){
     // proud proletěl nádobou i bednami a kreslil se dál za nimi, zatímco
     // částice už dávno umřely. Zůstala „nahá" stuha bez kapek.
     if(isPuzzle()){
-      if(LVL().blocksSpine && LVL().blocksSpine(nd)){ nd.alive = false; continue; }
+      if(LVL().blocksSpine && LVL().blocksSpine(nd)){
+        // Náraz musí být VIDĚT. Ve střelnici kroužky a šplouchnutí vznikaly
+        // jen na zadní stěně a podlaze, takže dopad na nádobu i bedny byl němý.
+        spawnRing(nd.x, nd.y, nd.z, 0);
+        splashAt(nd.x, nd.y, nd.z, 3, 0);
+        nd.alive = false; continue;
+      }
     }
     if(tune.collisions && !isPuzzle() && nd.z >= nd.armZ){
       for(const d of ducks){
