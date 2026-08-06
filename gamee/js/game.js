@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v96';
-const WS_CHECKSUM = 'water-shoot-v96';
+const WS_VERSION = 'v97';
+const WS_CHECKSUM = 'water-shoot-v97';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -2105,15 +2105,20 @@ function drawJetRibbon(){
   drawJetRibbonPass();
 }
 
-// Špička stuhy se zužuje do ztracena. Bez toho končí tupým klínem plné šířky,
-// zatímco kapky kolem něj řídnou — z konce proudu pak „couhá" holý ocásek.
+// Špička stuhy se zužuje do ztracena a poslední uzel se vůbec nekreslí.
+// Bez zúžení končí stuha tupým klínem plné šířky, zatímco kapky kolem řídnou.
+// A i po zúžení předbíhala stuha nejvzdálenější kapku o ~14 jednotek hloubky
+// (naměřeno) — právě o ten jeden uzel, takže se zahazuje. Vrací počet uzlů
+// ke kreslení.
 function spickaStuhy(n){
-  if(n < 2) return;
+  if(n < 3) return n;
+  n -= 1;                                   // koncový uzel pryč
   const kolik = Math.min(4, n-1);
   for(let i=0;i<kolik;i++){
     const idx = n-1-i;
     ribW[idx] *= 0.12 + 0.72*(i/kolik);
   }
+  return n;
 }
 
 function drawJetRibbonPass(){
@@ -2122,7 +2127,7 @@ function drawJetRibbonPass(){
     const nd = spine[(spineHead-1-k+SPINE_MAX)%SPINE_MAX];
     if(nd.alive){
       // hranice generací = konec stuhy; starý proud doletí jako samostatný kus
-      if(n>0 && nd.gen!==chainGen){ if(n>=2){ spickaStuhy(n); fillRibbon(n); } n=0; }
+      if(n>0 && nd.gen!==chainGen){ if(n>=2){ const m = spickaStuhy(n); if(m>=2) fillRibbon(m); } n=0; }
       chainGen = nd.gen;
       const s = projS(nd.z);
       ribX[n] = projX(nd.x,s);
@@ -2132,11 +2137,11 @@ function drawJetRibbonPass(){
       ribW[n] = Math.max(1.4, 15*s*S*taper*pulse);
       n++;
     } else {
-      if(n>=2){ spickaStuhy(n); fillRibbon(n); }
+      if(n>=2){ const m = spickaStuhy(n); if(m>=2) fillRibbon(m); }
       n = 0;
     }
   }
-  if(n>=2){ spickaStuhy(n); fillRibbon(n); }
+  if(n>=2){ const m = spickaStuhy(n); if(m>=2) fillRibbon(m); }
 }
 
 // kapky: hlavní pass + bílé odlesky na každé čtvrté
