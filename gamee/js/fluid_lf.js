@@ -16,6 +16,7 @@ const FLUID_LF = (function(){
 
   const PPM = 100;            // pixelů na metr
   const MAX_DEFAULT = 3000;
+  let PARTICLE_ITER = 3;      // iterace řešiče částic (laditelné kvůli měření)
   const DROP_DEFAULT = 5;     // poloměr kapky v pixelech (laditelné v HUD)
   let RADIUS = DROP_DEFAULT/PPM;
   // Plocha na částici v USAZENÉ vodě. Měřeno přímo ve válci: kapalina se pod
@@ -290,7 +291,13 @@ const FLUID_LF = (function(){
     // rozprskla do mlhy a kachničku to vykopnulo z nádoby.
     const podkroku = Math.max(1, Math.ceil(dt/0.02));
     const krok = dt/podkroku;
-    for(let i=0;i<podkroku;i++) world.Step(krok, 8, 3);
+    // Čtvrtý parametr = iterace řešiče ČÁSTIC. Výchozí 1 na náš sloupec vody
+    // nestačí: tlak se nestihne vyrovnat, voda se pod vlastní vahou stlačuje
+    // a vystřeluje zpět — hladina „vře" donekonečna (naměřeno: průměrná
+    // rychlost částic 120 px/s ještě 10 s po zastavení přítoku) a vztlak
+    // v tom zmatku neunese ani kachničku. Doporučení LiquidFunu pro naši
+    // gravitaci a poloměr vychází ~3.
+    for(let i=0;i<podkroku;i++) world.Step(krok, 8, 3, PARTICLE_ITER);
     if(bodies.length) uprightBodies(dt);
   }
 
@@ -412,5 +419,6 @@ const FLUID_LF = (function(){
            buildWalls, addFloater, floaterPos, destroyIn,
            addBox, removeBody, pushBody, bodyAt, bodyList,
            get R0(){ return RADIUS*PPM; }, get PPM(){ return PPM; },
-           get areaPerParticle(){ return areaPer(); } };
+           get areaPerParticle(){ return areaPer(); },
+           set particleIter(v){ PARTICLE_ITER = v; }, get particleIter(){ return PARTICLE_ITER; } };
 })();
