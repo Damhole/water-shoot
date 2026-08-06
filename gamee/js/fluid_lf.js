@@ -220,9 +220,11 @@ const FLUID_LF = (function(){
   }
 
   // Které těleso obsahuje daný bod? Slouží k vyhodnocení zásahu proudem.
-  function bodyAt(px, py){
+  // vseVcetneStatickych: pro dotaz „narazí sem proud?" musí odpovědět i bidlo
+  function bodyAt(px, py, vseVcetneStatickych){
     for(const h of bodies){
-      if(!h.alive || !h.box || h.stat) continue;
+      if(!h.alive || !h.box) continue;
+      if(h.stat && !vseVcetneStatickych) continue;
       const p = h.body.GetPosition();
       const a = -h.body.GetAngle();
       const dx = px/PPM - p.get_x(), dy = py/PPM - p.get_y();

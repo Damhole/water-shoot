@@ -446,6 +446,19 @@ const PUZZLE = (function(){
   // Kam až má proud doletět. Cílem je PŘEDNÍ stěna válce, ne jeho osa — otvor
   // je v ní a balistika počítá výšku dráhy právě k zadané hloubce. Kdyby se
   // mířilo na osu, dopadala by voda o kus jinam, než ukazuje zaměřovač.
+  // Zastaví uzel stuhy? Jen dotaz, žádný vedlejší účinek — přítok vody řeší
+  // onParticle. Otvorem se prolétnout MUSÍ, jinak by se proud utnul před ním.
+  function blocksSpine(nd){
+    if(nd.z < CYL_Z - HALF - 20 || nd.z > CYL_Z + HALF) return false;
+    const ly = nd.y - CYL_BOT;
+    if(ly < -20 || ly > ARM_H_L + 40) return false;
+    if(Math.abs(nd.x) > HALF + GLASS) return false;
+    // uvnitř otvoru proud pokračuje dovnitř
+    const dxh = nd.x - HOLE_DX, dyh = ly - CYL_H*HOLE_Y;
+    if(dxh*dxh + dyh*dyh < HOLE_R*HOLE_R) return nd.z > CYL_Z + HALF*0.4;
+    return true;
+  }
+
   function aimZ(sx, sy){
     const s = projS(CYL_Z);
     const wx = unprojX(sx, s), wy = unprojY(sy, s);
@@ -617,7 +630,7 @@ const PUZZLE = (function(){
     ctx.textBaseline = 'alphabetic';
   }
 
-  return { init, update, onParticle, aimZ, isWon, resetFluid,
+  return { init, update, onParticle, aimZ, isWon, resetFluid, blocksSpine,
            prerenderBackground, drawBackground, drawScene, drawHud,
            get fill(){ return fill; }, get state(){ return state; },
            get duckY(){ return duckY; }, get duckX(){ return duckX; },

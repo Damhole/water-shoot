@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v90';
-const WS_CHECKSUM = 'water-shoot-v90';
+const WS_VERSION = 'v91';
+const WS_CHECKSUM = 'water-shoot-v91';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -1076,7 +1076,13 @@ function update(dt){
     if(nd.life<=0){ nd.alive=false; continue; }
     if(nd.z >= WALL_Z){ spawnRing(nd.x, nd.y, WALL_Z, 0); nd.alive=false; continue; }
     if(nd.y <= FLOOR_Y){ spawnRing(nd.x, FLOOR_Y, nd.z, 1); splashAt(nd.x, FLOOR_Y, nd.z, 3, 1); nd.alive=false; continue; }
-    if(tune.collisions && nd.z >= nd.armZ){
+    // Uzly stuhy měly kolize jen na kachničky ve střelnici — v puzzlu tak
+    // proud proletěl nádobou i bednami a kreslil se dál za nimi, zatímco
+    // částice už dávno umřely. Zůstala „nahá" stuha bez kapek.
+    if(isPuzzle()){
+      if(LVL().blocksSpine && LVL().blocksSpine(nd)){ nd.alive = false; continue; }
+    }
+    if(tune.collisions && !isPuzzle() && nd.z >= nd.armZ){
       for(const d of ducks){
         const L = LANES[d.lane];
         if(d.knocked || Math.abs(nd.z - L.z) > 60) continue;

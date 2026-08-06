@@ -381,6 +381,15 @@ const TOWER = (function(){
     return true;
   }
 
+  // Zastaví uzel stuhy? Bedny i bidlo — bez nich proud proletěl věží a
+  // kreslil se dál za ní jako stuha bez kapek.
+  function blocksSpine(nd){
+    if(Math.abs(nd.z - Z) > 120) return false;
+    const ly = nd.y - GROUND;
+    if(ly < -20 || ly > 2000) return false;
+    return !!FLUID_LF.bodyAt(nd.x, ly, true);
+  }
+
   function aimZ(){ return Z; }
   function isWon(){ return state === 'won'; }
 
@@ -555,7 +564,7 @@ const TOWER = (function(){
     drawZiskana();
   }
 
-  return { init, update, onParticle, aimZ, isWon,
+  return { init, update, onParticle, aimZ, isWon, blocksSpine,
            prerenderBackground, drawBackground, drawScene, drawHud,
            resetFluid: init,
            get fill(){ return 0; }, get state(){ return state; } };
