@@ -268,7 +268,12 @@ const FLUID_LF = (function(){
 
   function step(dtFull, container){
     if(!ready) return;
-    const dt = Math.min(dtFull, 1/50);
+    // Uplynulý čas se ROZDĚLÍ na kroky pevné délky, neořízne. Ořezáním na 1/50
+    // se při 10 snímcích za sekundu svět posunul jen o pětinu skutečného času
+    // a voda tekla pětkrát pomaleji — na telefonu to vypadalo jako med.
+    // Strop 0,1 s je pojistka proti spirále smrti: po dlouhém zámrzu se
+    // nedohání celý výpadek, protože by to způsobilo další zámrz.
+    const dt = Math.min(dtFull, 0.1);
     // Culling PŘED krokem: DestroyParticle jen označí zombie a uklidí se až
     // v Step(). Když stejné indexy vyhodíme i z našich polí teď, po kroku
     // obě strany zase sedí (LiquidFun odstraňuje stabilně, ověřeno).
@@ -278,7 +283,12 @@ const FLUID_LF = (function(){
     // 8/3 místo 4/2: u řetězu dotýkajících se beden se při nízkém počtu
     // iterací hromadí chyba jedním směrem a celá řada se posune do strany
     // (naměřeno 30 px doprava během první vteřiny).
-    world.Step(dt, 8, 3);
+    let zbyva = dt;
+    while(zbyva > 1e-4){
+      const krok = Math.min(zbyva, 1/60);
+      world.Step(krok, 8, 3);
+      zbyva -= krok;
+    }
     if(bodies.length) uprightBodies(dt);
   }
 
