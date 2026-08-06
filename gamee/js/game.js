@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v95';
-const WS_CHECKSUM = 'water-shoot-v95';
+const WS_VERSION = 'v96';
+const WS_CHECKSUM = 'water-shoot-v96';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -223,7 +223,9 @@ const tune = {
   lfFluid: true,              // kapalina na LiquidFunu (wasm) místo vlastního PBF
   glFluid: true,              // voda kreslená shaderem (metaball + refrakce) místo kruhů
   objZ: 780,                  // jak daleko od hráče stojí nádoba/věž (zadní stěna je 1000)
-  jetSpeed: 1050,             // rychlost proudu — nižší = víc vody v letu (delší doba letu)
+  jetSpeed: 1500,             // rychlost proudu — původní hodnota; nižší = vyšší oblouk
+                              // a delší doba letu, takže během náběhu trysky voda
+                              // viditelně nedosáhne tak daleko
   // Hloubka ústí děla. NESAHAT bez úpravy kreslení hlavně: dělo se kreslí na
   // pevném místě obrazovky, kdežto voda vzniká ve světě a promítá se. Posunutí
   // ústí dopředu (-260) sice prodlouží dráhu skoro dvojnásobně, ale proud pak
