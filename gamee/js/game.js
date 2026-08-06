@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v94';
-const WS_CHECKSUM = 'water-shoot-v94';
+const WS_VERSION = 'v95';
+const WS_CHECKSUM = 'water-shoot-v95';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -224,11 +224,12 @@ const tune = {
   glFluid: true,              // voda kreslená shaderem (metaball + refrakce) místo kruhů
   objZ: 780,                  // jak daleko od hráče stojí nádoba/věž (zadní stěna je 1000)
   jetSpeed: 1050,             // rychlost proudu — nižší = víc vody v letu (delší doba letu)
-  // Hloubka ústí děla — hlavní páka na délku dráhy vody. Naměřeno: z 70 na
-  // -260 se dráha na obrazovce prodlouží z 596 na 1140 px, aniž by se cíl hnul.
-  // Pod -350 se perspektiva hroutí (měřítko roste přes 2,4 a stuha se trhá na
-  // kusy), proto je posuvník omezený na -340.
-  muzzleZ: -260,
+  // Hloubka ústí děla. NESAHAT bez úpravy kreslení hlavně: dělo se kreslí na
+  // pevném místě obrazovky, kdežto voda vzniká ve světě a promítá se. Posunutí
+  // ústí dopředu (-260) sice prodlouží dráhu skoro dvojnásobně, ale proud pak
+  // začíná v měřítku 1,77 — je tlustší a vyjíždí ZPOD hlavně místo z ní.
+  // Kdyby se to mělo dělat pořádně, musí se hlaveň kreslit z projekce ústí.
+  muzzleZ: 70,
   fillSeconds: 12,            // za kolik sekund přesného stříkání se válec naplní
   dropSize: 5,                // poloměr kapky v px (posuvník 3–18; nad ~8 přestává působit jako voda)
   glPoint: 13.0,               // velikost jádra částice v poli (× poloměr) — malé jádro = zrnitá voda
