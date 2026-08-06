@@ -13,7 +13,7 @@
 
 const TOWER = (function(){
 
-  const Z        = 780;      // hloubka scény
+  let Z          = 780;      // hloubka scény (posuvník v HUD)
   const GROUND   = -560;     // úroveň dlažby (world y)
   const VIEW     = 0.13;     // stejný lehký nadhled jako u nádoby
 
@@ -110,6 +110,7 @@ const TOWER = (function(){
 
   // ---------------------------------------------------------------- start
   function init(){
+    Z = tune.objZ || 780;
     state = 'play'; rozbito = 0;
     boxes = []; beam = null; letici = []; ziskana = null; trisky = []; kusy = []; prach = [];
     if(!FLUID_LF.isAvailable()){ prerenderBackground(); return; }

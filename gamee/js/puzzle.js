@@ -21,7 +21,10 @@ const PUZZLE = (function(){
   const GL_RES = 1;
 
   // ---- geometrie scény (world souřadnice, viz projekce v game.js) ----
-  const CYL_Z    = 780;      // hloubka nádoby
+  // Hloubka nádoby. Zděděná po pouťové střelnici (nejzazší dráha kachniček byla
+  // na 900, zadní stěna je na 1000). Čím dál, tím delší oblouk musí voda urazit
+  // a tím víc záleží na síle stisku — ale nádoba se perspektivou zmenší.
+  let CYL_Z = 780;
   const CYL_BOT  = -560;     // dno nádoby
   const GLASS    = 16;       // tloušťka skla
   // Míra nadhledu: poměr svislé a vodorovné poloosy elips (ústí ramen, podstavec).
@@ -329,6 +332,7 @@ const PUZZLE = (function(){
   }
 
   function init(){
+    CYL_Z = tune.objZ || 780;
     fill = 0; tilt = 0; tiltV = 0; bob = 0; dropAcc = 0;
     state = 'play'; escT = 0; spillT = 0; duckX = 0; duckY = 0; duckAng = 0; leakT = 0;
     resetFluid();

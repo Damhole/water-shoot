@@ -3,8 +3,8 @@
 // v02: first-person pohled — dělo před námi, stříkáme "do scény".
 // Fake 3D: částice mají světové souřadnice (x,y,z) a promítají se perspektivně
 // na 2D canvas. Účel = test vodní particle fyziky na mobilech (viz CLAUDE.md).
-const WS_VERSION = 'v93';
-const WS_CHECKSUM = 'water-shoot-v93';
+const WS_VERSION = 'v94';
+const WS_CHECKSUM = 'water-shoot-v94';
 
 // Stress mód: ?stress=1&max=20000&rate=3000 — auto-stříkání s krouživým mířením,
 // nekonečná voda/čas, perf HUD otevřený. Pro měření stropu na telefonech.
@@ -34,7 +34,8 @@ const HUD_MAP = {
   sliders: [
     ['sl-max','maxParticles'], ['sl-rate','emitRate'], ['sl-size','size'],
     ['sl-splash','splash'], ['sl-gain','aimGain'], ['sl-ramp','jetRampT'],
-    ['sl-fluid','fluidMax'], ['sl-fill','fillSeconds', v=>v+' s'],
+    ['sl-fluid','fluidMax'], ['sl-objz','objZ'], ['sl-jet','jetSpeed'], ['sl-muzz','muzzleZ'],
+    ['sl-fill','fillSeconds', v=>v+' s'],
     ['sl-drop','dropSize'],
     ['sl-glpoint','glPoint', v=>v.toFixed(1)],
     ['sl-glthresh','glThresh', v=>v.toFixed(2)],
@@ -159,7 +160,10 @@ const cannon = {
   spraying:false,
   aimSX:0, aimSY:0,           // cíl na obrazovce (pointer)
   muzzleSX:0, muzzleSY:0,     // ústí hlavně na obrazovce (dopočítává se)
-  muzzle:{x:0,y:-540,z:70},   // ústí ve světě
+  // Ústí ve světě. Hloubka z určuje, jak DALEKO to voda má k cíli — a jelikož
+  // se cíl nehýbe, prodloužení dráhy se pozná jen delším letem vody, ne tím,
+  // že by se objekt zmenšil. Nižší (i záporné) z = dělo blíž k divákovi.
+  muzzle:{x:0,y:-540,z:70},
 };
 
 // ---------------------------------------------------------------- opona
@@ -218,6 +222,13 @@ const tune = {
                               // se vyplatí větší kapky, viz posuvník velikosti
   lfFluid: true,              // kapalina na LiquidFunu (wasm) místo vlastního PBF
   glFluid: true,              // voda kreslená shaderem (metaball + refrakce) místo kruhů
+  objZ: 780,                  // jak daleko od hráče stojí nádoba/věž (zadní stěna je 1000)
+  jetSpeed: 1050,             // rychlost proudu — nižší = víc vody v letu (delší doba letu)
+  // Hloubka ústí děla — hlavní páka na délku dráhy vody. Naměřeno: z 70 na
+  // -260 se dráha na obrazovce prodlouží z 596 na 1140 px, aniž by se cíl hnul.
+  // Pod -350 se perspektiva hroutí (měřítko roste přes 2,4 a stuha se trhá na
+  // kusy), proto je posuvník omezený na -340.
+  muzzleZ: -260,
   fillSeconds: 12,            // za kolik sekund přesného stříkání se válec naplní
   dropSize: 5,                // poloměr kapky v px (posuvník 3–18; nad ~8 přestává působit jako voda)
   glPoint: 13.0,               // velikost jádra částice v poli (× poloměr) — malé jádro = zrnitá voda
@@ -909,7 +920,11 @@ function setupInput(){
 // ---------------------------------------------------------------- update
 let emitAccum = 0;
 const GRAV = 1400;            // world px/s²
-const JET_SPEED = 1500;       // world px/s
+// Rychlost proudu. Balistika dopočítá úhel tak, aby voda dopadla na zaměřovač,
+// takže NIŽŠÍ rychlost neznamená kratší dostřel, ale VYŠŠÍ A DELŠÍ OBLOUK —
+// voda je déle ve vzduchu a dráha je pořádně vidět. Tím se dá scéně dojem
+// vzdálenosti, aniž by se musel odsouvat cíl (ten by se jen zmenšil).
+const JET_SPEED_DEF = 1500;   // world px/s
 
 // Na co hráč míří? Raycast zaměřovače po drahách od nejbližší — vrací hloubku
 // cíle. Částice smí ubližovat až od ní: damage dává jen KONEC proudu, ne voda
@@ -1005,9 +1020,10 @@ function update(dt){
     const ty = unprojY(cannon.aimSY, ws);
     const m = cannon.muzzle;
     m.x = tx*0.08;            // ústí lehce uhýbá za cílem
+    m.z = tune.muzzleZ === undefined ? 70 : tune.muzzleZ;
     const dx = tx-m.x, dy = ty-m.y, dz = targetZ-m.z;
     const dist = Math.sqrt(dx*dx+dy*dy+dz*dz);
-    const tFly = dist/JET_SPEED;
+    const tFly = dist/(tune.jetSpeed || JET_SPEED_DEF);
     // kompenzace gravitace, aby proud dopadal ~na pointer
     let vx = dx/tFly, vy = dy/tFly + 0.5*GRAV*tFly, vz = dz/tFly;
     // Náběh trysky: slabý tlak = kratší dostřel, proud padá pod zaměřovač
@@ -2297,6 +2313,17 @@ function setupHUD(){
       if(out) out.textContent = fmt ? fmt(+el.value) : el.value;
     });
   };
+  const slZ = document.getElementById('sl-objz');
+  if(slZ){
+    const out = document.getElementById('sl-objz-val');
+    slZ.value = tune.objZ; if(out) out.textContent = tune.objZ;
+    slZ.addEventListener('input', ()=>{
+      tune.objZ = +slZ.value; if(out) out.textContent = slZ.value;
+      if(isPuzzle()) startRound();     // hloubka se čte při stavbě scény
+    });
+  }
+  slider('sl-jet', 'jetSpeed');
+  slider('sl-muzz', 'muzzleZ');
   slider('sl-fill', 'fillSeconds', v=>v+' s');
   const slDrop = document.getElementById('sl-drop');
   if(slDrop){
