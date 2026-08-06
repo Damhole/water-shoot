@@ -283,12 +283,14 @@ const FLUID_LF = (function(){
     // 8/3 místo 4/2: u řetězu dotýkajících se beden se při nízkém počtu
     // iterací hromadí chyba jedním směrem a celá řada se posune do strany
     // (naměřeno 30 px doprava během první vteřiny).
-    let zbyva = dt;
-    while(zbyva > 1e-4){
-      const krok = Math.min(zbyva, 1/60);
-      world.Step(krok, 8, 3);
-      zbyva -= krok;
-    }
+    // STEJNĚ DLOUHÉ podkroky, žádný zbytek. První verze ukrajovala po 1/60
+    // a zbytek simulovala jako samostatný mikro-krok — jenže reálný 60Hz snímek
+    // má 16,8 ms, zbylo 0,13 ms a řešič dělí silou 1/dt: z mikro-kroku vyšly
+    // tisícinásobné impulzy (naměřeno 75 000 px/s proti normálním 600), voda se
+    // rozprskla do mlhy a kachničku to vykopnulo z nádoby.
+    const podkroku = Math.max(1, Math.ceil(dt/0.02));
+    const krok = dt/podkroku;
+    for(let i=0;i<podkroku;i++) world.Step(krok, 8, 3);
     if(bodies.length) uprightBodies(dt);
   }
 
