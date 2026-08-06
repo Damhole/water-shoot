@@ -17,6 +17,7 @@ const FLUID_LF = (function(){
   const PPM = 100;            // pixelů na metr
   const MAX_DEFAULT = 3000;
   let PARTICLE_ITER = 3;      // iterace řešiče částic (laditelné kvůli měření)
+  let TENSILE = false;        // povrchové napětí částic (viz spawn)
   const DROP_DEFAULT = 5;     // poloměr kapky v pixelech (laditelné v HUD)
   let RADIUS = DROP_DEFAULT/PPM;
   // Plocha na částici v USAZENÉ vodě. Měřeno přímo ve válci: kapalina se pod
@@ -102,6 +103,10 @@ const FLUID_LF = (function(){
     const o = opts || {};
     const bd = new B.b2BodyDef();
     bd.type = 2;                                   // dynamické těleso
+    // Spojitá detekce i pro plovoucí tělesa: stěny jsou nekonečně tenké hrany
+    // a tlak vodního sloupce kachničku zaklíněnou v rohu protlačil skrz —
+    // skončila ležet VEDLE nádoby (nahlášeno i se snímkem).
+    bd.bullet = true;
     bd.position = new B.b2Vec2(x/PPM, y/PPM);
     bd.angularDamping = o.angularDamping === undefined ? 2.2 : o.angularDamping;
     const body = world.CreateBody(bd);
@@ -144,13 +149,17 @@ const FLUID_LF = (function(){
       if(h.upright === undefined) continue;
       const a = h.body.GetAngle();
       const w = h.body.GetAngularVelocity();
-      h.body.ApplyTorque((-a*h.upright - w*1.5) * h.body.GetMass(), true);
-      if(a > h.maxAngle || a < -h.maxAngle){
-        const cl = a > 0 ? h.maxAngle : -h.maxAngle;
-        const p = h.body.GetPosition();
-        h.body.SetTransform(p, cl);
-        h.body.SetAngularVelocity(w * 0.2);
-      }
+      // MĚKKÝ doraz. Původní tvrdé přesazení (SetTransform na mez) se u tělesa
+      // zaklíněného mezi stěnou a vodou pralo s kolizemi: viditelné kmitání
+      // tam a zpět, a protože SetTransform ignoruje stěny, nakonec kachničku
+      // protlačilo skrz. Za mezí se místo toho jen prudce zvedne síla pružiny.
+      const over = Math.max(0, Math.abs(a) - h.maxAngle);
+      const k = h.upright * (1 + over*40);
+      h.body.ApplyTorque((-a*k - w*1.8) * h.body.GetMass(), true);
+      // rychlost otáčení zastropovat jde bezpečně — nemění polohu
+      const wMax = 6;
+      if(w > wMax) h.body.SetAngularVelocity(wMax);
+      else if(w < -wMax) h.body.SetAngularVelocity(-wMax);
     }
   }
   // Hranatá bedna do věže. Vrací úchyt se stavem výdrže — bourání se neřídí
@@ -239,7 +248,11 @@ const FLUID_LF = (function(){
 
   function spawn(x, y, ivx, ivy){
     if(!ready || ps.GetParticleCount() >= maxCount) return false;
-    tmpDef.flags = B.b2_waterParticle | B.b2_tensileParticle;
+    // Povrchové napětí (tensile) je volitelné: částice se s ním PŘITAHUJÍ,
+    // což v úzkém rameni dělá slepené chuchvalce — lezou po stěnách jakoby
+    // bez gravitace, hromadí se nad kachničkou a stahují k sobě další vodu,
+    // až ji potopí (pozorování ze hry, potvrzeno měřením níže v commitu).
+    tmpDef.flags = TENSILE ? (B.b2_waterParticle | B.b2_tensileParticle) : B.b2_waterParticle;
     tmpVec.set_x(x/PPM); tmpVec.set_y(y/PPM);
     tmpDef.position = tmpVec;
     tmpVec.set_x((ivx||0)/PPM); tmpVec.set_y((ivy||0)/PPM);
@@ -420,5 +433,6 @@ const FLUID_LF = (function(){
            addBox, removeBody, pushBody, bodyAt, bodyList,
            get R0(){ return RADIUS*PPM; }, get PPM(){ return PPM; },
            get areaPerParticle(){ return areaPer(); },
-           set particleIter(v){ PARTICLE_ITER = v; }, get particleIter(){ return PARTICLE_ITER; } };
+           set particleIter(v){ PARTICLE_ITER = v; }, get particleIter(){ return PARTICLE_ITER; },
+           set tensile(v){ TENSILE = !!v; }, get tensile(){ return TENSILE; } };
 })();
