@@ -134,10 +134,13 @@ toonGrad.needsUpdate = true;
 // (LatheGeometry) ze stejného profilu, jaký používá 2D verze — díky tomu je
 // srovnání férové a případný přechod by nevyžadoval nové modely.
 const POLIC = 3;
-// Výšky odpovídají tomu, kam se kamera dívá (150) — původních 150/330/510
-// mířilo nad její záběr, takže zátiší vyjelo nahoru a proud na horní polici
-// ani nedostříkl.
-const POLICE_Y = [60, 190, 320];
+// Rozteč MUSÍ počítat s tloušťkou desky: volná výška nad policí je rozteč
+// minus 18. Při rozteči 130 zbývalo 112, ale nejvyšší lahev měří 126 — lahve
+// se o desku nad sebou zaklínily. (Přesně stejná chyba jako ve westernu ve
+// v111, kde volnou výšku určovala rozteč mínus tloušťka police.)
+// Rozteč 185 dává 167 volných proti nejvyšší lahvi 126, tedy 41 rezervy
+// i na naklonění při převracení.
+const POLICE_Y = [50, 235, 420];
 const POLICE_Z = -560;
 const POLICE_HW = 620;
 const LAHVI_NA_POLICI = 7;
