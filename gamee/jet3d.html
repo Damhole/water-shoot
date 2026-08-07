@@ -62,6 +62,8 @@
   <input type="range" id="sila" min="900" max="4200" step="100" value="2600">
   <label>náběh a doběh trysky (s) <span id="vRamp"></span></label>
   <input type="range" id="ramp" min="0" max="1.2" step="0.05" value="0.45">
+  <label>síla zásahu do lahví <span id="vImp"></span></label>
+  <input type="range" id="imp" min="1" max="120" step="1" value="34">
   <button class="btn" id="reset">↺ výchozí hodnoty</button>
 </div>
 <div id="note">Táhni prstem/myší = miř. Proud je JEDNA trubice podél balistické dráhy,
@@ -207,6 +209,7 @@ world.addBody(new CANNON.Body({ type: CANNON.Body.STATIC,
 
 const lahve = [];
 const HP_LAHVE = 14;
+const SILA_ZASAHU = () => +document.getElementById('imp').value;
 
 function novaLahev(police, i){
   const typ = SKLA[(Math.random()*SKLA.length)|0];
@@ -278,10 +281,13 @@ function zasahyLahvi(dt){
       const dy = u.p.y - L.telo.position.y;
       const dz = u.p.z - L.telo.position.z;
       if(dx*dx + dz*dz > 44*44 || Math.abs(dy) > L.typ.h*0.6) continue;
+      // Impulz musí odpovídat měřítku scény: hmotnost 1,4 a gravitace 1400
+      // znamenají, že impulz 0,9 změní rychlost o 0,6 jednotky za sekundu —
+      // tedy o nic. Laditelné posuvníkem, ať se dá najít, co se chová dobře.
       const smer = new CANNON.Vec3(u.v.x, u.v.y*0.25, u.v.z).unit();
       const bod = new CANNON.Vec3(u.p.x, u.p.y, u.p.z);
       L.telo.wakeUp();
-      L.telo.applyImpulse(smer.scale(0.9), bod);
+      L.telo.applyImpulse(smer.scale(SILA_ZASAHU()), bod);
       if(Math.random() < 0.4){
         const n = new THREE.Vector3(dx, 0, dz).normalize();
         rozprsk(u.p, n, u.v, 3 + (Math.random()*3|0));
@@ -825,7 +831,7 @@ addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 // Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
 // přežijí reload, aby se doladěné nastavení neztrácelo.
 const ULOZ_KLIC = 'ws_jet3d_tune';
-const POSUVNIKY = ['rad','tl','sp','sila','ramp'];
+const POSUVNIKY = ['rad','tl','sp','sila','ramp','imp'];
 
 function uloz(){
   const o = {};
@@ -851,7 +857,7 @@ hud.addEventListener('pointerdown', e => e.stopPropagation());
 hud.addEventListener('pointermove', e => e.stopPropagation());
 
 document.getElementById('reset').addEventListener('click', ()=>{
-  const vych = { rad:8, tl:9, sp:5, sila:2600, ramp:0.45 };
+  const vych = { rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34 };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -864,6 +870,7 @@ function obnovPopisky(){
   vRad.textContent = rad.value;
   vTl.textContent = tl.value;  vSp.textContent = sp.value;
   vSila.textContent = sila.value; vRamp.textContent = (+ramp.value).toFixed(2);
+  vImp.textContent = imp.value;
 }
 obnovPopisky();
 
