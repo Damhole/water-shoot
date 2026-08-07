@@ -24,10 +24,25 @@
   #hud input[type=range]{width:100%}
   .row{display:flex;gap:10px;justify-content:space-between}
   #note{position:fixed;left:10px;bottom:10px;right:10px;color:#7f93aa;font-size:11px}
+  #fpsRoh{position:fixed;right:8px;top:6px;font-size:11px;color:#8fd0ff;
+    background:rgba(8,14,24,.55);padding:2px 7px;border-radius:6px;z-index:4;
+    pointer-events:none;font-variant-numeric:tabular-nums}
+  #kriz{position:fixed;left:0;top:0;width:46px;height:46px;margin:-23px 0 0 -23px;
+    pointer-events:none;z-index:3;opacity:.95}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="fpsRoh">– FPS</div>
+<svg id="kriz" viewBox="0 0 46 46">
+  <circle cx="23" cy="23" r="15" fill="none" stroke="#06121d" stroke-width="5"/>
+  <circle cx="23" cy="23" r="15" fill="none" stroke="#eaf6ff" stroke-width="2.4"/>
+  <g stroke="#06121d" stroke-width="5" stroke-linecap="round">
+    <path d="M23 2v9M23 35v9M2 23h9M35 23h9"/></g>
+  <g stroke="#eaf6ff" stroke-width="2.4" stroke-linecap="round">
+    <path d="M23 2v9M23 35v9M2 23h9M35 23h9"/></g>
+  <circle cx="23" cy="23" r="2.2" fill="#eaf6ff"/>
+</svg>
 <button id="cog" aria-label="nastavení">⚙</button>
 <div id="hud" hidden>
   <div class="row"><span>FPS</span><b id="fps">–</b></div>
@@ -43,6 +58,10 @@
   <input type="range" id="tl" min="2" max="26" step="1" value="9">
   <label>rychlost toku <span id="vSp"></span></label>
   <input type="range" id="sp" min="0" max="12" step="0.25" value="5">
+  <label>síla proudu (vyšší = plošší oblouk) <span id="vSila"></span></label>
+  <input type="range" id="sila" min="900" max="4200" step="100" value="2600">
+  <label>náběh a doběh trysky (s) <span id="vRamp"></span></label>
+  <input type="range" id="ramp" min="0" max="1.2" step="0.05" value="0.45">
   <button class="btn" id="reset">↺ výchozí hodnoty</button>
 </div>
 <div id="note">Táhni prstem/myší = miř. Proud je JEDNA trubice podél balistické dráhy,
@@ -64,6 +83,7 @@ import * as THREE from 'three';
 // je konstantní, svislá se mění gravitací. Díky tomu je porovnání férové.
 // ---------------------------------------------------------------------------
 
+const kriz = document.getElementById('kriz');
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -255,6 +275,11 @@ const ZIVOT = 1.15;            // jak dlouho uzel letí, než zmizí
 
 const uzly = [];               // od nejstaršího (nejdál) po nejnovější (u ústí)
 let emitAkumulator = 0;
+// Tryska nenaskočí ani nezhasne skokem — jako ve 2D verzi má NÁBĚH a DOBĚH.
+// Síla 0..1 řídí jak hustotu emise, tak tloušťku proudu, takže při rozjezdu
+// nejdřív vyjede tenký pramínek a teprve pak plný proud; při puštění naopak
+// zeslábne, než ustane.
+let sila = 0;
 // GENERACE odděluje jednotlivá stisknutí. Bez ní by se při novém stisknutí
 // natáhla trubice od ústí až ke starému, ještě letícímu konci — proud by se
 // „přilepil" k něčemu, co už dávno odletělo. Stejnou pojistku má stuha ve 2D.
@@ -266,7 +291,10 @@ let strikaloMinule = false;
 function rychlostNaCil(cilX, cilY, cilZ){
   const dx = cilX - USTI.x, dy = cilY - USTI.y, dz = cilZ - USTI.z;
   const vodorovne = Math.hypot(dx, dz) || 1;
-  const t = vodorovne / 1500;
+  // Vyšší rychlost = kratší doba letu = plošší oblouk. Na daleké terče se
+  // s pomalým proudem muselo mířit přes vysokou parabolu, což je špatně
+  // odhadnutelné.
+  const t = vodorovne / (+document.getElementById('sila').value);
   return new THREE.Vector3(dx/t, (dy + 0.5*G*t*t)/t, dz/t);
 }
 
@@ -293,15 +321,20 @@ function krokProudu(dt, cil, strikaJe){
   if(strikaJe && !strikaloMinule) generace++;
   strikaloMinule = strikaJe;
 
-  if(strikaJe){
-    emitAkumulator += EMIT_ZA_S*dt;
+  // náběh/doběh
+  const rampT = Math.max(0.02, +document.getElementById('ramp').value);
+  sila += ((strikaJe ? 1 : 0) - sila) * Math.min(1, dt/rampT);
+  if(!strikaJe && sila < 0.02) sila = 0;
+
+  if(strikaJe || sila > 0.02){
+    emitAkumulator += EMIT_ZA_S*dt*sila;
     while(emitAkumulator >= 1){
       emitAkumulator -= 1;
       const v = rychlostNaCil(cil.x, cil.y, cil.z);
       // drobný rozptyl, ať proud není matematicky dokonalý
       v.x += (Math.random()-0.5)*40;
       v.y += (Math.random()-0.5)*40;
-      uzly.push({ p: USTI.clone(), v, t: 0, gen: generace });
+      uzly.push({ p: USTI.clone(), v, t: 0, gen: generace, s: sila });
     }
   }
 }
@@ -317,20 +350,28 @@ function postavJet(cas){
 
   // uzly rozdělit po generacích, uvnitř od ústí ven (nejnovější první)
   const skupiny = new Map();
+  const sily_ = new Map();
   for(let i=uzly.length-1;i>=0;i--){
     const u = uzly[i];
     let g = skupiny.get(u.gen);
-    if(!g){ g = []; skupiny.set(u.gen, g); }
+    if(!g){ g = []; skupiny.set(u.gen, g); sily_.set(u.gen, []); }
     g.push(u.p);
+    sily_.get(u.gen).push(u.s === undefined ? 1 : u.s);
   }
 
   let k = 0;
-  for(const body of skupiny.values()){
+  for(const [genId, body] of skupiny){
+    const sil = sily_.get(genId);
     if(body.length < 4) continue;           // krátký cár nemá smysl kreslit
     const krivka = new THREE.CatmullRomCurve3(body);
     const seg = Math.min(96, Math.max(8, body.length*2));
     const geo = new THREE.TubeGeometry(krivka, seg, tl, rad, false);
-    tvaruj(geo, krivka, seg, rad, cas);
+    // síla uzlu v době vypuštění → tenký pramínek při náběhu i doběhu
+    const sily = u => {
+      const i = Math.min(sil.length-1, Math.max(0, Math.round(u*(sil.length-1))));
+      return 0.25 + 0.75*sil[i];
+    };
+    tvaruj(geo, krivka, seg, rad, cas, sily);
 
     let m = jety[k];
     if(!m){ m = new THREE.Mesh(geo, matVoda); jety.push(m); scene.add(m); }
@@ -339,7 +380,7 @@ function postavJet(cas){
 
     // obrys: tatáž křivka, jen širší trubice kreslená zevnitř
     const geoO = new THREE.TubeGeometry(krivka, seg, tl*OBRYS_RUST, rad, false);
-    tvaruj(geoO, krivka, seg, rad, cas);
+    tvaruj(geoO, krivka, seg, rad, cas, sily);
     let o = obrysy[k];
     if(!o){ o = new THREE.Mesh(geoO, matObrys); o.renderOrder = -1; obrysy.push(o); scene.add(o); }
     else { o.geometry.dispose(); o.geometry = geoO; }
@@ -359,7 +400,7 @@ function postavJet(cas){
 //      a dostává nepravidelnost, protože voda na doletu přestává držet tvar
 //
 // Všechno se počítá při přestavbě geometrie, takže to nestojí nic navíc.
-function tvaruj(geo, krivka, seg, rad, cas){
+function tvaruj(geo, krivka, seg, rad, cas, sily){
   const pos = geo.attributes.position;
   for(let i=0;i<=seg;i++){
     const u = i/seg;
@@ -375,7 +416,7 @@ function tvaruj(geo, krivka, seg, rad, cas){
     const konec = u > 0.78 ? Math.max(0, 1 - (u-0.78)/0.22) : 1;
     const trhani = u > 0.7 ? 1 + 0.35*Math.sin(u*70 - cas*23) * ((u-0.7)/0.3) : 1;
 
-    const k = zuz * vlna * konec * trhani;
+    const k = zuz * vlna * konec * trhani * (sily ? sily(u) : 1);
 
     // hadí pohyb osy — kolmo na směr letu
     const stred = krivka.getPointAt(Math.min(1, u)).clone();
@@ -596,7 +637,7 @@ addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 // Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
 // přežijí reload, aby se doladěné nastavení neztrácelo.
 const ULOZ_KLIC = 'ws_jet3d_tune';
-const POSUVNIKY = ['rad','tl','sp'];
+const POSUVNIKY = ['rad','tl','sp','sila','ramp'];
 
 function uloz(){
   const o = {};
@@ -622,7 +663,7 @@ hud.addEventListener('pointerdown', e => e.stopPropagation());
 hud.addEventListener('pointermove', e => e.stopPropagation());
 
 document.getElementById('reset').addEventListener('click', ()=>{
-  const vych = { rad:8, tl:9, sp:5 };
+  const vych = { rad:8, tl:9, sp:5, sila:2600, ramp:0.45 };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -634,6 +675,7 @@ if(nacti()) console.log('[jet3d] nastavení obnoveno');
 function obnovPopisky(){
   vRad.textContent = rad.value;
   vTl.textContent = tl.value;  vSp.textContent = sp.value;
+  vSila.textContent = sila.value; vRamp.textContent = (+ramp.value).toFixed(2);
 }
 obnovPopisky();
 
@@ -670,11 +712,20 @@ function smycka(now){
   for(const t of terce)
     t.position.y = t.userData.zaklY + Math.sin(now/700 + t.userData.i)*22;
 
+  // zaměřovač na skutečném cíli, ne pod prstem — prst je na mobilu jinde
+  {
+    const v = new THREE.Vector3(cil.x, cil.y, cil.z).project(camera);
+    const kx = (v.x*0.5 + 0.5)*innerWidth, ky = (-v.y*0.5 + 0.5)*innerHeight;
+    kriz.style.transform = 'translate(' + kx.toFixed(1) + 'px,' + ky.toFixed(1) + 'px)';
+  }
+
   renderer.render(scene, camera);
 
   snimku++; fpsT += dt;
   if(fpsT >= 0.5){
-    document.getElementById('fps').textContent = Math.round(snimku/fpsT);
+    const f = Math.round(snimku/fpsT);
+    document.getElementById('fps').textContent = f;
+    document.getElementById('fpsRoh').textContent = f + ' FPS';
     document.getElementById('tris').textContent = renderer.info.render.triangles;
     document.getElementById('calls').textContent = renderer.info.render.calls;
     document.getElementById('uzlu').textContent = uzly.length;
