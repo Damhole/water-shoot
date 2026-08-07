@@ -69,10 +69,11 @@
 a odtrhne. Pusť tlačítko (nebo mezerník) a proud doletí sám. Koule jdou sestřelit.</div>
 
 <script type="importmap">
-{ "imports": { "three": "./lib/three.module.min.js" } }
+{ "imports": { "three": "./lib/three.module.min.js", "cannon": "./lib/cannon-es.js" } }
 </script>
 <script type="module">
 import * as THREE from 'three';
+import * as CANNON from 'cannon';
 
 // Prototyp nemá pomocné funkce z game.js, takže si je nese sám.
 const rand = (a, b) => a + Math.random()*(b - a);
@@ -180,6 +181,30 @@ const matObrysTelo = new THREE.MeshBasicMaterial({ color: 0x14161c, side: THREE.
   }
 })();
 
+// ---- 3D fyzika (cannon-es) ------------------------------------------------
+// Lahve jsou skutečná tělesa: stojí na deskách, opírají se o sebe, dají se
+// převrhnout a spadnout z pultu do hloubky — což 2D Box2D ve westernu neumí,
+// protože osa dopředu tam neexistuje.
+const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -1400, 0) });
+world.allowSleep = true;                    // stojící lahve usnou a nestojí výkon
+world.defaultContactMaterial.friction = 0.4;
+world.defaultContactMaterial.restitution = 0.05;
+
+// podlaha
+world.addBody(new CANNON.Body({ type: CANNON.Body.STATIC,
+  shape: new CANNON.Plane() , quaternion: new CANNON.Quaternion().setFromEuler(-Math.PI/2, 0, 0) }));
+
+// desky polic jako statické kvádry
+for(const y of POLICE_Y){
+  world.addBody(new CANNON.Body({ type: CANNON.Body.STATIC,
+    shape: new CANNON.Box(new CANNON.Vec3(POLICE_HW, 9, 75)),
+    position: new CANNON.Vec3(0, y - 9, POLICE_Z) }));
+}
+// zadní stěna, ať lahve neutečou dozadu
+world.addBody(new CANNON.Body({ type: CANNON.Body.STATIC,
+  shape: new CANNON.Box(new CANNON.Vec3(POLICE_HW, 600, 20)),
+  position: new CANNON.Vec3(0, 300, POLICE_Z - 95) }));
+
 const lahve = [];
 const HP_LAHVE = 14;
 
@@ -187,22 +212,86 @@ function novaLahev(police, i){
   const typ = SKLA[(Math.random()*SKLA.length)|0];
   const m = new THREE.Mesh(typ.geo, new THREE.MeshToonMaterial({
     color: typ.barva, gradientMap: toonGrad }));
+  // model má počátek ve SPODKU (profil 0..1), fyzikální válec ve STŘEDU —
+  // proto se mesh posouvá o půl výšky dolů proti tělesu
   m.scale.set(typ.w, typ.h, typ.w);
   const obrys = new THREE.Mesh(typ.geo, matObrysTelo);
   obrys.scale.setScalar(1.07);
   m.add(obrys);
-  const x = -POLICE_HW*0.85 + (i + 0.5)*(POLICE_HW*1.7/LAHVI_NA_POLICI) + rand(-16, 16);
-  m.position.set(x, POLICE_Y[police], POLICE_Z + rand(-14, 14));
-  m.rotation.y = Math.random()*Math.PI*2;
   scene.add(m);
-  return { m, typ, police, hp: HP_LAHVE, pada: false, vx:0, vy:0, vz:0, va:0, mrtva: 0 };
+
+  const x = -POLICE_HW*0.85 + (i + 0.5)*(POLICE_HW*1.7/LAHVI_NA_POLICI) + rand(-16, 16);
+  const telo = new CANNON.Body({
+    mass: 1.4,
+    shape: new CANNON.Cylinder(typ.w*0.9, typ.w*0.9, typ.h, 10),
+    position: new CANNON.Vec3(x, POLICE_Y[police] + typ.h/2, POLICE_Z + rand(-16, 16)),
+    linearDamping: 0.12, angularDamping: 0.25,
+    sleepSpeedLimit: 6, sleepTimeLimit: 0.4,
+  });
+  telo.quaternion.setFromEuler(0, Math.random()*Math.PI*2, 0);
+  world.addBody(telo);
+
+  return { m, telo, typ, police, i, hp: HP_LAHVE, mrtva: 0, zaklX: x };
 }
 for(let p=0;p<POLIC;p++)
   for(let i=0;i<LAHVI_NA_POLICI;i++) lahve.push(novaLahev(p, i));
 
 let skore = 0;
 
+const _q = new THREE.Quaternion(), _v = new THREE.Vector3();
+
 function zasahyLahvi(dt){
+  world.step(1/60, dt, 3);
+
+  for(const L of lahve){
+    if(L.mrtva > 0){
+      L.mrtva -= dt;
+      if(L.mrtva <= 0){                       // postavit zpět na polici
+        L.hp = HP_LAHVE;
+        L.telo.position.set(L.zaklX, POLICE_Y[L.police] + L.typ.h/2, POLICE_Z + rand(-16, 16));
+        L.telo.quaternion.setFromEuler(0, Math.random()*Math.PI*2, 0);
+        L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
+        L.telo.wakeUp();
+        L.m.visible = true;
+      }
+      continue;
+    }
+    // mesh následuje těleso; posun o půl výšky kvůli počátku modelu ve spodku
+    _q.set(L.telo.quaternion.x, L.telo.quaternion.y, L.telo.quaternion.z, L.telo.quaternion.w);
+    L.m.quaternion.copy(_q);
+    _v.set(0, -L.typ.h/2, 0).applyQuaternion(_q);
+    L.m.position.set(L.telo.position.x + _v.x, L.telo.position.y + _v.y, L.telo.position.z + _v.z);
+
+    // rozbití o zem
+    if(L.telo.position.y < 14){
+      rozprsk(L.m.position, new THREE.Vector3(0,1,0), new THREE.Vector3(0, 420, 0), 16);
+      krouzek(L.m.position.x, 1.5, L.m.position.z, 'up', 40);
+      L.m.visible = false; L.mrtva = 2.2; skore += 100;
+      L.telo.position.set(0, -4000, 0);       // uklidit mimo scénu
+      L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
+      continue;
+    }
+
+    // zásah proudem = skutečný impulz v bodě dopadu
+    for(const u of uzly){
+      const dx = u.p.x - L.telo.position.x;
+      const dy = u.p.y - L.telo.position.y;
+      const dz = u.p.z - L.telo.position.z;
+      if(dx*dx + dz*dz > 44*44 || Math.abs(dy) > L.typ.h*0.6) continue;
+      const smer = new CANNON.Vec3(u.v.x, u.v.y*0.25, u.v.z).unit();
+      const bod = new CANNON.Vec3(u.p.x, u.p.y, u.p.z);
+      L.telo.wakeUp();
+      L.telo.applyImpulse(smer.scale(0.9), bod);
+      if(Math.random() < 0.4){
+        const n = new THREE.Vector3(dx, 0, dz).normalize();
+        rozprsk(u.p, n, u.v, 3 + (Math.random()*3|0));
+      }
+      break;
+    }
+  }
+}
+
+function _stary(dt){
   for(const L of lahve){
     if(L.mrtva > 0){                       // rozbitá — po chvíli se vrátí
       L.mrtva -= dt;
