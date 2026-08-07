@@ -266,8 +266,14 @@ const matVoda = new THREE.MeshLambertMaterial({
 // NEprůhledný záměrně: průhledné objekty Three.js řadí podle vzdálenosti a obrys
 // se pak kreslil PŘES vodu místo pod ni. Takhle jde do neprůhledného průchodu
 // a voda se vykreslí až na něj.
+// Obrys musí být ve stejné vykreslovací fázi jako voda, jinak o pořadí
+// nerozhoduje renderOrder, ale to, že neprůhledné se kreslí vždy první —
+// a protože voda má depthWrite vypnutý, obrys ji pak celou překryl a z proudu
+// zbyla tmavá trubka. Proto transparent:true (byť s plným krytím) a vypsaný
+// renderOrder na obou.
 const matObrys = new THREE.MeshBasicMaterial({
   color: 0x123a52, side: THREE.BackSide,
+  transparent: true, opacity: 1, depthWrite: false,
 });
 const OBRYS_RUST = 1.22;
 
@@ -360,18 +366,91 @@ function krokProudu(dt, cil, strikaJe){
   }
 }
 
-// Pro každou generaci vlastní trubice. Meshe se recyklují, ať se každý snímek
-// nealokují nové — scéna si drží pool a nepoužité jen schová.
+// Pro každou generaci vlastní trubice. Meshe i GEOMETRIE se recyklují.
+//
+// PROČ TAK SLOŽITĚ: původně se každý snímek volalo new THREE.TubeGeometry()
+// a stará se dispose(). To znamenalo 90,6 kB nově alokovaných a na GPU
+// nahraných dat KAŽDÝ SNÍMEK, tedy 5,3 MB/s. Na Macu i iPhonu to projde,
+// ale Android Chrome (Mali/Adreno) platí za realokaci bufferů víc a GC je tam
+// citelnější — projevovalo se to jako občasné problikávání při stříkání.
+//
+// Nově se geometrie alokuje JEDNOU pro maximální velikost a každý snímek se
+// jen přepisují hodnoty vrcholů; kreslí se jen tolik, kolik je právě potřeba.
+const MAX_SEG = 96;
 const jety = [];
 const obrysy = [];
+
+function novaTrubice(rad, material){
+  const geo = new THREE.BufferGeometry();
+  const vrcholu = (MAX_SEG+1)*(rad+1);
+  const pos = new THREE.BufferAttribute(new Float32Array(vrcholu*3), 3);
+  const nor = new THREE.BufferAttribute(new Float32Array(vrcholu*3), 3);
+  const uv  = new THREE.BufferAttribute(new Float32Array(vrcholu*2), 2);
+  pos.setUsage(THREE.DynamicDrawUsage);
+  nor.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position', pos);
+  geo.setAttribute('normal', nor);
+  geo.setAttribute('uv', uv);
+  for(let i=0;i<=MAX_SEG;i++)
+    for(let j=0;j<=rad;j++)
+      uv.setXY(i*(rad+1)+j, i/MAX_SEG, j/rad);
+  const idx = [];
+  for(let i=0;i<MAX_SEG;i++)
+    for(let j=0;j<rad;j++){
+      const a = i*(rad+1)+j, b = (i+1)*(rad+1)+j, c = (i+1)*(rad+1)+j+1, d = i*(rad+1)+j+1;
+      idx.push(a,b,d, b,c,d);
+    }
+  geo.setIndex(idx);
+  const m = new THREE.Mesh(geo, material);
+  m.frustumCulled = false;        // vrcholy měníme ručně, obal by nesouhlasil
+  scene.add(m);
+  return { m, geo, rad };
+}
+
+// Naplní předalokovanou trubici. Tvarování (vlnění, hadí pohyb, tříštění konce)
+// je zabudované rovnou sem, aby se geometrie neprocházela dvakrát.
+const _N = new THREE.Vector3(), _B = new THREE.Vector3();
+function naplnTrubici(t, krivka, seg, tl, cas, sil){
+  const rad = t.rad;
+  const pos = t.geo.attributes.position, nor = t.geo.attributes.normal;
+  const frames = krivka.computeFrenetFrames(seg, false);
+  for(let i=0;i<=seg;i++){
+    const u = i/seg;
+    const stred = krivka.getPointAt(u);
+    _N.copy(frames.normals[i]); _B.copy(frames.binormals[i]);
+
+    const vlna = 1
+      + 0.20*Math.sin(u*15.0 - cas*11.0)
+      + 0.11*Math.sin(u*26.3 - cas*7.4)
+      + 0.07*Math.sin(u*41.7 - cas*17.1);
+    const zuz   = 1 - 0.45*u*u;
+    const konec = u > 0.78 ? Math.max(0, 1 - (u-0.78)/0.22) : 1;
+    const trhani = u > 0.7 ? 1 + 0.35*Math.sin(u*70 - cas*23)*((u-0.7)/0.3) : 1;
+    const si = sil[Math.min(sil.length-1, Math.round(u*(sil.length-1)))];
+    const r = tl * zuz * vlna * konec * trhani * (0.25 + 0.75*si);
+
+    const amp = 7*u;
+    const w1 = Math.sin(u*9.0 - cas*8.5)*amp, w2 = Math.sin(u*11.7 - cas*6.2)*amp*0.6;
+    const ox = _N.x*w1 + _B.x*w2, oy = _N.y*w1 + _B.y*w2, oz = _N.z*w1 + _B.z*w2;
+
+    for(let j=0;j<=rad;j++){
+      const a = j/rad*Math.PI*2, ca = Math.cos(a), sa = Math.sin(a);
+      const nx = ca*_N.x + sa*_B.x, ny = ca*_N.y + sa*_B.y, nz = ca*_N.z + sa*_B.z;
+      const k = i*(rad+1)+j;
+      pos.setXYZ(k, stred.x + ox + nx*r, stred.y + oy + ny*r, stred.z + oz + nz*r);
+      nor.setXYZ(k, nx, ny, nz);
+    }
+  }
+  pos.needsUpdate = true; nor.needsUpdate = true;
+  t.geo.setDrawRange(0, seg*rad*6);
+  t.m.visible = true;
+}
 
 function postavJet(cas){
   const rad = +document.getElementById('rad').value;
   const tl  = +document.getElementById('tl').value;
 
-  // uzly rozdělit po generacích, uvnitř od ústí ven (nejnovější první)
-  const skupiny = new Map();
-  const sily_ = new Map();
+  const skupiny = new Map(), sily_ = new Map();
   for(let i=uzly.length-1;i>=0;i--){
     const u = uzly[i];
     let g = skupiny.get(u.gen);
@@ -382,85 +461,31 @@ function postavJet(cas){
 
   let k = 0;
   for(const [genId, body] of skupiny){
+    if(body.length < 4) continue;
     const sil = sily_.get(genId);
-    if(body.length < 4) continue;           // krátký cár nemá smysl kreslit
     const krivka = new THREE.CatmullRomCurve3(body);
-    const seg = Math.min(96, Math.max(8, body.length*2));
-    const geo = new THREE.TubeGeometry(krivka, seg, tl, rad, false);
-    // síla uzlu v době vypuštění → tenký pramínek při náběhu i doběhu
-    const sily = u => {
-      const i = Math.min(sil.length-1, Math.max(0, Math.round(u*(sil.length-1))));
-      return 0.25 + 0.75*sil[i];
-    };
-    tvaruj(geo, krivka, seg, rad, cas, sily);
+    const seg = Math.min(MAX_SEG, Math.max(8, body.length*2));
 
-    let m = jety[k];
-    if(!m){ m = new THREE.Mesh(geo, matVoda); jety.push(m); scene.add(m); }
-    else { m.geometry.dispose(); m.geometry = geo; }
-    m.visible = true;
-
-    // obrys: tatáž křivka, jen širší trubice kreslená zevnitř
-    const geoO = new THREE.TubeGeometry(krivka, seg, tl*OBRYS_RUST, rad, false);
-    tvaruj(geoO, krivka, seg, rad, cas, sily);
-    let o = obrysy[k];
-    if(!o){ o = new THREE.Mesh(geoO, matObrys); o.renderOrder = -1; obrysy.push(o); scene.add(o); }
-    else { o.geometry.dispose(); o.geometry = geoO; }
-    o.visible = true;
-
+    // změna počtu hran po obvodu = jiné indexy, takže trubici postavíme znovu
+    if(!jety[k] || jety[k].rad !== rad){
+      if(jety[k]){ jety[k].geo.dispose(); scene.remove(jety[k].m); }
+      if(obrysy[k]){ obrysy[k].geo.dispose(); scene.remove(obrysy[k].m); }
+      // POŘADÍ: obrys musí vzniknout dřív než voda a mít nižší renderOrder,
+      // jinak neprůhledný obrys překreslí průhlednou vodu (ta má depthWrite
+      // vypnutý, takže se sama nebrání) a z proudu zůstane tmavá trubka.
+      obrysy[k] = novaTrubice(rad, matObrys);
+      obrysy[k].m.renderOrder = -1;
+      jety[k] = novaTrubice(rad, matVoda);
+      jety[k].m.renderOrder = 0;
+    }
+    naplnTrubici(jety[k], krivka, seg, tl, cas, sil);
+    naplnTrubici(obrysy[k], krivka, seg, tl*OBRYS_RUST, cas, sil);
     k++;
   }
-  for(let i=k;i<jety.length;i++){ jety[i].visible = false; obrysy[i].visible = false; }
-}
-
-// Tvarování proudu. Bez tohohle je trubice tuhá jako prut — voda musí:
-//   1) PULZOVAT: poloměr se vlní podél délky a vlny putují od trysky pryč,
-//      takže je vidět, že se hmota pohybuje (dvě sinusovky s nesoudělnou
-//      frekvencí, aby se vzor neopakoval příliš zjevně)
-//   2) HADIT SE: osa se stranově vlní, jinak je proud podezřele rovný
-//   3) TŘÍŠTIT SE: konec se rozpadá — poslední pětina rychle ztrácí objem
-//      a dostává nepravidelnost, protože voda na doletu přestává držet tvar
-//
-// Všechno se počítá při přestavbě geometrie, takže to nestojí nic navíc.
-function tvaruj(geo, krivka, seg, rad, cas, sily){
-  const pos = geo.attributes.position;
-  for(let i=0;i<=seg;i++){
-    const u = i/seg;
-
-    // vlny putují od trysky pryč → záporné znaménko u času
-    const vlna = 1
-      + 0.20*Math.sin(u*15.0 - cas*11.0)
-      + 0.11*Math.sin(u*26.3 - cas*7.4)
-      + 0.07*Math.sin(u*41.7 - cas*17.1);
-
-    // zúžení po délce + rychlý rozpad na konci
-    const zuz  = 1 - 0.45*u*u;
-    const konec = u > 0.78 ? Math.max(0, 1 - (u-0.78)/0.22) : 1;
-    const trhani = u > 0.7 ? 1 + 0.35*Math.sin(u*70 - cas*23) * ((u-0.7)/0.3) : 1;
-
-    const k = zuz * vlna * konec * trhani * (sily ? sily(u) : 1);
-
-    // hadí pohyb osy — kolmo na směr letu
-    const stred = krivka.getPointAt(Math.min(1, u)).clone();
-    const tan = krivka.getTangentAt(Math.min(1, u));
-    const bok = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
-    const nahoru = new THREE.Vector3().crossVectors(tan, bok).normalize();
-    const amp = 7 * u;                           // u trysky nula, dál roste
-    stred.addScaledVector(bok,    Math.sin(u*9.0  - cas*8.5)*amp);
-    stred.addScaledVector(nahoru, Math.sin(u*11.7 - cas*6.2)*amp*0.6);
-
-    for(let j=0;j<=rad;j++){
-      const idx = i*(rad+1) + j;
-      const x = pos.getX(idx), y = pos.getY(idx), z = pos.getZ(idx);
-      // původní střed prstence je na křivce; posuneme prstenec i jeho poloměr
-      const p0 = krivka.getPointAt(Math.min(1, u));
-      pos.setXYZ(idx,
-        stred.x + (x-p0.x)*k,
-        stred.y + (y-p0.y)*k,
-        stred.z + (z-p0.z)*k);
-    }
+  for(let i=k;i<jety.length;i++){
+    if(jety[i]) jety[i].m.visible = false;
+    if(obrysy[i]) obrysy[i].m.visible = false;
   }
-  pos.needsUpdate = true;
-  geo.computeVertexNormals();
 }
 
 // ---- kapky ---------------------------------------------------------------
