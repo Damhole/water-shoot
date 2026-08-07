@@ -96,11 +96,11 @@ scene.background = new THREE.Color('#101c2b');
 scene.fog = new THREE.Fog('#101c2b', 900, 2600);
 
 const camera = new THREE.PerspectiveCamera(55, 1, 1, 5000);
-// Kamera míří na STŘED polic (ty jsou v 150–510), ne pod ně. Původně se dívala
-// na výšku 150, takže zátiší vyjelo k hornímu okraji a dole zbývala prázdná
-// plocha. Zároveň je dál, aby byl vidět celý bar i kus podlahy pod ním.
-camera.position.set(0, 330, 980);
-camera.lookAt(0, 300, -520);
+// Kamera zůstává tam, kde byla u koulí — v téhle poloze se tryska chová
+// nejlíp (dostřik i oblouk sedí). Zátiší se místo toho posadilo níž, viz
+// POLICE_Y, aby padlo do jejího záběru.
+camera.position.set(0, 210, 560);
+camera.lookAt(0, 150, -400);
 
 scene.add(new THREE.AmbientLight(0x7f9fc0, 0.9));
 const slunce = new THREE.DirectionalLight(0xffffff, 1.15);
@@ -131,8 +131,11 @@ toonGrad.needsUpdate = true;
 // (LatheGeometry) ze stejného profilu, jaký používá 2D verze — díky tomu je
 // srovnání férové a případný přechod by nevyžadoval nové modely.
 const POLIC = 3;
-const POLICE_Y = [150, 330, 510];
-const POLICE_Z = -520;
+// Výšky odpovídají tomu, kam se kamera dívá (150) — původních 150/330/510
+// mířilo nad její záběr, takže zátiší vyjelo nahoru a proud na horní polici
+// ani nedostříkl.
+const POLICE_Y = [60, 190, 320];
+const POLICE_Z = -560;
 const POLICE_HW = 620;
 const LAHVI_NA_POLICI = 7;
 
