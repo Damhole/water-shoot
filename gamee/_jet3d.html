@@ -615,7 +615,13 @@ function postavJet(cas){
     if(body.length < 4) continue;
     const sil = sily_.get(genId);
     const krivka = new THREE.CatmullRomCurve3(body);
-    const seg = Math.min(MAX_SEG, Math.max(8, body.length*2));
+    // Segmentů VŽDY stejně, nezávisle na počtu uzlů. Dřív se odvozovaly od
+    // délky proudu, jenže UV se počítá jako i/seg — každá změna počtu uzlů
+    // tedy posunula texturu a ta viditelně skočila. Při nízkém FPS kolísá
+    // počet uzlů víc, proto to bylo znát hlavně tam a vypadalo to, jako by
+    // se snižovala kvalita vykreslování.
+    // Geometrie je předalokovaná na MAX_SEG, takže to nic nestojí navíc.
+    const seg = MAX_SEG;
 
     // změna počtu hran po obvodu = jiné indexy, takže trubici postavíme znovu
     if(!jety[k] || jety[k].rad !== rad){
