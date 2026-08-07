@@ -391,9 +391,7 @@ function novaTrubice(rad, material){
   geo.setAttribute('position', pos);
   geo.setAttribute('normal', nor);
   geo.setAttribute('uv', uv);
-  for(let i=0;i<=MAX_SEG;i++)
-    for(let j=0;j<=rad;j++)
-      uv.setXY(i*(rad+1)+j, i/MAX_SEG, j/rad);
+  uv.setUsage(THREE.DynamicDrawUsage);   // u závisí na délce proudu, viz naplnTrubici
   const idx = [];
   for(let i=0;i<MAX_SEG;i++)
     for(let j=0;j<rad;j++){
@@ -413,6 +411,10 @@ const _N = new THREE.Vector3(), _B = new THREE.Vector3();
 function naplnTrubici(t, krivka, seg, tl, cas, sil){
   const rad = t.rad;
   const pos = t.geo.attributes.position, nor = t.geo.attributes.normal;
+  const uv = t.geo.attributes.uv;
+  // UV se MUSÍ počítat z aktuálního seg, ne z MAX_SEG. Napevno nastavené UV
+  // přes maximum znamenalo, že se u krátkého proudu vešel na jeho délku jen
+  // zlomek textury — a ten vyšel jako jednolitá modrá bez jediného pruhu.
   const frames = krivka.computeFrenetFrames(seg, false);
   for(let i=0;i<=seg;i++){
     const u = i/seg;
@@ -439,9 +441,10 @@ function naplnTrubici(t, krivka, seg, tl, cas, sil){
       const k = i*(rad+1)+j;
       pos.setXYZ(k, stred.x + ox + nx*r, stred.y + oy + ny*r, stred.z + oz + nz*r);
       nor.setXYZ(k, nx, ny, nz);
+      uv.setXY(k, u, j/rad);
     }
   }
-  pos.needsUpdate = true; nor.needsUpdate = true;
+  pos.needsUpdate = true; nor.needsUpdate = true; uv.needsUpdate = true;
   t.geo.setDrawRange(0, seg*rad*6);
   t.m.visible = true;
 }
