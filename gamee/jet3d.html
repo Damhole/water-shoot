@@ -96,8 +96,11 @@ scene.background = new THREE.Color('#101c2b');
 scene.fog = new THREE.Fog('#101c2b', 900, 2600);
 
 const camera = new THREE.PerspectiveCamera(55, 1, 1, 5000);
-camera.position.set(0, 210, 560);
-camera.lookAt(0, 150, -400);
+// Kamera míří na STŘED polic (ty jsou v 150–510), ne pod ně. Původně se dívala
+// na výšku 150, takže zátiší vyjelo k hornímu okraji a dole zbývala prázdná
+// plocha. Zároveň je dál, aby byl vidět celý bar i kus podlahy pod ním.
+camera.position.set(0, 330, 980);
+camera.lookAt(0, 300, -520);
 
 scene.add(new THREE.AmbientLight(0x7f9fc0, 0.9));
 const slunce = new THREE.DirectionalLight(0xffffff, 1.15);
