@@ -122,10 +122,25 @@ const terce = [];
 const TERC_R = 46;
 const TERC_HP = 26;
 
+// Cel-shading stejně jako v ballon-belt: MeshToonMaterial s třípásmovým
+// gradientem (120/200/255) místo hladkého přechodu. NearestFilter je nutný —
+// s lineárním by se pásma rozmazala zpátky do gradientu a celý smysl by padl.
+const toonGrad = new THREE.DataTexture(new Uint8Array([120, 200, 255]), 3, 1, THREE.RedFormat);
+toonGrad.minFilter = THREE.NearestFilter;
+toonGrad.magFilter = THREE.NearestFilter;
+toonGrad.generateMipmaps = false;
+toonGrad.needsUpdate = true;
+
+// Obrys metodou inverted hull: tatáž koule zevnitř, o kus větší, černá.
+const matTercObrys = new THREE.MeshBasicMaterial({ color: 0x14161c, side: THREE.BackSide, fog: false });
+const geoTerc = new THREE.SphereGeometry(TERC_R, 20, 14);
+
 function novyTerc(i){
-  const t = new THREE.Mesh(
-    new THREE.SphereGeometry(TERC_R, 20, 14),
-    new THREE.MeshLambertMaterial({ color:[0xffd34d,0xff9b4d,0x7ce8a0][i%3] }));
+  const t = new THREE.Mesh(geoTerc,
+    new THREE.MeshToonMaterial({ color:[0xffd34d,0xff9b4d,0x7ce8a0][i%3], gradientMap: toonGrad }));
+  const obrys = new THREE.Mesh(geoTerc, matTercObrys);
+  obrys.scale.setScalar(1.09);
+  t.add(obrys);
   t.userData = {
     zaklX: -620 + i*205,
     zaklY: 150 + (i%3)*120,
