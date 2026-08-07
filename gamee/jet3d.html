@@ -331,6 +331,12 @@ function krokProudu(dt, cil, strikaJe){
     while(emitAkumulator >= 1){
       emitAkumulator -= 1;
       const v = rychlostNaCil(cil.x, cil.y, cil.z);
+      // Síla musí ovlivnit RYCHLOST, ne jen tloušťku. Jinak proud od první
+      // chvíle doletí přesně k zaměřovači a jen se ztenčí — což vypadá, jako
+      // by tryska naskočila naráz. Se slabší rychlostí voda nedoletí a dostřik
+      // se postupně prodlužuje, přesně jako ve 2D verzi. Totéž při puštění:
+      // proud se zkracuje, ne že by daleko stříkal tenčeji.
+      v.multiplyScalar(0.30 + 0.70*sila);
       // drobný rozptyl, ať proud není matematicky dokonalý
       v.x += (Math.random()-0.5)*40;
       v.y += (Math.random()-0.5)*40;
