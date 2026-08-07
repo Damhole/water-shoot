@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
+<title>Golden Ducks — prototyp 3D trysky</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<style>
+  html,body{margin:0;height:100%;background:#0d1520;overflow:hidden;
+    font:13px/1.4 -apple-system,system-ui,Arial,sans-serif;color:#cfe0f5;
+    -webkit-user-select:none;user-select:none;touch-action:none}
+  canvas{display:block;width:100%;height:100%}
+  #cog{position:fixed;left:10px;top:10px;width:38px;height:38px;border:0;
+    border-radius:50%;background:rgba(8,14,24,.8);color:#cfe0f5;font-size:19px;
+    cursor:pointer;z-index:3;-webkit-tap-highlight-color:transparent}
+  #cog:active{transform:translateY(1px)}
+  #hud{position:fixed;left:10px;top:56px;background:rgba(8,14,24,.86);
+    padding:10px 12px;border-radius:9px;min-width:210px;z-index:2}
+  #hud[hidden]{display:none}
+  #hud .btn{margin-top:9px;width:100%;padding:7px;border-radius:7px;
+    background:rgba(255,255,255,.12);color:#cfe0f5;border:1px solid rgba(207,224,255,.3);
+    font:inherit;font-size:12px;cursor:pointer}
+  #hud b{color:#8fd0ff}
+  #hud label{display:block;margin:7px 0 2px;color:#9fb4cc;font-size:11px}
+  #hud input[type=range]{width:100%}
+  .row{display:flex;gap:10px;justify-content:space-between}
+  #note{position:fixed;left:10px;bottom:10px;right:10px;color:#7f93aa;font-size:11px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="cog" aria-label="nastavení">⚙</button>
+<div id="hud" hidden>
+  <div class="row"><span>FPS</span><b id="fps">–</b></div>
+  <div class="row"><span>trojúhelníků</span><b id="tris">–</b></div>
+  <div class="row"><span>draw calls</span><b id="calls">–</b></div>
+  <div class="row"><span>uzlů v letu</span><b id="uzlu">–</b></div>
+  <div class="row"><span>proudů ve vzduchu</span><b id="gen">–</b></div>
+  <div class="row"><span>kapek</span><b id="kap">–</b></div>
+  <div class="row"><span>SKÓRE</span><b id="skore">0</b></div>
+  <label>hran po obvodu <span id="vRad"></span></label>
+  <input type="range" id="rad" min="3" max="16" step="1" value="8">
+  <label>poloměr proudu <span id="vTl"></span></label>
+  <input type="range" id="tl" min="2" max="26" step="1" value="9">
+  <label>rychlost toku <span id="vSp"></span></label>
+  <input type="range" id="sp" min="0" max="12" step="0.25" value="5">
+  <button class="btn" id="reset">↺ výchozí hodnoty</button>
+</div>
+<div id="note">Táhni prstem/myší = miř. Proud je JEDNA trubice podél balistické dráhy,
+žádné částice. Uzly ale letí KAŽDÝ SVOU drahou, takže při pohybu se proud ohne
+a odtrhne. Pusť tlačítko (nebo mezerník) a proud doletí sám. Koule jdou sestřelit.</div>
+
+<script type="importmap">
+{ "imports": { "three": "./lib/three.module.min.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+// ---------------------------------------------------------------------------
+// Prototyp 3D trysky. Cíl: ověřit, že proud vody NEMUSÍ stát na částicích.
+// Místo tisíců bodů je to jedna trubice vygenerovaná podél balistické dráhy;
+// dojem tekoucí vody dělá posouvání textury po jejím povrchu.
+//
+// Balistika je schválně stejná jako ve hře (viz game.js): vodorovná rychlost
+// je konstantní, svislá se mění gravitací. Díky tomu je porovnání férové.
+// ---------------------------------------------------------------------------
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#101c2b');
+scene.fog = new THREE.Fog('#101c2b', 900, 2600);
+
+const camera = new THREE.PerspectiveCamera(55, 1, 1, 5000);
+camera.position.set(0, 210, 560);
+camera.lookAt(0, 150, -400);
+
+scene.add(new THREE.AmbientLight(0x7f9fc0, 0.9));
+const slunce = new THREE.DirectionalLight(0xffffff, 1.15);
+slunce.position.set(-300, 600, 400);
+scene.add(slunce);
+
+// podlaha a zadní stěna, ať je vidět hloubka a kam proud dopadá
+const podlaha = new THREE.Mesh(
+  new THREE.PlaneGeometry(3000, 3000),
+  new THREE.MeshLambertMaterial({ color:0x1b2f45 }));
+podlaha.rotation.x = -Math.PI/2;
+scene.add(podlaha);
+
+const stena = new THREE.Mesh(
+  new THREE.PlaneGeometry(3000, 1200),
+  new THREE.MeshLambertMaterial({ color:0x24405c }));
+stena.position.set(0, 600, -1200);
+scene.add(stena);
+
+// ---- terče k sestřelování -------------------------------------------------
+// Zásah se testuje proti UZLŮM proudu, ne proti nějakému paprsku: uzel má
+// polohu i rychlost, takže je to totéž, co dělá 2D verze s částicemi, jen je
+// jich řádově míň. Terč má výdrž, aby šlo poznat, že na něj proud působí.
+const terce = [];
+const TERC_R = 46;
+const TERC_HP = 26;
+
+function novyTerc(i){
+  const t = new THREE.Mesh(
+    new THREE.SphereGeometry(TERC_R, 20, 14),
+    new THREE.MeshLambertMaterial({ color:[0xffd34d,0xff9b4d,0x7ce8a0][i%3] }));
+  t.userData = {
+    zaklX: -620 + i*205,
+    zaklY: 150 + (i%3)*120,
+    z: -420 - (i%4)*220,
+    hp: TERC_HP, i, mrtvy: 0, zasah: 0,
+  };
+  t.position.set(t.userData.zaklX, t.userData.zaklY, t.userData.z);
+  scene.add(t);
+  return t;
+}
+for(let i=0;i<7;i++) terce.push(novyTerc(i));
+
+let skore = 0;
+
+function zasahyTercu(dt){
+  for(const t of terce){
+    const d = t.userData;
+    if(d.hp <= 0){
+      // sestřelený: chvíli pryč, pak se vrátí, ať je pořád na co mířit
+      d.mrtvy -= dt;
+      if(d.mrtvy <= 0){ d.hp = TERC_HP; t.visible = true; t.scale.setScalar(1); }
+      continue;
+    }
+    if(d.zasah > 0) d.zasah -= dt;
+
+    for(const u of uzly){
+      const dx = u.p.x - t.position.x, dy = u.p.y - t.position.y, dz = u.p.z - t.position.z;
+      if(dx*dx + dy*dy + dz*dz > (TERC_R+10)*(TERC_R+10)) continue;
+      d.hp -= 1;
+      d.zasah = 0.12;
+      // Rozprsk od povrchu koule: normála je směr ze středu k místu dopadu.
+      // Kroužek se tu nehodí — na kulaté ploše vypadá jako nálepka, kdežto
+      // rozstřik je to, co voda na tvrdém povrchu skutečně dělá.
+      if(Math.random() < 0.55){
+        const n = new THREE.Vector3(dx, dy, dz).normalize();
+        const bod = new THREE.Vector3(
+          t.position.x + n.x*TERC_R, t.position.y + n.y*TERC_R, t.position.z + n.z*TERC_R);
+        rozprsk(bod, n, u.v, 5 + (Math.random()*5|0));
+      }
+      if(d.hp <= 0){
+        skore += 100;
+        d.mrtvy = 1.6;
+        t.visible = false;
+        // sestřelený terč se rozletí na všechny strany
+        for(let k=0;k<22;k++){
+          const a = Math.random()*Math.PI*2, b = Math.acos(2*Math.random()-1);
+          pustKapku({ p: t.position, v: new THREE.Vector3(
+            Math.sin(b)*Math.cos(a), Math.abs(Math.cos(b))*0.9 + 0.3, Math.sin(b)*Math.sin(a)
+          ).multiplyScalar(320 + Math.random()*280) });
+        }
+        break;
+      }
+    }
+    // zásah je vidět: terč se scvrkne a zablikne
+    const s = 1 - 0.35*(1 - d.hp/TERC_HP) + (d.zasah > 0 ? 0.10 : 0);
+    t.scale.setScalar(s);
+  }
+}
+
+// ---- textura vody: pruhy, které se posouvají po délce trubice -------------
+// Levnější než cokoli jiného: 8×64 px, opakuje se a jen se jí hýbe offsetem.
+// Textura dělá čitelnost toku. Musí mít OSTRÉ světlé pruhy — měkký gradient
+// se při pohybu ztratí a proud pak vypadá staticky. Pruhy jsou různě široké
+// a nepravidelně rozmístěné, aby se vzor při opakování nepráskal do očí.
+function texturaVody(){
+  // Textura je ŠIROKÁ a nízká: u TubeGeometry jde 'u' (osa X textury) podél
+  // trubice, takže pruh musí být SVISLÝ — pak se na trubici namapuje jako
+  // prstenec kolmý na tok. S vodorovnými pruhy to vypadalo jako pruhovaná
+  // hadice, protože každý pruh běžel po délce.
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 8;
+  const g = c.getContext('2d');
+  g.fillStyle = '#4aa9dd';
+  g.fillRect(0, 0, 128, 8);
+  // ŠIROKÉ BÍLÉ SHLUKY — to, čím se voda kreslí v anime a kresleném filmu:
+  // kromě tenkých linek po ní občas putuje výrazná bílá část, která proud
+  // „doplňuje". Jsou jen dva na celou výšku textury, takže projdou zřídka
+  // a jsou tím pádem vidět jako událost, ne jako vzor.
+  // OSTRÉ okraje: plochý bílý střed a strmý spád jen na krajních 15 %.
+  // S měkkým gradientem přes celou šířku se shluk rozmazal do mlhy a ztratil
+  // se v barvě proudu — ostrá hrana je to, co ho dělá čitelným.
+  for(const [x, w] of [[30, 12]]){
+    const grd = g.createLinearGradient(x-w, 0, x+w, 0);
+    grd.addColorStop(0.00, 'rgba(255,255,255,0)');
+    grd.addColorStop(0.15, 'rgba(255,255,255,1)');
+    grd.addColorStop(0.85, 'rgba(255,255,255,1)');
+    grd.addColorStop(1.00, 'rgba(255,255,255,0)');
+    g.fillStyle = grd;
+    g.fillRect(x-w, 0, w*2, 8);
+  }
+  // tenké linky mezi nimi, aby proud nebyl jen dva bloky
+  const pruhy = [[64,0.45],[76,0.3],[100,0.5],[112,0.35]];
+  for(const [x, a] of pruhy){
+    const w = 2 + (a > 0.7 ? 2 : 1);
+    const grd = g.createLinearGradient(x-w, 0, x+w, 0);
+    grd.addColorStop(0.00, 'rgba(255,255,255,0)');
+    grd.addColorStop(0.22, 'rgba(238,250,255,' + a + ')');
+    grd.addColorStop(0.78, 'rgba(238,250,255,' + a + ')');
+    grd.addColorStop(1.00, 'rgba(255,255,255,0)');
+    g.fillStyle = grd;
+    g.fillRect(x-w, 0, w*2, 8);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  // Bez tohohle GPU texturu při zmenšení rozmaže mipmapami a ostré hrany,
+  // které jsme právě nakreslili, se ztratí.
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.anisotropy = 4;
+  return t;
+}
+const texVoda = texturaVody();
+
+const matVoda = new THREE.MeshLambertMaterial({
+  map: texVoda, transparent: true, opacity: 0.94,
+  emissive: 0x2a6f96, emissiveIntensity: 0.75,   // ať světlé pruhy svítí
+  depthWrite: false,
+});
+
+// Obrys: tmavá trubice o kus širší, kreslená ZEVNITŘ (BackSide), takže je vidět
+// jen tam, kde přesahuje světlou. Stejný princip jako silueta u 3D lahví.
+// NEprůhledný záměrně: průhledné objekty Three.js řadí podle vzdálenosti a obrys
+// se pak kreslil PŘES vodu místo pod ni. Takhle jde do neprůhledného průchodu
+// a voda se vykreslí až na něj.
+const matObrys = new THREE.MeshBasicMaterial({
+  color: 0x123a52, side: THREE.BackSide,
+});
+const OBRYS_RUST = 1.22;
+
+let jet = null;                       // mesh trubice
+let jetGeo = null;
+
+// ---- proud jako LETÍCÍ UZLY, ne dráha k cíli ------------------------------
+// Tohle je jádro věci. Původně se trubice generovala z aktuální dráhy k cíli,
+// takže při pohybu zaměřovačem se CELÝ proud okamžitě přesunul — neměl žádnou
+// paměť a působil jako tuhý prut, který jen pulzuje.
+//
+// Ve skutečnosti (a ve 2D verzi hry) každá kapka letí SVOU vlastní drahou.
+// Když hráč mírí jinam, staré kapky pokračují tam, kam byly vypuštěny, a proud
+// se za letu ohne a odtrhne. Proto se tu z ústí vypouštějí uzly, které si dál
+// letí samy, a trubice se generuje AŽ Z NICH.
+const G = 1500;
+const USTI = new THREE.Vector3(0, 60, 420);
+const EMIT_ZA_S = 90;          // kolik uzlů za sekundu
+const ZIVOT = 1.15;            // jak dlouho uzel letí, než zmizí
+
+const uzly = [];               // od nejstaršího (nejdál) po nejnovější (u ústí)
+let emitAkumulator = 0;
+// GENERACE odděluje jednotlivá stisknutí. Bez ní by se při novém stisknutí
+// natáhla trubice od ústí až ke starému, ještě letícímu konci — proud by se
+// „přilepil" k něčemu, co už dávno odletělo. Stejnou pojistku má stuha ve 2D.
+let generace = 0;
+let strikaloMinule = false;
+
+// Počáteční rychlost tak, aby uzel doletěl na cíl — stejný výpočet jako dřív,
+// jen se teď použije JEDNOU při vypuštění, ne na celou dráhu každý snímek.
+function rychlostNaCil(cilX, cilY, cilZ){
+  const dx = cilX - USTI.x, dy = cilY - USTI.y, dz = cilZ - USTI.z;
+  const vodorovne = Math.hypot(dx, dz) || 1;
+  const t = vodorovne / 1500;
+  return new THREE.Vector3(dx/t, (dy + 0.5*G*t*t)/t, dz/t);
+}
+
+function krokProudu(dt, cil, strikaJe){
+  // posun všech uzlů po jejich vlastní dráze
+  for(const u of uzly){
+    u.t += dt;
+    u.v.y -= G*dt;
+    u.p.addScaledVector(u.v, dt);
+  }
+  // dopad na podlahu — efekt a konec uzlu
+  for(let i=uzly.length-1;i>=0;i--){
+    if(uzly[i].p.y <= 4){ dopadNaZem(uzly[i]); uzly.splice(i,1); }
+  }
+  while(uzly.length && uzly[0].t > ZIVOT) uzly.shift();
+
+  // Občas se od proudu odtrhne kapka. Čím dál od ústí, tím spíš — voda na
+  // doletu přestává držet pohromadě, takže se tříští právě tam.
+  for(const u of uzly){
+    if(Math.random() < dt * 2.2 * (u.t/ZIVOT)) pustKapku(u);
+  }
+
+  // nový stisk = nová generace, která se se starou nikdy nespojí
+  if(strikaJe && !strikaloMinule) generace++;
+  strikaloMinule = strikaJe;
+
+  if(strikaJe){
+    emitAkumulator += EMIT_ZA_S*dt;
+    while(emitAkumulator >= 1){
+      emitAkumulator -= 1;
+      const v = rychlostNaCil(cil.x, cil.y, cil.z);
+      // drobný rozptyl, ať proud není matematicky dokonalý
+      v.x += (Math.random()-0.5)*40;
+      v.y += (Math.random()-0.5)*40;
+      uzly.push({ p: USTI.clone(), v, t: 0, gen: generace });
+    }
+  }
+}
+
+// Pro každou generaci vlastní trubice. Meshe se recyklují, ať se každý snímek
+// nealokují nové — scéna si drží pool a nepoužité jen schová.
+const jety = [];
+const obrysy = [];
+
+function postavJet(cas){
+  const rad = +document.getElementById('rad').value;
+  const tl  = +document.getElementById('tl').value;
+
+  // uzly rozdělit po generacích, uvnitř od ústí ven (nejnovější první)
+  const skupiny = new Map();
+  for(let i=uzly.length-1;i>=0;i--){
+    const u = uzly[i];
+    let g = skupiny.get(u.gen);
+    if(!g){ g = []; skupiny.set(u.gen, g); }
+    g.push(u.p);
+  }
+
+  let k = 0;
+  for(const body of skupiny.values()){
+    if(body.length < 4) continue;           // krátký cár nemá smysl kreslit
+    const krivka = new THREE.CatmullRomCurve3(body);
+    const seg = Math.min(96, Math.max(8, body.length*2));
+    const geo = new THREE.TubeGeometry(krivka, seg, tl, rad, false);
+    tvaruj(geo, krivka, seg, rad, cas);
+
+    let m = jety[k];
+    if(!m){ m = new THREE.Mesh(geo, matVoda); jety.push(m); scene.add(m); }
+    else { m.geometry.dispose(); m.geometry = geo; }
+    m.visible = true;
+
+    // obrys: tatáž křivka, jen širší trubice kreslená zevnitř
+    const geoO = new THREE.TubeGeometry(krivka, seg, tl*OBRYS_RUST, rad, false);
+    tvaruj(geoO, krivka, seg, rad, cas);
+    let o = obrysy[k];
+    if(!o){ o = new THREE.Mesh(geoO, matObrys); o.renderOrder = -1; obrysy.push(o); scene.add(o); }
+    else { o.geometry.dispose(); o.geometry = geoO; }
+    o.visible = true;
+
+    k++;
+  }
+  for(let i=k;i<jety.length;i++){ jety[i].visible = false; obrysy[i].visible = false; }
+}
+
+// Tvarování proudu. Bez tohohle je trubice tuhá jako prut — voda musí:
+//   1) PULZOVAT: poloměr se vlní podél délky a vlny putují od trysky pryč,
+//      takže je vidět, že se hmota pohybuje (dvě sinusovky s nesoudělnou
+//      frekvencí, aby se vzor neopakoval příliš zjevně)
+//   2) HADIT SE: osa se stranově vlní, jinak je proud podezřele rovný
+//   3) TŘÍŠTIT SE: konec se rozpadá — poslední pětina rychle ztrácí objem
+//      a dostává nepravidelnost, protože voda na doletu přestává držet tvar
+//
+// Všechno se počítá při přestavbě geometrie, takže to nestojí nic navíc.
+function tvaruj(geo, krivka, seg, rad, cas){
+  const pos = geo.attributes.position;
+  for(let i=0;i<=seg;i++){
+    const u = i/seg;
+
+    // vlny putují od trysky pryč → záporné znaménko u času
+    const vlna = 1
+      + 0.20*Math.sin(u*15.0 - cas*11.0)
+      + 0.11*Math.sin(u*26.3 - cas*7.4)
+      + 0.07*Math.sin(u*41.7 - cas*17.1);
+
+    // zúžení po délce + rychlý rozpad na konci
+    const zuz  = 1 - 0.45*u*u;
+    const konec = u > 0.78 ? Math.max(0, 1 - (u-0.78)/0.22) : 1;
+    const trhani = u > 0.7 ? 1 + 0.35*Math.sin(u*70 - cas*23) * ((u-0.7)/0.3) : 1;
+
+    const k = zuz * vlna * konec * trhani;
+
+    // hadí pohyb osy — kolmo na směr letu
+    const stred = krivka.getPointAt(Math.min(1, u)).clone();
+    const tan = krivka.getTangentAt(Math.min(1, u));
+    const bok = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+    const nahoru = new THREE.Vector3().crossVectors(tan, bok).normalize();
+    const amp = 7 * u;                           // u trysky nula, dál roste
+    stred.addScaledVector(bok,    Math.sin(u*9.0  - cas*8.5)*amp);
+    stred.addScaledVector(nahoru, Math.sin(u*11.7 - cas*6.2)*amp*0.6);
+
+    for(let j=0;j<=rad;j++){
+      const idx = i*(rad+1) + j;
+      const x = pos.getX(idx), y = pos.getY(idx), z = pos.getZ(idx);
+      // původní střed prstence je na křivce; posuneme prstenec i jeho poloměr
+      const p0 = krivka.getPointAt(Math.min(1, u));
+      pos.setXYZ(idx,
+        stred.x + (x-p0.x)*k,
+        stred.y + (y-p0.y)*k,
+        stred.z + (z-p0.z)*k);
+    }
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+}
+
+// ---- kapky ---------------------------------------------------------------
+// Jednotlivé kapky, které se od proudu odtrhnou. Nejsou to „částice" v tom
+// smyslu, že by na nich stál proud — je jich řádově desítky a jsou jen ozdoba.
+// Kreslí se jako JEDEN objekt Points, takže je to jeden draw call bez ohledu
+// na jejich počet.
+const KAPEK_MAX = 220;
+const kapkyPos = new Float32Array(KAPEK_MAX*3);
+const kapky = [];
+for(let i=0;i<KAPEK_MAX;i++) kapky.push({ ziva:false, x:0, y:0, z:0, vx:0, vy:0, vz:0, t:0, zivot:0 });
+
+function texturaKapky(){
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(16, 13, 1, 16, 16, 15);
+  grd.addColorStop(0.0, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.4, 'rgba(196,236,255,0.95)');
+  grd.addColorStop(1.0, 'rgba(120,200,240,0)');
+  g.fillStyle = grd;
+  g.beginPath(); g.arc(16,16,15,0,Math.PI*2); g.fill();
+  return new THREE.CanvasTexture(c);
+}
+
+const kapkyGeo = new THREE.BufferGeometry();
+kapkyGeo.setAttribute('position', new THREE.BufferAttribute(kapkyPos, 3));
+const texKapka = texturaKapky();
+const kapkyMesh = new THREE.Points(kapkyGeo, new THREE.PointsMaterial({
+  size: 16, map: texKapka, transparent: true, depthWrite: false,
+  sizeAttenuation: true, opacity: 0.95,
+}));
+scene.add(kapkyMesh);
+
+// DROBNÉ kapičky pro odraz od objektu. PointsMaterial neumí velikost per bod,
+// takže je to druhý objekt s menší velikostí — pořád jeden draw call.
+// Náraz do koule nemá vypadat jako výbuch, ale jako sprška, co se od ní odrazí.
+const DROBNYCH_MAX = 420;
+const drobnePos = new Float32Array(DROBNYCH_MAX*3);
+const drobne = [];
+for(let i=0;i<DROBNYCH_MAX;i++) drobne.push({ ziva:false, x:0,y:0,z:0, vx:0,vy:0,vz:0, t:0, zivot:0 });
+const drobneGeo = new THREE.BufferGeometry();
+drobneGeo.setAttribute('position', new THREE.BufferAttribute(drobnePos, 3));
+scene.add(new THREE.Points(drobneGeo, new THREE.PointsMaterial({
+  size: 6, map: texKapka, transparent: true, depthWrite: false,
+  sizeAttenuation: true, opacity: 0.85,
+})));
+
+function pustDrobnou(x, y, z, vx, vy, vz){
+  for(const k of drobne){
+    if(k.ziva) continue;
+    k.ziva = true; k.t = 0; k.zivot = 0.28 + Math.random()*0.35;
+    k.x = x; k.y = y; k.z = z; k.vx = vx; k.vy = vy; k.vz = vz;
+    return;
+  }
+}
+
+function krokDrobnych(dt){
+  let n = 0;
+  for(const k of drobne){
+    if(!k.ziva) continue;
+    k.t += dt; k.vy -= G*dt;
+    k.x += k.vx*dt; k.y += k.vy*dt; k.z += k.vz*dt;
+    if(k.t > k.zivot || k.y < 2){ k.ziva = false; continue; }
+    drobnePos[n*3] = k.x; drobnePos[n*3+1] = k.y; drobnePos[n*3+2] = k.z;
+    n++;
+  }
+  drobneGeo.setDrawRange(0, n);
+  drobneGeo.attributes.position.needsUpdate = true;
+  return n;
+}
+
+function pustKapku(u){
+  for(const k of kapky){
+    if(k.ziva) continue;
+    k.ziva = true; k.t = 0; k.zivot = 0.5 + Math.random()*0.7;
+    k.x = u.p.x; k.y = u.p.y; k.z = u.p.z;
+    // kapka si nese rychlost uzlu a k tomu rozstřik do stran
+    k.vx = u.v.x*0.85 + (Math.random()-0.5)*260;
+    k.vy = u.v.y*0.85 + (Math.random()-0.5)*200;
+    k.vz = u.v.z*0.85 + (Math.random()-0.5)*260;
+    return;
+  }
+}
+
+function krokKapek(dt){
+  let n = 0;
+  for(const k of kapky){
+    if(!k.ziva) continue;
+    k.t += dt;
+    k.vy -= G*dt;
+    k.x += k.vx*dt; k.y += k.vy*dt; k.z += k.vz*dt;
+    if(k.t > k.zivot || k.y < 2){ k.ziva = false; continue; }
+    kapkyPos[n*3] = k.x; kapkyPos[n*3+1] = k.y; kapkyPos[n*3+2] = k.z;
+    n++;
+  }
+  kapkyGeo.setDrawRange(0, n);
+  kapkyGeo.attributes.position.needsUpdate = true;
+  return n;
+}
+
+// ---- efekty dopadu -------------------------------------------------------
+// Kroužek, který se rozbíhá po ploše zásahu — to je to, co ve 2D verzi dělá
+// dopad čitelným. Kroužky jsou v poolu a leží v rovině plochy, do které proud
+// narazil, takže fungují na podlaze i na stěně.
+const KROUZKU = 26;
+const krouzky = [];
+const geoKrouzek = new THREE.RingGeometry(0.72, 1.0, 26);
+const matKrouzek = new THREE.MeshBasicMaterial({
+  color: 0xdff2ff, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+});
+for(let i=0;i<KROUZKU;i++){
+  const m = new THREE.Mesh(geoKrouzek, matKrouzek.clone());
+  m.visible = false;
+  scene.add(m);
+  krouzky.push({ m, t: 0, zivot: 0, max: 0 });
+}
+
+function krouzek(x, y, z, normala, velikost){
+  for(const k of krouzky){
+    if(k.zivot > 0) continue;
+    k.t = 0; k.zivot = 0.45; k.max = velikost;
+    k.m.position.set(x, y, z);
+    // otočit do roviny plochy
+    if(normala === 'up') k.m.rotation.set(-Math.PI/2, 0, 0);
+    else k.m.rotation.set(0, 0, 0);
+    k.m.visible = true;
+    k.m.scale.setScalar(velikost*0.25);
+    return;
+  }
+}
+
+function krokKrouzku(dt){
+  for(const k of krouzky){
+    if(k.zivot <= 0) continue;
+    k.t += dt;
+    if(k.t >= k.zivot){ k.zivot = 0; k.m.visible = false; continue; }
+    const u = k.t/k.zivot;
+    k.m.scale.setScalar(k.max*(0.25 + u*0.95));
+    k.m.material.opacity = 0.55*(1-u)*(1-u);   // jemnější, rychleji mizí
+  }
+}
+
+// Rozprsk od PEVNÉHO POVRCHU. Voda se od koule neodrazí dozadu jako míč —
+// rozstříkne se do VĚJÍŘE kolem normály, tedy do plochy kolmé na ni, a jen
+// zčásti se vrací proti proudu. Kapky si nesou část rychlosti proudu, takže
+// rozprsk má směr — jinak by to vypadalo jako výbuch na místě.
+function rozprsk(bod, normala, dopadRychlost, kolik){
+  // dvě osy kolmé na normálu = rovina, do které se voda rozlévá
+  const pom = Math.abs(normala.y) > 0.9
+    ? new THREE.Vector3(1,0,0) : new THREE.Vector3(0,1,0);
+  const t1 = new THREE.Vector3().crossVectors(normala, pom).normalize();
+  const t2 = new THREE.Vector3().crossVectors(normala, t1).normalize();
+  const v0 = dopadRychlost.length();
+  for(let i=0;i<kolik;i++){
+    const a = Math.random()*Math.PI*2;
+    // slabší než dřív: sprška, ne výbuch
+    const sila = v0*(0.10 + Math.random()*0.20);
+    const v = new THREE.Vector3()
+      .addScaledVector(t1, Math.cos(a)*sila)
+      .addScaledVector(t2, Math.sin(a)*sila)
+      .addScaledVector(normala, sila*(0.35 + Math.random()*0.5));
+    pustDrobnou(bod.x, bod.y, bod.z, v.x, v.y, v.z);
+  }
+}
+
+// Dopad uzlu na podlahu: kroužek + rozstřik do stran. Uzel tím končí, protože
+// voda po dopadu pokračovat nemá — dřív proud podlahou prolétl skrz.
+function dopadNaZem(u){
+  krouzek(u.p.x, 1.5, u.p.z, 'up', 34 + Math.random()*26);
+  const n = 3 + (Math.random()*4|0);
+  for(let i=0;i<n;i++){
+    const a = Math.random()*Math.PI*2;
+    const r = 120 + Math.random()*280;
+    pustKapku({ p: new THREE.Vector3(u.p.x, 6, u.p.z),
+                v: new THREE.Vector3(Math.cos(a)*r, 150 + Math.random()*280, Math.sin(a)*r) });
+  }
+}
+
+// ---- míření ---------------------------------------------------------------
+let cil = { x: 0, y: 260, z: -700 };
+function mir(sx, sy){
+  const nx = (sx/innerWidth)*2 - 1, ny = (sy/innerHeight)*2 - 1;
+  cil.x = nx*900;
+  cil.y = 420 - ny*380;
+  cil.z = -420 - (1-Math.abs(nx))*420;
+}
+let strika = true;             // drž = stříká, pusť = proud se odtrhne a doletí
+addEventListener('pointermove', e => mir(e.clientX, e.clientY));
+addEventListener('pointerdown', e => { mir(e.clientX, e.clientY); strika = true; });
+addEventListener('pointerup',   () => { strika = false; });
+addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
+
+// ---- panel nastavení: sbalovací a s pamětí -------------------------------
+// Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
+// přežijí reload, aby se doladěné nastavení neztrácelo.
+const ULOZ_KLIC = 'ws_jet3d_tune';
+const POSUVNIKY = ['rad','tl','sp'];
+
+function uloz(){
+  const o = {};
+  for(const id of POSUVNIKY) o[id] = document.getElementById(id).value;
+  o._panel = !document.getElementById('hud').hidden;
+  try{ localStorage.setItem(ULOZ_KLIC, JSON.stringify(o)); }catch(e){}
+}
+function nacti(){
+  try{
+    const o = JSON.parse(localStorage.getItem(ULOZ_KLIC) || 'null');
+    if(!o) return false;
+    for(const id of POSUVNIKY) if(o[id] !== undefined) document.getElementById(id).value = o[id];
+    document.getElementById('hud').hidden = !o._panel;
+    return true;
+  }catch(e){ return false; }
+}
+
+const cog = document.getElementById('cog');
+const hud = document.getElementById('hud');
+cog.addEventListener('click', e => { e.stopPropagation(); hud.hidden = !hud.hidden; uloz(); });
+// klik do panelu nesmí propadnout do míření pod ním
+hud.addEventListener('pointerdown', e => e.stopPropagation());
+hud.addEventListener('pointermove', e => e.stopPropagation());
+
+document.getElementById('reset').addEventListener('click', ()=>{
+  const vych = { rad:8, tl:9, sp:5 };
+  for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
+  obnovPopisky(); uloz();
+});
+
+for(const id of POSUVNIKY){
+  document.getElementById(id).addEventListener('input', ()=>{ obnovPopisky(); uloz(); });
+}
+if(nacti()) console.log('[jet3d] nastavení obnoveno');
+function obnovPopisky(){
+  vRad.textContent = rad.value;
+  vTl.textContent = tl.value;  vSp.textContent = sp.value;
+}
+obnovPopisky();
+
+// ---- smyčka ---------------------------------------------------------------
+function resize(){
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w/h; camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize); resize();
+
+let t0 = performance.now(), snimku = 0, fpsT = 0;
+function smycka(now){
+  requestAnimationFrame(smycka);
+  const dt = Math.min((now - t0)/1000, 0.05); t0 = now;
+
+  krokProudu(dt, cil, strika);
+  const kapekZivych = krokKapek(dt) + krokDrobnych(dt);
+  krokKrouzku(dt);
+  postavJet(now/1000);
+  // Tok = posouvání textury po délce. Tohle je celý „pohyb vody".
+  // U TubeGeometry jde 'u' PODÉL trubice a 'v' po obvodu. Vzor musí být tedy
+  // opakovaný a posouvaný v ose U — pruh při konstantním u je kružnice kolem
+  // obvodu, tedy prstenec kolmý na tok. Původně to bylo obráceně a pruhy běžely
+  // podélně, což vypadalo jako pruhovaná hadice, ne jako tekoucí voda.
+  // PULZ: v textuře je JEDEN výrazný bílý shluk a opakuje se jen 1,4× na délku
+  // proudu, takže projde celou délkou a chvíli není — voda tím „pulzuje" v rytmu
+  // místo aby po ní jelo souvislé pruhování. Rychlost je vztažená k délce
+  // proudu, ne k času, aby rytmus zůstal stejný při krátkém i dlouhém doletu.
+  texVoda.offset.x -= dt * (+document.getElementById('sp').value) * 0.30;
+  texVoda.repeat.set(1.4, 1);
+
+  zasahyTercu(dt);
+  for(const t of terce)
+    t.position.y = t.userData.zaklY + Math.sin(now/700 + t.userData.i)*22;
+
+  renderer.render(scene, camera);
+
+  snimku++; fpsT += dt;
+  if(fpsT >= 0.5){
+    document.getElementById('fps').textContent = Math.round(snimku/fpsT);
+    document.getElementById('tris').textContent = renderer.info.render.triangles;
+    document.getElementById('calls').textContent = renderer.info.render.calls;
+    document.getElementById('uzlu').textContent = uzly.length;
+    document.getElementById('gen').textContent = new Set(uzly.map(u=>u.gen)).size;
+    document.getElementById('kap').textContent = kapekZivych;
+    document.getElementById('skore').textContent = skore;
+    snimku = 0; fpsT = 0;
+  }
+}
+requestAnimationFrame(smycka);
+</script>
+</body>
+</html>
