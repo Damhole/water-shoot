@@ -74,6 +74,9 @@ a odtrhne. Pusť tlačítko (nebo mezerník) a proud doletí sám. Koule jdou se
 <script type="module">
 import * as THREE from 'three';
 
+// Prototyp nemá pomocné funkce z game.js, takže si je nese sám.
+const rand = (a, b) => a + Math.random()*(b - a);
+
 // ---------------------------------------------------------------------------
 // Prototyp 3D trysky. Cíl: ověřit, že proud vody NEMUSÍ stát na částicích.
 // Místo tisíců bodů je to jedna trubice vygenerovaná podél balistické dráhy;
@@ -114,93 +117,134 @@ const stena = new THREE.Mesh(
 stena.position.set(0, 600, -1200);
 scene.add(stena);
 
-// ---- terče k sestřelování -------------------------------------------------
-// Zásah se testuje proti UZLŮM proudu, ne proti nějakému paprsku: uzel má
-// polohu i rychlost, takže je to totéž, co dělá 2D verze s částicemi, jen je
-// jich řádově míň. Terč má výdrž, aby šlo poznat, že na něj proud působí.
-const terce = [];
-const TERC_R = 46;
-const TERC_HP = 26;
-
-// Cel-shading stejně jako v ballon-belt: MeshToonMaterial s třípásmovým
-// gradientem (120/200/255) místo hladkého přechodu. NearestFilter je nutný —
-// s lineárním by se pásma rozmazala zpátky do gradientu a celý smysl by padl.
 const toonGrad = new THREE.DataTexture(new Uint8Array([120, 200, 255]), 3, 1, THREE.RedFormat);
 toonGrad.minFilter = THREE.NearestFilter;
 toonGrad.magFilter = THREE.NearestFilter;
 toonGrad.generateMipmaps = false;
 toonGrad.needsUpdate = true;
 
-// Obrys metodou inverted hull: tatáž koule zevnitř, o kus větší, černá.
-const matTercObrys = new THREE.MeshBasicMaterial({ color: 0x14161c, side: THREE.BackSide, fog: false });
-const geoTerc = new THREE.SphereGeometry(TERC_R, 20, 14);
+// ---- zátiší: barové police s lahvemi --------------------------------------
+// Stejná scéna jako western mód, jen ve 3D. Lahve jsou rotační tělesa
+// (LatheGeometry) ze stejného profilu, jaký používá 2D verze — díky tomu je
+// srovnání férové a případný přechod by nevyžadoval nové modely.
+const POLIC = 3;
+const POLICE_Y = [150, 330, 510];
+const POLICE_Z = -520;
+const POLICE_HW = 620;
+const LAHVI_NA_POLICI = 7;
 
-function novyTerc(i){
-  const t = new THREE.Mesh(geoTerc,
-    new THREE.MeshToonMaterial({ color:[0xffd34d,0xff9b4d,0x7ce8a0][i%3], gradientMap: toonGrad }));
-  const obrys = new THREE.Mesh(geoTerc, matTercObrys);
-  obrys.scale.setScalar(1.09);
-  t.add(obrys);
-  t.userData = {
-    zaklX: -620 + i*205,
-    zaklY: 150 + (i%3)*120,
-    z: -420 - (i%4)*220,
-    hp: TERC_HP, i, mrtvy: 0, zasah: 0,
-  };
-  t.position.set(t.userData.zaklX, t.userData.zaklY, t.userData.z);
-  scene.add(t);
-  return t;
+// profil v jednotkách 0..1 (poloměr, výška) — převzatý z js/western.js
+const PROFIL_LAHEV = [
+  [0.00,0.00],[0.98,0.02],[1.00,0.10],[1.00,0.52],
+  [0.72,0.63],[0.34,0.72],[0.30,0.90],[0.36,0.96],[0.00,1.00],
+];
+const PROFIL_SKLENICE = [
+  [0.00,0.00],[0.86,0.03],[0.90,0.10],[1.00,0.92],[0.98,1.00],[0.00,1.00],
+];
+function lathe(profil, segmentu){
+  const body = profil.map(pr => new THREE.Vector2(pr[0], pr[1]));
+  return new THREE.LatheGeometry(body, segmentu);
 }
-for(let i=0;i<7;i++) terce.push(novyTerc(i));
+const GEO_LAHEV    = lathe(PROFIL_LAHEV, 14);
+const GEO_SKLENICE = lathe(PROFIL_SKLENICE, 14);
+
+const SKLA = [
+  { geo:GEO_LAHEV,    barva:0x4d7a3f, w:26, h:118 },
+  { geo:GEO_LAHEV,    barva:0x8a5f2c, w:27, h:126 },
+  { geo:GEO_LAHEV,    barva:0x3f5d7a, w:25, h:104 },
+  { geo:GEO_SKLENICE, barva:0xa8ccdd, w:26, h:52  },
+];
+
+// dřevo polic a zadní stěna baru
+const matDrevo = new THREE.MeshToonMaterial({ color: 0x7b5330, gradientMap: toonGrad });
+const matStena = new THREE.MeshToonMaterial({ color: 0x8a5c33, gradientMap: toonGrad });
+const matObrysTelo = new THREE.MeshBasicMaterial({ color: 0x14161c, side: THREE.BackSide, fog: false });
+
+(function postavBar(){
+  const stena = new THREE.Mesh(new THREE.BoxGeometry(1500, 900, 40), matStena);
+  stena.position.set(0, 380, POLICE_Z - 80);
+  scene.add(stena);
+  for(const y of POLICE_Y){
+    const deska = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matDrevo);
+    deska.position.set(0, y - 9, POLICE_Z);
+    scene.add(deska);
+    const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matObrysTelo);
+    o.scale.setScalar(1.02); o.position.copy(deska.position);
+    scene.add(o);
+  }
+})();
+
+const lahve = [];
+const HP_LAHVE = 14;
+
+function novaLahev(police, i){
+  const typ = SKLA[(Math.random()*SKLA.length)|0];
+  const m = new THREE.Mesh(typ.geo, new THREE.MeshToonMaterial({
+    color: typ.barva, gradientMap: toonGrad }));
+  m.scale.set(typ.w, typ.h, typ.w);
+  const obrys = new THREE.Mesh(typ.geo, matObrysTelo);
+  obrys.scale.setScalar(1.07);
+  m.add(obrys);
+  const x = -POLICE_HW*0.85 + (i + 0.5)*(POLICE_HW*1.7/LAHVI_NA_POLICI) + rand(-16, 16);
+  m.position.set(x, POLICE_Y[police], POLICE_Z + rand(-14, 14));
+  m.rotation.y = Math.random()*Math.PI*2;
+  scene.add(m);
+  return { m, typ, police, hp: HP_LAHVE, pada: false, vx:0, vy:0, vz:0, va:0, mrtva: 0 };
+}
+for(let p=0;p<POLIC;p++)
+  for(let i=0;i<LAHVI_NA_POLICI;i++) lahve.push(novaLahev(p, i));
 
 let skore = 0;
 
-function zasahyTercu(dt){
-  for(const t of terce){
-    const d = t.userData;
-    if(d.hp <= 0){
-      // sestřelený: chvíli pryč, pak se vrátí, ať je pořád na co mířit
-      d.mrtvy -= dt;
-      if(d.mrtvy <= 0){ d.hp = TERC_HP; t.visible = true; t.scale.setScalar(1); }
+function zasahyLahvi(dt){
+  for(const L of lahve){
+    if(L.mrtva > 0){                       // rozbitá — po chvíli se vrátí
+      L.mrtva -= dt;
+      if(L.mrtva <= 0){
+        L.hp = HP_LAHVE; L.pada = false;
+        L.m.visible = true; L.m.rotation.set(0, Math.random()*6.28, 0);
+        L.m.position.y = POLICE_Y[L.police];
+      }
       continue;
     }
-    if(d.zasah > 0) d.zasah -= dt;
-
-    for(const u of uzly){
-      const dx = u.p.x - t.position.x, dy = u.p.y - t.position.y, dz = u.p.z - t.position.z;
-      if(dx*dx + dy*dy + dz*dz > (TERC_R+10)*(TERC_R+10)) continue;
-      d.hp -= 1;
-      d.zasah = 0.12;
-      // Rozprsk od povrchu koule: normála je směr ze středu k místu dopadu.
-      // Kroužek se tu nehodí — na kulaté ploše vypadá jako nálepka, kdežto
-      // rozstřik je to, co voda na tvrdém povrchu skutečně dělá.
-      if(Math.random() < 0.55){
-        const n = new THREE.Vector3(dx, dy, dz).normalize();
-        const bod = new THREE.Vector3(
-          t.position.x + n.x*TERC_R, t.position.y + n.y*TERC_R, t.position.z + n.z*TERC_R);
-        rozprsk(bod, n, u.v, 5 + (Math.random()*5|0));
-      }
-      if(d.hp <= 0){
+    if(L.pada){
+      L.vy -= G*dt;
+      L.m.position.x += L.vx*dt; L.m.position.y += L.vy*dt; L.m.position.z += L.vz*dt;
+      L.m.rotation.z += L.va*dt;
+      if(L.m.position.y <= 6){             // dopad na zem — střepy a sprška
+        rozprsk(L.m.position, new THREE.Vector3(0,1,0), new THREE.Vector3(0, 420, 0), 16);
+        krouzek(L.m.position.x, 1.5, L.m.position.z, 'up', 40);
+        L.m.visible = false; L.mrtva = 2.2; L.pada = false;
         skore += 100;
-        d.mrtvy = 1.6;
-        t.visible = false;
-        // sestřelený terč se rozletí na všechny strany
-        for(let k=0;k<22;k++){
-          const a = Math.random()*Math.PI*2, b = Math.acos(2*Math.random()-1);
-          pustKapku({ p: t.position, v: new THREE.Vector3(
-            Math.sin(b)*Math.cos(a), Math.abs(Math.cos(b))*0.9 + 0.3, Math.sin(b)*Math.sin(a)
-          ).multiplyScalar(320 + Math.random()*280) });
-        }
-        break;
       }
+      continue;
     }
-    // zásah je vidět: terč se scvrkne a zablikne
-    const s = 1 - 0.35*(1 - d.hp/TERC_HP) + (d.zasah > 0 ? 0.10 : 0);
-    t.scale.setScalar(s);
+    // zásah proudem — stejný princip jako u terčů
+    for(const u of uzly){
+      const dx = u.p.x - L.m.position.x;
+      const dy = u.p.y - (L.m.position.y + L.typ.h*0.5);
+      const dz = u.p.z - L.m.position.z;
+      if(dx*dx + dz*dz > 40*40 || Math.abs(dy) > L.typ.h*0.6) continue;
+      L.hp -= 1;
+      // proud lahví viditelně kýve, než ji shodí
+      L.m.rotation.z += (u.v.x > 0 ? 1 : -1) * 0.012;
+      if(Math.random() < 0.4){
+        const n = new THREE.Vector3(dx, 0, dz).normalize();
+        rozprsk(u.p, n, u.v, 3 + (Math.random()*3|0));
+      }
+      if(L.hp <= 0){
+        L.pada = true;
+        L.vx = (u.v.x > 0 ? 1 : -1) * (60 + Math.random()*120);
+        L.vy = 40 + Math.random()*60;
+        L.vz = 90 + Math.random()*120;     // spadne dopředu z pultu
+        L.va = (Math.random()-0.5)*9;
+      }
+      break;
+    }
   }
 }
 
-// ---- textura vody: pruhy, které se posouvají po délce trubice -------------
+// ---- textura vody:// ---- textura vody: pruhy, které se posouvají po délce trubice -------------
 // Levnější než cokoli jiného: 8×64 px, opakuje se a jen se jí hýbe offsetem.
 // Textura dělá čitelnost toku. Musí mít OSTRÉ světlé pruhy — měkký gradient
 // se při pohybu ztratí a proud pak vypadá staticky. Pruhy jsou různě široké
@@ -757,9 +801,7 @@ function smycka(now){
   texVoda.offset.x -= dt * (+document.getElementById('sp').value) * 0.30;
   texVoda.repeat.set(1.4, 1);
 
-  zasahyTercu(dt);
-  for(const t of terce)
-    t.position.y = t.userData.zaklY + Math.sin(now/700 + t.userData.i)*22;
+  zasahyLahvi(dt);
 
   // zaměřovač na skutečném cíli, ne pod prstem — prst je na mobilu jinde
   {
