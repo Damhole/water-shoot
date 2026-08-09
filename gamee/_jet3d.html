@@ -123,6 +123,21 @@ const STANOVISTE = 150;
 camera.position.set(0, 210 + STANOVISTE, 560);
 camera.lookAt(0, 150 + STANOVISTE, -400);
 
+// ---- paralaxa -------------------------------------------------------------
+// Kamera se lehce naklání za mířením. Je to POSUN, ne otočení: kamera i bod,
+// na který se dívá, jedou o totéž, takže se scéna nezkosí a vzniká skutečná
+// paralaxa — police (blíž) se posunou víc než zadní stěna (dál).
+//
+// Ústí trysky se musí posunout SPOLU S KAMEROU. Kdyby zůstalo stát, začne
+// proud vyjíždět z jiného místa obrazovky; hlaveň se ve 2D verzi kreslí na
+// pevném místě a tohle je totéž pravidlo.
+const KAM_ZAKLAD = camera.position.clone();
+const KAM_MIRI = new THREE.Vector3(0, 150 + STANOVISTE, -400);
+const PARALAX_X = 40, PARALAX_Y = 26;   // maximální posun kamery na kraj obrazovky
+const PARALAX_TUHOST = 5.5;             // jak rychle kamera dojíždí (1/s)
+const paralax = new THREE.Vector3();    // aktuální posun
+const paralaxCil = new THREE.Vector3(); // kam se dojíždí
+
 scene.add(new THREE.AmbientLight(0x7f9fc0, 0.9));
 const slunce = new THREE.DirectionalLight(0xffffff, 1.15);
 slunce.position.set(-300, 600, 400);
@@ -482,6 +497,7 @@ let jetGeo = null;
 // letí samy, a trubice se generuje AŽ Z NICH.
 const G = 1500;
 const USTI = new THREE.Vector3(0, 60 + STANOVISTE, 420);
+const USTI_ZAKLAD = USTI.clone();       // paralaxa s ním hýbe spolu s kamerou
 const EMIT_ZA_S = 90;          // kolik uzlů za sekundu
 const ZIVOT = 1.15;            // jak dlouho uzel letí, než zmizí
 
@@ -1106,8 +1122,16 @@ const _paprsek = new THREE.Vector3();
 //     displeji telefonu, takže do stran byl zaměřovač naopak přecitlivělý.
 // Průsečík paprsku od kamery s rovinou cílové hloubky drží zaměřovač přesně
 // pod prstem při jakémkoli poměru stran, a tím pádem i na mobilu.
+// Poslední poloha prstu. Míření se musí přepočítat KAŽDÝ SNÍMEK, ne jen při
+// pohybu prstu: kamera pod ním jezdí paralaxou, a kdyby se cíl nepřepočítal,
+// zaměřovač by se prstu vysmekl vždycky, když se kamera rozjede.
+let mirSX = null, mirSY = null;
 function mir(sx, sy){
+  mirSX = sx; mirSY = sy;
   const nx = (sx/innerWidth)*2 - 1, ny = (sy/innerHeight)*2 - 1;
+  // paralaxa se řídí polohou PRSTU, ne cílem ve světě — cíl závisí na kameře
+  // a kamera na paralaxe, což by se navzájem hnalo dokola
+  paralaxCil.set(nx*PARALAX_X, -ny*PARALAX_Y, 0);
   // Hloubka cíle = rovina kachniček. Dřív se odvozovala od vodorovné výchylky
   // (−420 až −840), jenže terče stojí v jedné hloubce: zaměřovač pak seděl na
   // kachničce jen opticky a proud jí prolétl před nosem. Do čeho hráč míří,
@@ -1123,6 +1147,17 @@ function mir(sx, sy){
   cil.x = camera.position.x + _paprsek.x*t;
   cil.y = camera.position.y + _paprsek.y*t;
 }
+// Dojíždění je exponenciální, ne lineární: kamera se rozjede hned, ale
+// doklouže měkce, a hlavně je to stabilní i při dlouhém snímku.
+function krokKamery(dt){
+  paralax.lerp(paralaxCil, 1 - Math.exp(-PARALAX_TUHOST*dt));
+  camera.position.set(KAM_ZAKLAD.x + paralax.x, KAM_ZAKLAD.y + paralax.y, KAM_ZAKLAD.z);
+  camera.lookAt(KAM_MIRI.x + paralax.x, KAM_MIRI.y + paralax.y, KAM_MIRI.z);
+  USTI.set(USTI_ZAKLAD.x + paralax.x, USTI_ZAKLAD.y + paralax.y, USTI_ZAKLAD.z);
+  // cíl se přepočítá až po posunu kamery, ať zaměřovač zůstane pod prstem
+  if(mirSX !== null) mir(mirSX, mirSY);
+}
+
 let strika = false;            // start bez proudu; drž = stříká, pusť = proud se odtrhne a doletí
 addEventListener('pointermove', e => mir(e.clientX, e.clientY));
 addEventListener('pointerdown', e => { mir(e.clientX, e.clientY); strika = true; });
@@ -1636,6 +1671,7 @@ function smycka(now){
   requestAnimationFrame(smycka);
   const dt = Math.min((now - t0)/1000, 0.05); t0 = now;
 
+  krokKamery(dt);
   krokKachen(dt);
   krokProudu(dt, cil, strika);
   const kapekZivych = krokKapek(dt) + krokDrobnych(dt);
