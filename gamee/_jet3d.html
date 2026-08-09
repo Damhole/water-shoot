@@ -274,8 +274,25 @@ world.defaultContactMaterial.friction = 0.4;
 world.defaultContactMaterial.restitution = 0.05;
 
 // podlaha
-world.addBody(new CANNON.Body({ type: CANNON.Body.STATIC,
-  shape: new CANNON.Plane() , quaternion: new CANNON.Quaternion().setFromEuler(-Math.PI/2, 0, 0) }));
+const teloPodlahy = new CANNON.Body({ type: CANNON.Body.STATIC,
+  shape: new CANNON.Plane() , quaternion: new CANNON.Quaternion().setFromEuler(-Math.PI/2, 0, 0) });
+world.addBody(teloPodlahy);
+
+// PODLAHA JE JEN V PŘÍZEMÍ. Od druhého patra už hráč stojí nad ní, takže
+// ji nesmí vidět a padající lahev musí propadnout z obrazu dolů, ne se
+// rozbít o neviditelnou rovinu ve vzduchu.
+//
+// `podlahaY` je jediná hranice, pod kterou všechno končí: voda, kapky, mlha,
+// peří i lahve. Nad přízemím leží pod spodní hranou záběru (−430), takže se
+// pád dokoná mimo obraz.
+let podlahaY = 0, maPodlahu = true;
+function nastavPodlahu(){
+  maPodlahu = (patro === 1);
+  podlahaY = maPodlahu ? 0 : -430;
+  podlaha.visible = maPodlahu;
+  teloPodlahy.position.y = podlahaY;
+  teloPodlahy.aabbNeedsUpdate = true;
+}
 
 const lahve = [];
 const HP_LAHVE = 14;
@@ -318,6 +335,12 @@ function novaSekce(zaklY){
   const stena = new THREE.Mesh(new THREE.BoxGeometry(1500, SEKCE_V, 40), matStena);
   stena.position.set(0, SEKCE_V/2, POLICE_Z - 80);
   sek.skupina.add(stena);
+  // Sokl pod základnou. Nad přízemím není podlaha a bez tohohle by bar končil
+  // uprostřed obrazu a visel v prázdnu. Je O KUS HLOUB v ose Z než stěna, aby
+  // se s ní v místě, kde se sekce překrývají, nepral o stejnou rovinu.
+  const sokl = new THREE.Mesh(new THREE.BoxGeometry(1500, 420, 40), matStena);
+  sokl.position.set(0, -210, POLICE_Z - 95);
+  sek.skupina.add(sokl);
   sek.drevo.push(pridejDrevo(0, SEKCE_V/2, POLICE_Z - 80, 750, SEKCE_V/2, 20));
   // zadní zábrana, ať lahve neutečou dozadu
   sek.telesa.push({ telo: new CANNON.Body({ type: CANNON.Body.STATIC,
@@ -412,10 +435,13 @@ function zasahyLahvi(dt){
     _v.set(0, -L.typ.h/2, 0).applyQuaternion(_q);
     L.m.position.set(L.telo.position.x + _v.x, L.telo.position.y + _v.y, L.telo.position.z + _v.z);
 
-    // rozbití o zem
-    if(L.telo.position.y < 14){
-      rozprsk(L.m.position, new THREE.Vector3(0,1,0), new THREE.Vector3(0, 420, 0), 16);
-      krouzek(L.m.position.x, 1.5, L.m.position.z, 'up', 40);
+    // Rozbití o zem. Nad přízemím lahev propadne z obrazu — body se počítají
+    // pořád (spadla z police), ale střepy se nekreslí, byly by mimo záběr.
+    if(L.telo.position.y < podlahaY + 14){
+      if(maPodlahu){
+        rozprsk(L.m.position, new THREE.Vector3(0,1,0), new THREE.Vector3(0, 420, 0), 16);
+        krouzek(L.m.position.x, 1.5, L.m.position.z, 'up', 40);
+      }
       L.m.visible = false; L.mrtva = 2.2; pripisSkore(100);
       L.telo.position.set(0, -4000, 0);       // uklidit mimo scénu
       L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
@@ -692,7 +718,11 @@ function krokProudu(dt, cil, strikaJe){
     const zasah = narazDoDreva(_pred, u.p);
     if(zasah){ dopadNaDrevo(u, zasah); uzly.splice(i,1); continue; }
     // dopad na podlahu — efekt a konec uzlu
-    if(u.p.y <= 4){ dopadNaZem(u); uzly.splice(i,1); }
+    // Nad přízemím se voda nemá o co roztříštit — jen propadne z obrazu.
+    if(u.p.y <= podlahaY + 4){
+      if(maPodlahu) dopadNaZem(u);
+      uzly.splice(i,1);
+    }
   }
   while(uzly.length && uzly[0].t > ZIVOT) uzly.shift();
 
@@ -1011,7 +1041,7 @@ function krokDrobnych(dt){
     k.vy -= G*dt;
     k.vx *= tlum; k.vy *= tlum; k.vz *= tlum;
     k.x += k.vx*dt; k.y += k.vy*dt; k.z += k.vz*dt;
-    if(k.t > k.zivot || k.y < 2){ k.ziva = false; continue; }
+    if(k.t > k.zivot || k.y < podlahaY + 2){ k.ziva = false; continue; }
     const u = k.t/k.zivot;
     drobnePos[n*3] = k.x; drobnePos[n*3+1] = k.y; drobnePos[n*3+2] = k.z;
     // Kapička je plná bílá skoro celý život a teprve poslední čtvrtinu zhasne.
@@ -1065,7 +1095,7 @@ function krokKapek(dt){
     k.t += dt;
     k.vy -= G*dt;
     k.x += k.vx*dt; k.y += k.vy*dt; k.z += k.vz*dt;
-    if(k.t > k.zivot || k.y < 2){ k.ziva = false; continue; }
+    if(k.t > k.zivot || k.y < podlahaY + 2){ k.ziva = false; continue; }
     kapkyPos[n*3] = k.x; kapkyPos[n*3+1] = k.y; kapkyPos[n*3+2] = k.z;
     kapkyBarva[n*3] = k.r; kapkyBarva[n*3+1] = k.g; kapkyBarva[n*3+2] = k.b;
     n++;
@@ -1245,6 +1275,7 @@ function krokKamery(dt){
     otres = OTRES_A * Math.exp(-OTRES_TLUM*otresT) * Math.sin(OTRES_W*otresT);
     if(otresT > 0.9){ otresT = -1; otres = 0; }
   }
+  otresY = otres;
   camera.position.set(KAM_ZAKLAD.x + paralax.x, KAM_ZAKLAD.y + paralax.y + otres, KAM_ZAKLAD.z);
   camera.lookAt(KAM_MIRI.x + paralax.x, KAM_MIRI.y + paralax.y + otres, KAM_MIRI.z);
   // Ústí jede s PARALAXOU, ale ne s otřesem: otřes má být vidět jako pohyb
@@ -1535,21 +1566,41 @@ const KVOTA_ZAKLAD = 4;
 // rychlost i zrychlení na obou koncích (žádné trhnutí), ale uprostřed je
 // špička 1,875 místo 1,5 — dohromady s kratším časem je vrchol rychlosti
 // 2,1 krát vyšší než dřív.
-const PRECHOD_T = 0.55;
-// KVARTICKÝ easing místo smootherstepu: špička rychlosti 4 místo 1,875, tedy
-// výrazně ostřejší kontrast mezi „stojí" a „letí". Konce mají pořád nulovou
-// rychlost, takže se nic netrhne — jen je ten rozjezd a dojezd znát.
-const easing = u => u < 0.5 ? 8*u*u*u*u : 1 - 8*(1-u)*(1-u)*(1-u)*(1-u);
-const easingRychlost = u => u < 0.5 ? 32*u*u*u : 32*(1-u)*(1-u)*(1-u);   // vrchol 4
-const EASING_VRCHOL = 4;
+const PRECHOD_T = 0.62;
+// KVINTICKÝ easing. Čím vyšší mocnina, tím DÉLE se drží u kraje (natažený
+// rozjezd i dojezd) a tím ostřejší je střed. Šli jsme smoothstep (1,5) →
+// smootherstep (1,875) → kvartický (4) → teď kvintický, špička 5.
+// Prodloužení na 0,62 s je záměrné: delší čas jde celý do konců, protože
+// střed je s vyšší mocninou rychlejší, ne pomalejší.
+const easing = u => u < 0.5 ? 16*u**5 : 1 - 16*(1-u)**5;
+const EASING_VRCHOL = 5;
 const HLASKA_T = 1.2;                // jak dlouho svítí „Floor cleared!"
-const BLUR_MAX = 16;                 // svislá odchylka rozmazání ve vrcholu
+const BLUR_MAX = 22;                 // svislá odchylka rozmazání při plné rychlosti
 const rozmazG = document.getElementById('rozmazG');
 // Otřes po dojezdu: kamera přejezd „dobrzdí" a chvíli se uklidňuje. Tlumená
 // sinusovka — amplituda, kmitočet a útlum. Záměrně malé, má to být detail,
 // který si člověk uvědomí, až když ho vypneš.
 const OTRES_A = 13, OTRES_W = 24, OTRES_TLUM = 8;
 let otresT = -1;                     // < 0 = neběží
+let otresY = 0;                      // aktuální výchylka, čte ji rozmazání
+
+// ROZMAZÁNÍ SE ŘÍDÍ SKUTEČNOU RYCHLOSTÍ OBRAZU, ne vzorcem easingu. Dřív se
+// počítalo z derivace, což platí jen pro přejezd; teď se bere, o kolik se
+// scéna svisle pohnula za snímek — takže „rychleji = víc rozmazané" platí
+// doslova a chytne to i dobrzdění kamery, které se tím lehce rozmaže samo.
+const REF_RYCHLOST = SEKCE_V*EASING_VRCHOL/PRECHOD_T;   // rychlost ve vrcholu přejezdu
+let vertMinuly = 0;
+function krokRozmazani(dt){
+  // posun scény dolů i posun kamery nahoru dělají na obrazovce totéž
+  const vert = posun - otresY;
+  const v = dt > 0 ? Math.abs(vert - vertMinuly)/dt : 0;
+  vertMinuly = vert;
+  const sd = BLUR_MAX * Math.min(1, v/REF_RYCHLOST);
+  const cil = sd < 0.15 ? 'none' : 'url(#rozmaz)';
+  if(sd >= 0.15) rozmazG.setAttribute('stdDeviation', '0 ' + sd.toFixed(2));
+  // filtr se odpojuje úplně — i „nulový" SVG filtr stojí průchod GPU
+  if(renderer.domElement.style.filter !== cil) renderer.domElement.style.filter = cil;
+}
 let patro = 1, zbyva = 0, prechod = 0, posun = 0, posunMinuly = 0, hlaska = 0;
 const patroEl = document.getElementById('patroRoh');
 const hlaskaEl = document.getElementById('hlaska');
@@ -1558,7 +1609,7 @@ function kvota(){ return KVOTA_ZAKLAD + Math.min(4, patro - 1); }
 function ukazPatro(){
   if(patroEl) patroEl.textContent = 'patro ' + patro + ' · zbývá ' + zbyva;
 }
-zbyva = kvota(); ukazPatro();
+zbyva = kvota(); ukazPatro(); nastavPodlahu();
 
 // Vyčištěno → nejdřív hláška, teprve po ní se bar hne. Posunout se ve stejném
 // snímku, ve kterém padla poslední kachnička, znamená, že hráč nestihne
@@ -1587,13 +1638,6 @@ function krokPostupu(dt){
   prechod -= dt;
   const u = Math.min(1, 1 - prechod/PRECHOD_T);
   posun = -SEKCE_V * easing(u);
-  // ROZMAZÁNÍ PODLE RYCHLOSTI, ne podle času: bere se přímo derivace easingu,
-  // takže je nula na obou koncích a maximum tam, kde se scéna žene nejrychleji.
-  // Konstantní blur by na začátku i konci vypadal jako rozostřená kamera,
-  // ne jako pohyb. Když se easing změní, blur se přizpůsobí sám.
-  rozmazG.setAttribute('stdDeviation',
-    '0 ' + (BLUR_MAX*easingRychlost(u)/EASING_VRCHOL).toFixed(2));
-  renderer.domElement.style.filter = 'url(#rozmaz)';
   for(const s of sekce) nastavSekci(s, s.slot*SEKCE_V + posun);
   // Lahve jedou SE SVOU SEKCÍ. Posouvám je o rozdíl, ne na pevnou pozici —
   // tím si zachovají i to, jak zrovna leží nebo se kutálejí.
@@ -1606,6 +1650,10 @@ function krokPostupu(dt){
   }
   if(prechod <= 0){
     prechod = 0; posun = 0;
+    // `posun` se vrací z −620 na 0, ale scéna se nepohnula — sekce se jen
+    // přeřadily. Bez tohohle vidí výpočet rychlosti skok o celou sekci
+    // a na jeden snímek vystřelí rozmazání na maximum (naměřeno 25 726/s).
+    vertMinuly = posun - otresY;
     const dole = sekce[0].slot === 0 ? sekce[0] : sekce[1];
     const nahore = dole === sekce[0] ? sekce[1] : sekce[0];
     dole.slot = 1; nahore.slot = 0;
@@ -1613,9 +1661,8 @@ function krokPostupu(dt){
     nastavSekci(dole, SEKCE_V);
     prestavLahve(dole);                    // odjetá sekce se přestaví a čeká nahoře
     patro++; zbyva = kvota(); ukazPatro();
-    // filtr pryč úplně, ne jen na nulu — i „nulový" SVG filtr stojí GPU průchod
-    renderer.domElement.style.filter = 'none';
     otresT = 0;                                  // kamera teď dobrzdí
+    nastavPodlahu();                             // nad přízemím už podlaha není
   }
 }
 
@@ -1873,7 +1920,7 @@ function krokPeri(dt, cas){
   for(const f of peri){
     if(!f.ziva) continue;
     f.t += dt;
-    if(f.t > f.zivot || f.y < 2){ f.ziva = false; continue; }
+    if(f.t > f.zivot || f.y < podlahaY + 2){ f.ziva = false; continue; }
     // pírko padá pomalu a třepotá se — proto zlomek gravitace a silný odpor
     f.vy -= G*0.16*dt;
     const tlum = Math.exp(-2.2*dt);
@@ -1952,6 +1999,7 @@ function smycka(now){
 
   krokKamery(dt);
   krokPostupu(dt);
+  krokRozmazani(dt);
   krokKachen(dt);
   krokProudu(dt, cil, strika);
   const kapekZivych = krokKapek(dt) + krokDrobnych(dt);
