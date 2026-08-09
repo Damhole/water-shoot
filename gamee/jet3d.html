@@ -1158,23 +1158,48 @@ function krokKamery(dt){
   if(mirSX !== null) mir(mirSX, mirSY);
 }
 
-// Na dotyku míří hráč NAD prst, ne pod něj: palec by jinak seděl přesně na
-// zaměřovači i na terči a hráč by nevidě, na co střílí. Myš odsazení nemá —
-// kurzor nic nezakrývá a posunutý zaměřovač by na PC jen mátl.
-// Odsazení je vztažené k výšce displeje (na 850px vysokém telefonu ~93 px,
-// tedy zhruba šířka palce) a drží se ve viditelné části obrazovky.
-const DOTYK_ODSAZENI = 0.11;
+// MÍŘENÍ NA DOTYKU JE RELATIVNÍ, jako trackpad. Prst netahá zaměřovač pod
+// sebou, jen udává směr a rychlost — zaměřovač se posouvá NÁSOBKEM toho, co
+// prst ujede. Bez toho musí hráč přejíždět palcem přes celý displej, i když
+// chce jen z levého terče na pravý. Myš zůstává absolutní: kurzor JE zaměřovač
+// a nic nezakrývá.
+//
+// Čísla jsou převzatá z 2D verze (`aimRel` v js/game.js): základ 1,8 a
+// akcelerace, která přidá až 2,5×. Pomalý tah tedy jemně dolaďuje, švih
+// přejede scénu. Bez akcelerace si člověk vybere jedno, ale nikdy obojí.
+const DOTYK_ODSAZENI = 0.11;    // kam se zaměřovač postaví při doteku (nad prst)
+const DOTYK_ZISK = 1.8;
+function jeDotyk(e){ return e.pointerType === 'touch' || e.pointerType === 'pen'; }
+
+let prstX = 0, prstY = 0, prstT = 0;
+function zacniDotyk(e){
+  prstX = e.clientX; prstY = e.clientY; prstT = performance.now();
+  // při položení prstu se zaměřovač postaví NAD něj, aby ho palec nezakrýval
+  mir(e.clientX, Math.max(innerHeight*0.04, e.clientY - innerHeight*DOTYK_ODSAZENI));
+}
+function tahniDotykem(e){
+  const ted = performance.now();
+  const dt = Math.max(4, ted - prstT)/1000;
+  const dx = e.clientX - prstX, dy = e.clientY - prstY;
+  prstX = e.clientX; prstY = e.clientY; prstT = ted;
+  const rychlost = Math.hypot(dx, dy)/dt;
+  const zisk = DOTYK_ZISK * (1 + 1.5*Math.pow(Math.min(rychlost/2500, 1), 1.5));
+  const x = Math.min(innerWidth - 8,  Math.max(8, (mirSX ?? innerWidth/2)  + dx*zisk));
+  const y = Math.min(innerHeight*0.92, Math.max(innerHeight*0.04, (mirSY ?? innerHeight/2) + dy*zisk));
+  mir(x, y);
+}
 function mirZUdalosti(e){
-  let y = e.clientY;
-  if(e.pointerType === 'touch' || e.pointerType === 'pen'){
-    y = Math.max(innerHeight*0.04, y - innerHeight*DOTYK_ODSAZENI);
-  }
-  mir(e.clientX, y);
+  if(jeDotyk(e)) tahniDotykem(e); else mir(e.clientX, e.clientY);
 }
 
 let strika = false;            // start bez proudu; drž = stříká, pusť = proud se odtrhne a doletí
 addEventListener('pointermove', mirZUdalosti);
-addEventListener('pointerdown', e => { mirZUdalosti(e); strika = true; });
+// Při položení prstu se NESMÍ táhnout: `tahniDotykem` by počítalo rozdíl proti
+// místu, kde prst ležel minule, a zaměřovač by po každém doteku uskočil.
+addEventListener('pointerdown', e => {
+  if(jeDotyk(e)) zacniDotyk(e); else mir(e.clientX, e.clientY);
+  strika = true;
+});
 addEventListener('pointerup',   () => { strika = false; });
 addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 
