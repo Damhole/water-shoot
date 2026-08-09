@@ -55,6 +55,17 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<!-- Směrové rozmazání. CSS filter: blur() umí jen kruhové rozostření, což
+     vypadá jako rozostřená kamera. feGaussianBlur bere stdDeviation zvlášť
+     pro X a Y, takže se dá rozmazat JEN VE SMĚRU POHYBU a scéna se pak maže
+     jako při rychlém přejezdu. Filtr je pořád připojený, jen se mu každý
+     snímek přepisuje odchylka; při nule nic nedělá. -->
+<svg width="0" height="0" style="position:absolute;pointer-events:none">
+  <filter id="rozmaz" x="0" y="-25%" width="100%" height="150%"
+          color-interpolation-filters="sRGB">
+    <feGaussianBlur id="rozmazG" in="SourceGraphic" stdDeviation="0 0"/>
+  </filter>
+</svg>
 <div id="fpsRoh">– FPS</div>
 <div id="skoreRoh">0</div>
 <div id="patroRoh">patro 1 · zbývá 4</div>
@@ -1226,8 +1237,18 @@ function mir(sx, sy){
 // doklouže měkce, a hlavně je to stabilní i při dlouhém snímku.
 function krokKamery(dt){
   paralax.lerp(paralaxCil, 1 - Math.exp(-PARALAX_TUHOST*dt));
-  camera.position.set(KAM_ZAKLAD.x + paralax.x, KAM_ZAKLAD.y + paralax.y, KAM_ZAKLAD.z);
-  camera.lookAt(KAM_MIRI.x + paralax.x, KAM_MIRI.y + paralax.y, KAM_MIRI.z);
+  // Dobrzdění po přejezdu: tlumená sinusovka na výšce kamery. Kamera se za
+  // barem „rozjela" a teď se musí vzpamatovat.
+  let otres = 0;
+  if(otresT >= 0){
+    otresT += dt;
+    otres = OTRES_A * Math.exp(-OTRES_TLUM*otresT) * Math.sin(OTRES_W*otresT);
+    if(otresT > 0.9){ otresT = -1; otres = 0; }
+  }
+  camera.position.set(KAM_ZAKLAD.x + paralax.x, KAM_ZAKLAD.y + paralax.y + otres, KAM_ZAKLAD.z);
+  camera.lookAt(KAM_MIRI.x + paralax.x, KAM_MIRI.y + paralax.y + otres, KAM_MIRI.z);
+  // Ústí jede s PARALAXOU, ale ne s otřesem: otřes má být vidět jako pohyb
+  // celého obrazu včetně proudu, kdežto paralaxa má proud nechat na místě.
   USTI.set(USTI_ZAKLAD.x + paralax.x, USTI_ZAKLAD.y + paralax.y, USTI_ZAKLAD.z);
   // cíl se přepočítá až po posunu kamery, ať zaměřovač zůstane pod prstem
   if(mirSX !== null) mir(mirSX, mirSY);
@@ -1515,10 +1536,20 @@ const KVOTA_ZAKLAD = 4;
 // špička 1,875 místo 1,5 — dohromady s kratším časem je vrchol rychlosti
 // 2,1 krát vyšší než dřív.
 const PRECHOD_T = 0.55;
-const easing = u => u*u*u*(u*(u*6 - 15) + 10);
-const easingRychlost = u => 30*u*u*(1-u)*(1-u);   // derivace, vrchol 1,875
+// KVARTICKÝ easing místo smootherstepu: špička rychlosti 4 místo 1,875, tedy
+// výrazně ostřejší kontrast mezi „stojí" a „letí". Konce mají pořád nulovou
+// rychlost, takže se nic netrhne — jen je ten rozjezd a dojezd znát.
+const easing = u => u < 0.5 ? 8*u*u*u*u : 1 - 8*(1-u)*(1-u)*(1-u)*(1-u);
+const easingRychlost = u => u < 0.5 ? 32*u*u*u : 32*(1-u)*(1-u)*(1-u);   // vrchol 4
+const EASING_VRCHOL = 4;
 const HLASKA_T = 1.2;                // jak dlouho svítí „Floor cleared!"
-const BLUR_MAX = 3.2;                // px v nejrychlejším okamžiku přejezdu
+const BLUR_MAX = 16;                 // svislá odchylka rozmazání ve vrcholu
+const rozmazG = document.getElementById('rozmazG');
+// Otřes po dojezdu: kamera přejezd „dobrzdí" a chvíli se uklidňuje. Tlumená
+// sinusovka — amplituda, kmitočet a útlum. Záměrně malé, má to být detail,
+// který si člověk uvědomí, až když ho vypneš.
+const OTRES_A = 13, OTRES_W = 24, OTRES_TLUM = 8;
+let otresT = -1;                     // < 0 = neběží
 let patro = 1, zbyva = 0, prechod = 0, posun = 0, posunMinuly = 0, hlaska = 0;
 const patroEl = document.getElementById('patroRoh');
 const hlaskaEl = document.getElementById('hlaska');
@@ -1560,8 +1591,9 @@ function krokPostupu(dt){
   // takže je nula na obou koncích a maximum tam, kde se scéna žene nejrychleji.
   // Konstantní blur by na začátku i konci vypadal jako rozostřená kamera,
   // ne jako pohyb. Když se easing změní, blur se přizpůsobí sám.
-  renderer.domElement.style.filter =
-    'blur(' + (BLUR_MAX*easingRychlost(u)/1.875).toFixed(2) + 'px)';
+  rozmazG.setAttribute('stdDeviation',
+    '0 ' + (BLUR_MAX*easingRychlost(u)/EASING_VRCHOL).toFixed(2));
+  renderer.domElement.style.filter = 'url(#rozmaz)';
   for(const s of sekce) nastavSekci(s, s.slot*SEKCE_V + posun);
   // Lahve jedou SE SVOU SEKCÍ. Posouvám je o rozdíl, ne na pevnou pozici —
   // tím si zachovají i to, jak zrovna leží nebo se kutálejí.
@@ -1581,7 +1613,9 @@ function krokPostupu(dt){
     nastavSekci(dole, SEKCE_V);
     prestavLahve(dole);                    // odjetá sekce se přestaví a čeká nahoře
     patro++; zbyva = kvota(); ukazPatro();
-    renderer.domElement.style.filter = 'none';   // blur pryč, ať scéna nezůstane měkká
+    // filtr pryč úplně, ne jen na nulu — i „nulový" SVG filtr stojí GPU průchod
+    renderer.domElement.style.filter = 'none';
+    otresT = 0;                                  // kamera teď dobrzdí
   }
 }
 
