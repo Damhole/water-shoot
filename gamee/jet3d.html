@@ -1158,9 +1158,23 @@ function krokKamery(dt){
   if(mirSX !== null) mir(mirSX, mirSY);
 }
 
+// Na dotyku míří hráč NAD prst, ne pod něj: palec by jinak seděl přesně na
+// zaměřovači i na terči a hráč by nevidě, na co střílí. Myš odsazení nemá —
+// kurzor nic nezakrývá a posunutý zaměřovač by na PC jen mátl.
+// Odsazení je vztažené k výšce displeje (na 850px vysokém telefonu ~93 px,
+// tedy zhruba šířka palce) a drží se ve viditelné části obrazovky.
+const DOTYK_ODSAZENI = 0.11;
+function mirZUdalosti(e){
+  let y = e.clientY;
+  if(e.pointerType === 'touch' || e.pointerType === 'pen'){
+    y = Math.max(innerHeight*0.04, y - innerHeight*DOTYK_ODSAZENI);
+  }
+  mir(e.clientX, y);
+}
+
 let strika = false;            // start bez proudu; drž = stříká, pusť = proud se odtrhne a doletí
-addEventListener('pointermove', e => mir(e.clientX, e.clientY));
-addEventListener('pointerdown', e => { mir(e.clientX, e.clientY); strika = true; });
+addEventListener('pointermove', mirZUdalosti);
+addEventListener('pointerdown', e => { mirZUdalosti(e); strika = true; });
 addEventListener('pointerup',   () => { strika = false; });
 addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 
