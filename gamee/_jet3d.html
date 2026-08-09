@@ -1444,14 +1444,18 @@ for(let i=0;i<KACHEN_MAX;i++){
   const TX = TERC_X, TY = KACH_STRED + TERC_Y;
   const tercik = new THREE.Mesh(geoDisk, new THREE.MeshBasicMaterial({
     map: texTercik, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+  // Odstup terčíku od těla musí přebít VYTOČENÍ. Terčík sedí 16 jednotek od
+  // osy, takže ho natočení o 17° posune v hloubce o 16·sin17° ≈ 4,7 — se
+  // starými 3 jednotkami se u vytočených kachniček zanořil za tělo a zmizel.
+  // 14 je s rezervou nad tím a zároveň to čte jako terč přišroubovaný na tělo.
   tercik.scale.set(KACH_R*0.80, KACH_R*0.80, 1);
-  tercik.position.set(TX, TY, 3);
+  tercik.position.set(TX, TY, 14);
   skup.add(tercik);
   // prstenec plnění obíhá TĚSNĚ KOLEM terčíku, ať mu nepřekrývá kruhy
   const matPrst = novyPrstenec();
   const prstenec = new THREE.Mesh(geoPlane, matPrst);
   prstenec.scale.set(KACH_R*1.04, KACH_R*1.04, 1);
-  prstenec.position.set(TX, TY, 4);
+  prstenec.position.set(TX, TY, 15.5);
   skup.add(prstenec);
   skup.visible = false;
   scene.add(skup);
@@ -1505,7 +1509,14 @@ function pasKachen(){
 // patro „dočistit" sestřelem jedné ze tří zobrazených a zbylé dvě by zmizely
 // samy — to je matoucí i nespravedlivé.
 const KVOTA_ZAKLAD = 4;
-const PRECHOD_T = 1.4;
+// Přejezd byl 1,4 s a působil jako výtah. Zkrácený na 0,55 s a s OSTŘEJŠÍM
+// easingem: smootherstep u³(6u²−15u+10) místo smoothstepu. Má pořád nulovou
+// rychlost i zrychlení na obou koncích (žádné trhnutí), ale uprostřed je
+// špička 1,875 místo 1,5 — dohromady s kratším časem je vrchol rychlosti
+// 2,1 krát vyšší než dřív.
+const PRECHOD_T = 0.55;
+const easing = u => u*u*u*(u*(u*6 - 15) + 10);
+const easingRychlost = u => 30*u*u*(1-u)*(1-u);   // derivace, vrchol 1,875
 const HLASKA_T = 1.2;                // jak dlouho svítí „Floor cleared!"
 const BLUR_MAX = 3.2;                // px v nejrychlejším okamžiku přejezdu
 let patro = 1, zbyva = 0, prechod = 0, posun = 0, posunMinuly = 0, hlaska = 0;
@@ -1544,12 +1555,13 @@ function krokPostupu(dt){
   if(prechod <= 0) return;
   prechod -= dt;
   const u = Math.min(1, 1 - prechod/PRECHOD_T);
-  posun = -SEKCE_V * (u*u*(3 - 2*u));      // smoothstep: měkký rozjezd i dojezd
-  // ROZMAZÁNÍ PODLE RYCHLOSTI, ne podle času: derivace smoothstepu je 6u(1-u),
-  // takže je nula na obou koncích a maximum uprostřed — přesně tam, kde se
-  // scéna žene nejrychleji. Konstantní blur by na začátku i konci vypadal jako
-  // rozostřená kamera, ne jako pohyb.
-  renderer.domElement.style.filter = 'blur(' + (BLUR_MAX*6*u*(1-u)).toFixed(2) + 'px)';
+  posun = -SEKCE_V * easing(u);
+  // ROZMAZÁNÍ PODLE RYCHLOSTI, ne podle času: bere se přímo derivace easingu,
+  // takže je nula na obou koncích a maximum tam, kde se scéna žene nejrychleji.
+  // Konstantní blur by na začátku i konci vypadal jako rozostřená kamera,
+  // ne jako pohyb. Když se easing změní, blur se přizpůsobí sám.
+  renderer.domElement.style.filter =
+    'blur(' + (BLUR_MAX*easingRychlost(u)/1.875).toFixed(2) + 'px)';
   for(const s of sekce) nastavSekci(s, s.slot*SEKCE_V + posun);
   // Lahve jedou SE SVOU SEKCÍ. Posouvám je o rozdíl, ne na pevnou pozici —
   // tím si zachovají i to, jak zrovna leží nebo se kutálejí.
