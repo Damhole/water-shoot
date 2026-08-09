@@ -42,6 +42,13 @@
   #patroRoh{position:fixed;left:50%;top:27vh;transform:translate(-50%,-50%);z-index:4;
     pointer-events:none;font:700 2.1vh/1 Arial, sans-serif;color:#cfe3ff;opacity:.75;
     font-variant-numeric:tabular-nums;text-shadow:0 0.2vh 0 rgba(0,0,0,.45)}
+  /* „PATRO VYČIŠTĚNO" — přes celou šířku, uprostřed výšky terčů. Naskočí
+     s krátkým přiblížením, ať to má úder; bez animace by to jen bliklo. */
+  #hlaska{position:fixed;left:0;right:0;top:45vh;z-index:5;text-align:center;
+    pointer-events:none;font:800 5vh/1 "Arial Black", Arial, sans-serif;
+    color:#ffe98a;text-shadow:0 0.4vh 0 rgba(0,0,0,.55);letter-spacing:.06em;
+    opacity:0;transform:scale(.75);transition:opacity .16s ease, transform .16s ease}
+  #hlaska.vidno{opacity:1;transform:scale(1)}
   #kriz{position:fixed;left:0;top:0;width:46px;height:46px;margin:-23px 0 0 -23px;
     pointer-events:none;z-index:3;opacity:.95}
 </style>
@@ -50,7 +57,8 @@
 <canvas id="c"></canvas>
 <div id="fpsRoh">– FPS</div>
 <div id="skoreRoh">0</div>
-<div id="patroRoh">patro 1 · 0/4</div>
+<div id="patroRoh">patro 1 · zbývá 4</div>
+<div id="hlaska"></div>
 <svg id="kriz" viewBox="0 0 46 46">
   <circle cx="23" cy="23" r="15" fill="none" stroke="#06121d" stroke-width="5"/>
   <circle cx="23" cy="23" r="15" fill="none" stroke="#eaf6ff" stroke-width="2.4"/>
@@ -1472,20 +1480,49 @@ function pasKachen(){
 // Vyčistíš patro → bar sjede o sekci dolů a nad tebou se odkryje další část
 // s jinak rozestavěnými lahvemi. Sekce, která zajela pod podlahu, se rovnou
 // přestaví a čeká nahoře; tím je bar nekonečný ze dvou kusů.
+// Patro má PEVNÝ POČET kachniček a je hotové, teprve když padnou všechny.
+// `zbyva` klesá JEN sestřelem — kachnička, které vypršel čas, se zasune a
+// vrátí se jinde, protože pořád patří do téhle várky.
+//
+// Na scéně nesmí být víc kachniček, než kolik jich zbývá. Bez toho by se dalo
+// patro „dočistit" sestřelem jedné ze tří zobrazených a zbylé dvě by zmizely
+// samy — to je matoucí i nespravedlivé.
 const KVOTA_ZAKLAD = 4;
 const PRECHOD_T = 1.4;
-let patro = 1, sestreleno = 0, prechod = 0, posun = 0, posunMinuly = 0;
+const HLASKA_T = 1.2;                // jak dlouho svítí „PATRO VYČIŠTĚNO"
+let patro = 1, zbyva = 0, prechod = 0, posun = 0, posunMinuly = 0, hlaska = 0;
 const patroEl = document.getElementById('patroRoh');
+const hlaskaEl = document.getElementById('hlaska');
 function hraciSekce(){ return sekce[0].slot === 0 ? sekce[0] : sekce[1]; }
 function kvota(){ return KVOTA_ZAKLAD + Math.min(4, patro - 1); }
+function ukazPatro(){
+  if(patroEl) patroEl.textContent = 'patro ' + patro + ' · zbývá ' + zbyva;
+}
+zbyva = kvota(); ukazPatro();
+
+// Vyčištěno → nejdřív hláška, teprve po ní se bar hne. Posunout se ve stejném
+// snímku, ve kterém padla poslední kachnička, znamená, že hráč nestihne
+// zaregistrovat, že něco dokázal.
+function patroVycisteno(){
+  hlaska = HLASKA_T;
+  if(hlaskaEl){ hlaskaEl.textContent = 'PATRO VYČIŠTĚNO'; hlaskaEl.classList.add('vidno'); }
+}
 
 function spustPrechod(){
   prechod = PRECHOD_T; posunMinuly = 0;
-  // co zbylo na scéně, se stáhne — nová část baru začíná čistá
+  if(hlaskaEl) hlaskaEl.classList.remove('vidno');
+  // pojistka: se stropem podle `zbyva` už tu nikdo stát nemá, ale kdyby ano,
+  // ať neodjede na polici pryč ze scény
   for(const k of kachny) if(k.stav === 'zije' || k.stav === 'najizdi'){ k.stav = 'mizi'; k.t = 0; }
 }
 
 function krokPostupu(dt){
+  // fáze 1: hláška. Bar zatím stojí, hráč si stihne přečíst, že je hotovo.
+  if(hlaska > 0){
+    hlaska -= dt;
+    if(hlaska <= 0){ hlaska = 0; spustPrechod(); }
+    return;
+  }
   if(prechod <= 0) return;
   prechod -= dt;
   const u = Math.min(1, 1 - prechod/PRECHOD_T);
@@ -1508,8 +1545,7 @@ function krokPostupu(dt){
     nastavSekci(nahore, 0);
     nastavSekci(dole, SEKCE_V);
     prestavLahve(dole);                    // odjetá sekce se přestaví a čeká nahoře
-    patro++; sestreleno = 0;
-    if(patroEl) patroEl.textContent = 'patro ' + patro + ' · 0/' + kvota();
+    patro++; zbyva = kvota(); ukazPatro();
   }
 }
 
@@ -1573,15 +1609,20 @@ function pustKachnu(){
 function krokKachen(dt){
   const n = zivych();
   kachTimer -= dt;
-  // během přejezdu na další patro se nespawnuje — kachnička by vyjela na
-  // polici, která se zrovna sune pryč
-  if(prechod <= 0){
-    // pod minimem se dosypává skoro hned, nad plný stav se nespawnuje vůbec
-    if(kachTimer <= 0 && n < KACHEN_NA_SCENE){
+  // Během hlášky ani přejezdu se nespawnuje — kachnička by vyjela na polici,
+  // která se zrovna sune pryč.
+  //
+  // STROP JE `zbyva`: na scéně nikdy není víc kachniček, než kolik jich do
+  // vyčištění patra chybí. Když zbývá poslední, svítí právě jedna a její
+  // sestřel patro opravdu uzavře.
+  if(prechod <= 0 && hlaska <= 0){
+    const strop = Math.min(KACHEN_NA_SCENE, zbyva);
+    // pod minimem se dosypává skoro hned, nad strop se nespawnuje vůbec
+    if(kachTimer <= 0 && n < strop){
       pustKachnu();
       kachTimer = rand(1.2, 2.4);
     }
-    if(n < KACHEN_MIN && kachTimer > 0.35) kachTimer = 0.35;
+    if(n < Math.min(KACHEN_MIN, strop) && kachTimer > 0.35) kachTimer = 0.35;
   }
 
   for(const k of kachny){
@@ -1649,9 +1690,10 @@ function zasahKachny(k, u){
     pustPeri(k.skup.position.x, k.skup.position.y + KACH_STRED, k.skup.position.z, 18);
     pustPopup(k.skup.position.x, k.skup.position.y + KACH_STRED + KACH_R*0.9,
               k.skup.position.z, k.hodnota);
-    sestreleno++;
-    if(patroEl) patroEl.textContent = 'patro ' + patro + ' · ' + Math.min(sestreleno, kvota()) + '/' + kvota();
-    if(sestreleno >= kvota() && prechod <= 0) spustPrechod();
+    // `zbyva` klesá JEN sestřelem; zasunutá kachnička se vrátí jinde
+    zbyva = Math.max(0, zbyva - 1);
+    ukazPatro();
+    if(zbyva === 0 && prechod <= 0 && hlaska <= 0) patroVycisteno();
   }
 }
 
