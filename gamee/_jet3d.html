@@ -34,12 +34,12 @@
      převzaté z game.js.
      Tabulární číslice jsou tu podstatné: bez nich se při každé změně cifer
      text posouvá do stran a poskakuje. */
-  #skoreRoh{position:fixed;left:50%;top:21.5vh;transform:translate(-50%,-50%);z-index:4;
+  #skoreRoh{position:fixed;left:50%;top:calc(21.5vh - 50px);transform:translate(-50%,-50%);z-index:4;
     pointer-events:none;font:800 5.75vh/1 "Arial Black", Arial, sans-serif;
     color:#ffe98a;font-variant-numeric:tabular-nums;
     text-shadow:0.32vh 0.32vh 0 rgba(0,0,0,0.4)}
   /* patro a postup ke kvótě — pod skóre, drobněji, ať to nekřičí */
-  #patroRoh{position:fixed;left:50%;top:27vh;transform:translate(-50%,-50%);z-index:4;
+  #patroRoh{position:fixed;left:50%;top:calc(27vh - 50px);transform:translate(-50%,-50%);z-index:4;
     pointer-events:none;font:700 2.1vh/1 Arial, sans-serif;color:#cfe3ff;opacity:.75;
     font-variant-numeric:tabular-nums;text-shadow:0 0.2vh 0 rgba(0,0,0,.45)}
   /* „Floor cleared!" — přes celou šířku, uprostřed výšky terčů. Naskočí
@@ -68,7 +68,7 @@
 </svg>
 <div id="fpsRoh">– FPS</div>
 <div id="skoreRoh">0</div>
-<div id="patroRoh">patro 1 · zbývá 4</div>
+<div id="patroRoh">floor 1 · 4 left</div>
 <div id="hlaska"></div>
 <svg id="kriz" viewBox="0 0 46 46">
   <circle cx="23" cy="23" r="15" fill="none" stroke="#06121d" stroke-width="5"/>
@@ -1638,7 +1638,8 @@ const hlaskaEl = document.getElementById('hlaska');
 function hraciSekce(){ return sekce[0].slot === 0 ? sekce[0] : sekce[1]; }
 function kvota(){ return KVOTA_ZAKLAD + Math.min(4, patro - 1); }
 function ukazPatro(){
-  if(patroEl) patroEl.textContent = 'patro ' + patro + ' · zbývá ' + zbyva;
+  // anglicky, ať to ladí s „Floor cleared!"
+  if(patroEl) patroEl.textContent = 'floor ' + patro + ' · ' + zbyva + ' left';
 }
 zbyva = kvota(); ukazPatro(); nastavPodlahu();
 
