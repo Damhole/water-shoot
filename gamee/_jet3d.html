@@ -27,6 +27,17 @@
   #fpsRoh{position:fixed;right:8px;top:6px;font-size:11px;color:#8fd0ff;
     background:rgba(8,14,24,.55);padding:2px 7px;border-radius:6px;z-index:4;
     pointer-events:none;font-variant-numeric:tabular-nums}
+  /* Skóre jako ve 2D střelnici: velké, uprostřed, ve výšce 21,5 % obrazovky —
+     tam ho má hráč v zorném poli, aniž by mu leželo na terčích. Rozměry jsou
+     ve `vh`, protože 2D verze je počítá z výšky plátna (46*S, kde S = H/800),
+     takže 5,75vh je totéž číslo. Barva #ffe98a a tmavý posunutý stín jsou
+     převzaté z game.js.
+     Tabulární číslice jsou tu podstatné: bez nich se při každé změně cifer
+     text posouvá do stran a poskakuje. */
+  #skoreRoh{position:fixed;left:50%;top:21.5vh;transform:translate(-50%,-50%);z-index:4;
+    pointer-events:none;font:800 5.75vh/1 "Arial Black", Arial, sans-serif;
+    color:#ffe98a;font-variant-numeric:tabular-nums;
+    text-shadow:0.32vh 0.32vh 0 rgba(0,0,0,0.4)}
   #kriz{position:fixed;left:0;top:0;width:46px;height:46px;margin:-23px 0 0 -23px;
     pointer-events:none;z-index:3;opacity:.95}
 </style>
@@ -34,6 +45,7 @@
 <body>
 <canvas id="c"></canvas>
 <div id="fpsRoh">– FPS</div>
+<div id="skoreRoh">0</div>
 <svg id="kriz" viewBox="0 0 46 46">
   <circle cx="23" cy="23" r="15" fill="none" stroke="#06121d" stroke-width="5"/>
   <circle cx="23" cy="23" r="15" fill="none" stroke="#eaf6ff" stroke-width="2.4"/>
@@ -102,8 +114,14 @@ const camera = new THREE.PerspectiveCamera(55, 1, 1, 5000);
 // Kamera zůstává tam, kde byla u koulí — v téhle poloze se tryska chová
 // nejlíp (dostřik i oblouk sedí). Zátiší se místo toho posadilo níž, viz
 // POLICE_Y, aby padlo do jejího záběru.
-camera.position.set(0, 210, 560);
-camera.lookAt(0, 150, -400);
+//
+// STANOVISTE zvedá celé stanoviště hráče naráz: kameru, ústí trysky (USTI)
+// i mapování kurzoru na cíl (mir). Musí se posunout všechno pohromadě —
+// samotná kamera by nechala proud vycházet od podlahy a samotné ústí by
+// rozešlo zaměřovač s kurzorem.
+const STANOVISTE = 150;
+camera.position.set(0, 210 + STANOVISTE, 560);
+camera.lookAt(0, 150 + STANOVISTE, -400);
 
 scene.add(new THREE.AmbientLight(0x7f9fc0, 0.9));
 const slunce = new THREE.DirectionalLight(0xffffff, 1.15);
@@ -143,6 +161,13 @@ const POLIC = 3;
 const POLICE_Y = [50, 235, 420];
 const POLICE_Z = -560;
 const POLICE_HW = 620;
+// Rovina, ve které stojí kachničky: O VRSTVU ZA LAHVEMI. Lahve stojí v
+// POLICE_Z ±16, zadní stěna je v −620, takže −600 je mezi nimi — kachnička
+// je za lahvemi a před stěnou. Stojí na desce police (její horní plocha je
+// POLICE_Y), takže jí deska nepřekáží; blokovat může police NAD ní, a to je
+// v pořádku, na horní patro se prostě musí střílet plošeji. Míří se do téhle
+// roviny, viz mir().
+const KACH_Z = POLICE_Z - 40;
 const LAHVI_NA_POLICI = 7;
 
 // profil v jednotkách 0..1 (poloměr, výška) — převzatý z js/western.js
@@ -172,10 +197,19 @@ const matDrevo = new THREE.MeshToonMaterial({ color: 0x7b5330, gradientMap: toon
 const matStena = new THREE.MeshToonMaterial({ color: 0x8a5c33, gradientMap: toonGrad });
 const matObrysTelo = new THREE.MeshBasicMaterial({ color: 0x14161c, side: THREE.BackSide, fog: false });
 
+// Dřevo je pro vodu pevné. Kvádry se registrují PŘÍMO při stavbě baru, aby
+// kolizní tvar vycházel z týchž rozměrů jako kreslená deska — dvě sady čísel
+// vedle sebe by se rozešly při první úpravě polic.
+const DREVO = [];
+function pridejDrevo(x, y, z, hx, hy, hz){
+  DREVO.push({ min:[x-hx, y-hy, z-hz], max:[x+hx, y+hy, z+hz] });
+}
+
 (function postavBar(){
   const stena = new THREE.Mesh(new THREE.BoxGeometry(1500, 900, 40), matStena);
   stena.position.set(0, 380, POLICE_Z - 80);
   scene.add(stena);
+  pridejDrevo(0, 380, POLICE_Z - 80, 750, 450, 20);
   for(const y of POLICE_Y){
     const deska = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matDrevo);
     deska.position.set(0, y - 9, POLICE_Z);
@@ -183,6 +217,7 @@ const matObrysTelo = new THREE.MeshBasicMaterial({ color: 0x14161c, side: THREE.
     const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matObrysTelo);
     o.scale.setScalar(1.02); o.position.copy(deska.position);
     scene.add(o);
+    pridejDrevo(0, y - 9, POLICE_Z, POLICE_HW, 9, 75);
   }
 })();
 
@@ -243,6 +278,14 @@ for(let p=0;p<POLIC;p++)
   for(let i=0;i<LAHVI_NA_POLICI;i++) lahve.push(novaLahev(p, i));
 
 let skore = 0;
+// Skóre se zapisuje HNED při připsání, ne až v půlvteřinovém taktu, ve kterém
+// se obnovuje statistika. Číslo nahoře musí naskočit ve stejném snímku jako
+// „+N" nad kachničkou, jinak to čte jako zpoždění hry.
+const skoreEl = document.getElementById('skoreRoh');
+function pripisSkore(n){
+  skore += n;
+  skoreEl.textContent = skore;
+}
 
 const _q = new THREE.Quaternion(), _v = new THREE.Vector3();
 
@@ -272,7 +315,7 @@ function zasahyLahvi(dt){
     if(L.telo.position.y < 14){
       rozprsk(L.m.position, new THREE.Vector3(0,1,0), new THREE.Vector3(0, 420, 0), 16);
       krouzek(L.m.position.x, 1.5, L.m.position.z, 'up', 40);
-      L.m.visible = false; L.mrtva = 2.2; skore += 100;
+      L.m.visible = false; L.mrtva = 2.2; pripisSkore(100);
       L.telo.position.set(0, -4000, 0);       // uklidit mimo scénu
       L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
       continue;
@@ -319,7 +362,7 @@ function _stary(dt){
         rozprsk(L.m.position, new THREE.Vector3(0,1,0), new THREE.Vector3(0, 420, 0), 16);
         krouzek(L.m.position.x, 1.5, L.m.position.z, 'up', 40);
         L.m.visible = false; L.mrtva = 2.2; L.pada = false;
-        skore += 100;
+        pripisSkore(100);
       }
       continue;
     }
@@ -438,7 +481,7 @@ let jetGeo = null;
 // se za letu ohne a odtrhne. Proto se tu z ústí vypouštějí uzly, které si dál
 // letí samy, a trubice se generuje AŽ Z NICH.
 const G = 1500;
-const USTI = new THREE.Vector3(0, 60, 420);
+const USTI = new THREE.Vector3(0, 60 + STANOVISTE, 420);
 const EMIT_ZA_S = 90;          // kolik uzlů za sekundu
 const ZIVOT = 1.15;            // jak dlouho uzel letí, než zmizí
 
@@ -467,23 +510,104 @@ function rychlostNaCil(cilX, cilY, cilZ){
   return new THREE.Vector3(dx/t, (dy + 0.5*G*t*t)/t, dz/t);
 }
 
+// Průsečík úsečky s kvádrem (slab metoda). Vrací poměr na úsečce, osu vstupní
+// stěny a její znaménko, a to pro NEJBLIŽŠÍ zasažený kvádr; null, když úsečka
+// všechny mine. Kvádrů je pět (tři police + stěna), takže na to stačí lineární
+// průchod — mřížka by se tu nezaplatila.
+const _pred = new THREE.Vector3();
+const _bod  = new THREE.Vector3();
+const _nor  = new THREE.Vector3();
+// pustKapku() čte {p, v} — půjčíme mu pořád tentýž objekt, ať se v herní
+// smyčce nealokuje (hodnoty si okamžitě opíše do svého poolu)
+const _kapkaU = { p: new THREE.Vector3(), v: new THREE.Vector3() };
+const _p3 = [0,0,0], _d3 = [0,0,0];
+
+function narazDoDreva(a, b){
+  _p3[0] = a.x;      _p3[1] = a.y;      _p3[2] = a.z;
+  _d3[0] = b.x - a.x; _d3[1] = b.y - a.y; _d3[2] = b.z - a.z;
+  let nejT = 2, nejOsa = -1, nejZnam = 0;
+  for(const kv of DREVO){
+    let t0 = 0, t1 = 1, osa = -1, znam = 0, mimo = false;
+    for(let i=0;i<3;i++){
+      if(Math.abs(_d3[i]) < 1e-9){
+        if(_p3[i] < kv.min[i] || _p3[i] > kv.max[i]){ mimo = true; break; }
+        continue;
+      }
+      let ta = (kv.min[i]-_p3[i])/_d3[i], tb = (kv.max[i]-_p3[i])/_d3[i], s = -1;
+      if(ta > tb){ const q = ta; ta = tb; tb = q; s = 1; }
+      if(ta > t0){ t0 = ta; osa = i; znam = s; }
+      if(tb < t1) t1 = tb;
+      if(t0 > t1){ mimo = true; break; }
+    }
+    if(mimo || osa < 0) continue;      // osa < 0 = úsečka začínala uvnitř
+    if(t0 < nejT){ nejT = t0; nejOsa = osa; nejZnam = znam; }
+  }
+  return nejOsa < 0 ? null : { t: nejT, osa: nejOsa, znam: nejZnam };
+}
+
+// Zásah do dřeva vypadá stejně jako dopad na zem, jen se kroužek položí do
+// roviny zasažené stěny — na desku shora, na čelo police a na zadní stěnu svisle.
+function dopadNaDrevo(u, z){
+  _bod.copy(_pred).lerp(u.p, z.t);
+  _nor.set(z.osa === 0 ? z.znam : 0, z.osa === 1 ? z.znam : 0, z.osa === 2 ? z.znam : 0);
+  _bod.addScaledVector(_nor, 1.5);     // odsadit od plochy, ať kroužek neproblikává
+  // Prstenec jen u ČTVRTINY zásahů. Proud vyrábí 90 uzlů za vteřinu, takže
+  // prstenec na každý z nich znamená čtyřicet kroužků naráz — plocha pak
+  // vypadá jako terč, ne jako mokré místo. Rozstřik jde naopak z každého,
+  // ten se má slévat.
+  if(Math.random() < 0.14) krouzek(_bod.x, _bod.y, _bod.z, z.osa === 1 ? 'up' : 'celo', 20 + Math.random()*16);
+  rozprsk(_bod, _nor, u.v, 3 + (Math.random()*3|0));
+  // K mlze pár VELKÝCH kapek, co se od plochy odrazí. Sama mlha je u dopadu
+  // málo — podlaha jich odjakživa pouští 3 až 6 a je to ono místo, kam se
+  // hráč dívá. Odraz jde po ploše a trochu nahoru, ne zpátky proti proudu.
+  if(Math.random() < 0.18){
+    const v0 = u.v.length();
+    _kapkaU.p.copy(_bod);
+    _kapkaU.v.copy(u.v).addScaledVector(_nor, -u.v.dot(_nor)).normalize()   // po ploše
+            .multiplyScalar(v0*(0.16 + Math.random()*0.16))
+            .addScaledVector(_nor, v0*(0.06 + Math.random()*0.10));         // špetka od ní
+    _kapkaU.v.y += 90 + Math.random()*160;
+    pustKapku(_kapkaU);
+  }
+}
+
 function krokProudu(dt, cil, strikaJe){
-  // posun všech uzlů po jejich vlastní dráze
-  for(const u of uzly){
+  // Posun uzlů po jejich vlastní dráze a hned na místě kolize. Uzel urazí za
+  // snímek až 25 px, kdežto deska police je 18 px tenká — test na aktuální
+  // poloze by proto většinu zásahů propásl tunelováním. Testuje se ÚSEČKA
+  // z předchozí polohy do nové (slab metoda), stejně jako u rychlých těles.
+  for(let i=uzly.length-1;i>=0;i--){
+    const u = uzly[i];
+    _pred.copy(u.p);
     u.t += dt;
     u.v.y -= G*dt;
     u.p.addScaledVector(u.v, dt);
-  }
-  // dopad na podlahu — efekt a konec uzlu
-  for(let i=uzly.length-1;i>=0;i--){
-    if(uzly[i].p.y <= 4){ dopadNaZem(uzly[i]); uzly.splice(i,1); }
+
+    // Kachnička stojí PŘED policí, takže se testuje dřív než dřevo
+    const kach = narazDoKachny(u.p);
+    if(kach){ zasahKachny(kach, u); uzly.splice(i,1); continue; }
+
+    const zasah = narazDoDreva(_pred, u.p);
+    if(zasah){ dopadNaDrevo(u, zasah); uzly.splice(i,1); continue; }
+    // dopad na podlahu — efekt a konec uzlu
+    if(u.p.y <= 4){ dopadNaZem(u); uzly.splice(i,1); }
   }
   while(uzly.length && uzly[0].t > ZIVOT) uzly.shift();
 
   // Občas se od proudu odtrhne kapka. Čím dál od ústí, tím spíš — voda na
   // doletu přestává držet pohromadě, takže se tříští právě tam.
+  //
+  // ALE pravděpodobnost nesmí viset na stáří uzlu CELÁ. Od chvíle, kdy proud
+  // končí nárazem do dřeva, se uzly nedožijí ani poloviny životnosti (naměřeno:
+  // max 0,40 s proti 0,93 s při střelbě do prázdna) a kapek kolem proudu zbyla
+  // čtvrtina — 8 místo 30. Základ 0,55 drží kapky po celé délce, zbytek pořád
+  // houstne k doletu.
   for(const u of uzly){
-    if(Math.random() < dt * 2.2 * (u.t/ZIVOT)) pustKapku(u);
+    // Rychlost i rozptyl jsou zpátky na původních hodnotách (0,85 a 260, tedy
+    // kužel ~7°): kapka letí s proudem a jen z něj vystřelí. Zvýšený je JEN
+    // počet — základ 0,45 místo nuly, protože od chvíle, kdy proud končí
+    // nárazem do dřeva, se uzly nedožijí stáří, na kterém původní vzorec stál.
+    if(Math.random() < dt * 2.4 * (0.45 + 0.55*u.t/ZIVOT)) pustKapku(u);
   }
 
   // nový stisk = nová generace, která se se starou nikdy nespojí
@@ -650,84 +774,188 @@ function postavJet(cas){
 // smyslu, že by na nich stál proud — je jich řádově desítky a jsou jen ozdoba.
 // Kreslí se jako JEDEN objekt Points, takže je to jeden draw call bez ohledu
 // na jejich počet.
-const KAPEK_MAX = 220;
+// 220 stačilo, dokud se kapky trhaly hlavně na doletu. S hustším odtrháváním
+// po celé délce vychází při volném letu ~270 kapek za vteřinu při životnosti
+// kolem 0,85 s, takže by se pool vyčerpal a odtržení by tiše přestalo fungovat.
+const KAPEK_MAX = 340;
 const kapkyPos = new Float32Array(KAPEK_MAX*3);
+const kapkyBarva = new Float32Array(KAPEK_MAX*3);
 const kapky = [];
-for(let i=0;i<KAPEK_MAX;i++) kapky.push({ ziva:false, x:0, y:0, z:0, vx:0, vy:0, vz:0, t:0, zivot:0 });
+for(let i=0;i<KAPEK_MAX;i++) kapky.push({ ziva:false, x:0, y:0, z:0, vx:0, vy:0, vz:0, t:0, zivot:0, r:1, g:1, b:1 });
 
+// Půl na půl bílá pěna a kapky v barvě proudu. Samá bílá vypadá jako sníh,
+// samá modrá splyne s trubicí — teprve když je vidět obojí, čte se to jako
+// voda. Modrá je TÁŽ, jakou má podklad textury proudu (#4aa9dd), takže odtržená
+// kapka vypadá jako kus toho, co letí vedle ní.
+const BARVA_VODY = new THREE.Color(0x4aa9dd);
+const BARVA_PENY = new THREE.Color(0xffffff);
+const _barva = new THREE.Color();
+function barvaKapky(){
+  const t = Math.random() < 0.5 ? 0 : 0.45 + Math.random()*0.55;
+  return _barva.copy(BARVA_PENY).lerp(BARVA_VODY, t);
+}
+
+// OSTRÝ bílý puntík, ne gradient do ztracena. Rozostřovaly to dvě věci naráz:
+// textura sama byla radiální gradient (od 40 % poloměru už průhledněla) a k ní
+// si GPU při zmenšení na pár pixelů brala mipmapy, které zbytek rozmazaly.
+// Stejný recept jako u ostatních ostrých textur v ballon-beltu: vypnout
+// mipmapy a nechat LinearFilter.
 function texturaKapky(){
   const c = document.createElement('canvas');
   c.width = c.height = 32;
   const g = c.getContext('2d');
-  const grd = g.createRadialGradient(16, 13, 1, 16, 16, 15);
-  grd.addColorStop(0.0, 'rgba(255,255,255,1)');
-  grd.addColorStop(0.4, 'rgba(196,236,255,0.95)');
-  grd.addColorStop(1.0, 'rgba(120,200,240,0)');
-  g.fillStyle = grd;
-  g.beginPath(); g.arc(16,16,15,0,Math.PI*2); g.fill();
-  return new THREE.CanvasTexture(c);
+  g.fillStyle = '#ffffff';
+  g.beginPath(); g.arc(16, 16, 13, 0, Math.PI*2); g.fill();
+  const t = new THREE.CanvasTexture(c);
+  t.generateMipmaps = false;
+  t.minFilter = THREE.LinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  return t;
 }
 
 const kapkyGeo = new THREE.BufferGeometry();
 kapkyGeo.setAttribute('position', new THREE.BufferAttribute(kapkyPos, 3));
+// vertexColors = barva per kapka a pořád JEDEN draw call; PointsMaterial ji
+// jen vynásobí s bílou texturou, takže puntík zůstane ostrý
+kapkyGeo.setAttribute('color', new THREE.BufferAttribute(kapkyBarva, 3));
 const texKapka = texturaKapky();
 const kapkyMesh = new THREE.Points(kapkyGeo, new THREE.PointsMaterial({
   size: 16, map: texKapka, transparent: true, depthWrite: false,
-  sizeAttenuation: true, opacity: 0.95,
+  sizeAttenuation: true, opacity: 0.95, vertexColors: true,
 }));
+kapkyMesh.frustumCulled = false;
 scene.add(kapkyMesh);
 
-// DROBNÉ kapičky pro odraz od objektu. PointsMaterial neumí velikost per bod,
-// takže je to druhý objekt s menší velikostí — pořád jeden draw call.
-// Náraz do koule nemá vypadat jako výbuch, ale jako sprška, co se od ní odrazí.
-const DROBNYCH_MAX = 420;
-const drobnePos = new Float32Array(DROBNYCH_MAX*3);
+// DROBNÉ kapičky = rozstřik od pevné plochy. Náraz nemá vypadat jako výbuch,
+// ale jako mlžný závoj, který se po ploše rozlije a zmizí.
+//
+// PROČ VLASTNÍ SHADER MÍSTO PointsMaterial: PointsMaterial umí jen jednu
+// velikost a jedno krytí pro celý objekt. Kapičky pak všechny do posledního
+// snímku svítí naplno a naráz zmiznou — což oko čte jako „zhaslo to", ne jako
+// rozplynutí. Se dvěma atributy navíc (velikost, krytí) může každá kapička
+// vlastním tempem slábnout a zmenšovat se, a pořád je to JEDEN draw call.
+const DROBNYCH_MAX = 700;
+const drobnePos   = new Float32Array(DROBNYCH_MAX*3);
+const drobneVel   = new Float32Array(DROBNYCH_MAX);
+const drobneKryti = new Float32Array(DROBNYCH_MAX);
+const drobneBarva = new Float32Array(DROBNYCH_MAX*3);
 const drobne = [];
-for(let i=0;i<DROBNYCH_MAX;i++) drobne.push({ ziva:false, x:0,y:0,z:0, vx:0,vy:0,vz:0, t:0, zivot:0 });
+for(let i=0;i<DROBNYCH_MAX;i++) drobne.push({ ziva:false, x:0,y:0,z:0, vx:0,vy:0,vz:0, t:0, zivot:0, vel:0, r:1, g:1, b:1 });
 const drobneGeo = new THREE.BufferGeometry();
-drobneGeo.setAttribute('position', new THREE.BufferAttribute(drobnePos, 3));
-scene.add(new THREE.Points(drobneGeo, new THREE.PointsMaterial({
-  size: 6, map: texKapka, transparent: true, depthWrite: false,
-  sizeAttenuation: true, opacity: 0.85,
-})));
+drobneGeo.setAttribute('position',  new THREE.BufferAttribute(drobnePos, 3));
+drobneGeo.setAttribute('velikost',  new THREE.BufferAttribute(drobneVel, 1));
+drobneGeo.setAttribute('kryti',     new THREE.BufferAttribute(drobneKryti, 1));
+drobneGeo.setAttribute('barva',     new THREE.BufferAttribute(drobneBarva, 3));
 
-function pustDrobnou(x, y, z, vx, vy, vz){
+// mer = totéž, co si three počítá pro sizeAttenuation: půlka výšky plátna
+// KRÁT pixelRatio. Ten násobek se snadno vynechá (a taky jsem ho vynechal) —
+// pak vyjdou body pod jeden pixel a rozstřik prostě není vidět, aniž by
+// cokoli hlásilo chybu.
+const matDrobne = new THREE.ShaderMaterial({
+  uniforms: { mapa: { value: texKapka },
+              mer: { value: innerHeight*0.5*Math.min(devicePixelRatio,2) } },
+  transparent: true, depthWrite: false,
+  vertexShader: `
+    attribute float velikost;
+    attribute float kryti;
+    attribute vec3 barva;
+    uniform float mer;
+    varying float vKryti;
+    varying vec3 vBarva;
+    void main(){
+      vKryti = kryti;
+      vBarva = barva;
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = velikost * (mer / -mv.z);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    uniform sampler2D mapa;
+    varying float vKryti;
+    varying vec3 vBarva;
+    void main(){
+      vec4 t = texture2D(mapa, gl_PointCoord);
+      if(t.a * vKryti < 0.01) discard;
+      gl_FragColor = vec4(t.rgb * vBarva, t.a * vKryti);
+    }`,
+});
+const drobneMesh = new THREE.Points(drobneGeo, matDrobne);
+// Bounding sphere se počítá z výchozích (nulových) pozic v poolu, takže by
+// three celý objekt ořízl, jakmile se počátek scény dostane mimo záběr.
+drobneMesh.frustumCulled = false;
+scene.add(drobneMesh);
+
+function pustDrobnou(x, y, z, vx, vy, vz, vel, zivot){
   for(const k of drobne){
     if(k.ziva) continue;
-    k.ziva = true; k.t = 0; k.zivot = 0.28 + Math.random()*0.35;
-    k.x = x; k.y = y; k.z = z; k.vx = vx; k.vy = vy; k.vz = vz;
+    k.ziva = true; k.t = 0; k.zivot = zivot;
+    k.x = x; k.y = y; k.z = z; k.vx = vx; k.vy = vy; k.vz = vz; k.vel = vel;
+    const c = barvaKapky(); k.r = c.r; k.g = c.g; k.b = c.b;
     return;
   }
 }
 
+// ODPOR VZDUCHU je to, co dělá z pelet mlhu. Kapička o průměru pár milimetrů
+// ztratí rychlost během desetin sekundy — bez toho letí po čisté parabole
+// a rozstřik vypadá jako vystřelené broky. Exponenciální útlum drží stabilitu
+// i při dlouhém snímku, kde by násobení (1 - k*dt) přeteklo do záporu.
+const ODPOR = 2.8;
 function krokDrobnych(dt){
+  const tlum = Math.exp(-ODPOR*dt);
   let n = 0;
   for(const k of drobne){
     if(!k.ziva) continue;
-    k.t += dt; k.vy -= G*dt;
+    k.t += dt;
+    k.vy -= G*dt;
+    k.vx *= tlum; k.vy *= tlum; k.vz *= tlum;
     k.x += k.vx*dt; k.y += k.vy*dt; k.z += k.vz*dt;
     if(k.t > k.zivot || k.y < 2){ k.ziva = false; continue; }
+    const u = k.t/k.zivot;
     drobnePos[n*3] = k.x; drobnePos[n*3+1] = k.y; drobnePos[n*3+2] = k.z;
+    // Kapička je plná bílá skoro celý život a teprve poslední čtvrtinu zhasne.
+    // Plynulé slábnutí od začátku (dřív druhá mocnina) dělalo z puntíků mlhavé
+    // šmouhy — právě to „rozostření na konci", které tam nemá být.
+    drobneVel[n]   = k.vel * (1 - 0.20*u);
+    drobneKryti[n] = u < 0.75 ? 1 : (1-u)*4;
+    drobneBarva[n*3] = k.r; drobneBarva[n*3+1] = k.g; drobneBarva[n*3+2] = k.b;
     n++;
   }
   drobneGeo.setDrawRange(0, n);
   drobneGeo.attributes.position.needsUpdate = true;
+  drobneGeo.attributes.velikost.needsUpdate = true;
+  drobneGeo.attributes.kryti.needsUpdate = true;
+  drobneGeo.attributes.barva.needsUpdate = true;
   return n;
 }
 
-function pustKapku(u){
+// `ded` = kolik si kapka nese z rychlosti uzlu, `rozptyl` = jak moc uhne stranou.
+// Obojí je parametr, protože obě místa, odkud se kapky pouštějí, chtějí něco
+// jiného: u dopadu má kapka letět tam, kam ji odrazí plocha (malý rozptyl),
+// kdežto kapka odtržená za letu musí PROUDU UHNOUT. S dědičností 0,85 a
+// rozptylem 260 na rychlost 2200 je to kužel 7° — kapka letí uvnitř trubice,
+// není ji vidět a doletí až k dopadu. Právě proto se zdálo, že podél proudu
+// nic nestříká.
+function pustKapku(u, rozptyl, ded){
+  if(rozptyl === undefined) rozptyl = 260;
+  if(ded === undefined) ded = 0.85;
   for(const k of kapky){
     if(k.ziva) continue;
     k.ziva = true; k.t = 0; k.zivot = 0.5 + Math.random()*0.7;
     k.x = u.p.x; k.y = u.p.y; k.z = u.p.z;
-    // kapka si nese rychlost uzlu a k tomu rozstřik do stran
-    k.vx = u.v.x*0.85 + (Math.random()-0.5)*260;
-    k.vy = u.v.y*0.85 + (Math.random()-0.5)*200;
-    k.vz = u.v.z*0.85 + (Math.random()-0.5)*260;
+    const c = barvaKapky(); k.r = c.r; k.g = c.g; k.b = c.b;
+    k.vx = u.v.x*ded + (Math.random()-0.5)*rozptyl;
+    k.vy = u.v.y*ded + (Math.random()-0.5)*rozptyl*0.8;
+    k.vz = u.v.z*ded + (Math.random()-0.5)*rozptyl;
     return;
   }
 }
 
+// ŽÁDNÝ odpor vzduchu na velké kapky — a je to schválně. Zkusil jsem ho sem
+// dát (1,6) spolu se sebranou rychlostí, aby se kapky za proudem opozdily a
+// byly vidět vedle něj. Vypadalo to špatně: kapky proudu vypadly, samostatně
+// se snášely a působily jako nesouvisející nepořádek. Kapka má LETĚT S PROUDEM
+// a jen se z něj vylupovat — o to jde. Mlha u dopadu odpor má, ta se naopak
+// rozplynout smí.
 function krokKapek(dt){
   let n = 0;
   for(const k of kapky){
@@ -737,10 +965,12 @@ function krokKapek(dt){
     k.x += k.vx*dt; k.y += k.vy*dt; k.z += k.vz*dt;
     if(k.t > k.zivot || k.y < 2){ k.ziva = false; continue; }
     kapkyPos[n*3] = k.x; kapkyPos[n*3+1] = k.y; kapkyPos[n*3+2] = k.z;
+    kapkyBarva[n*3] = k.r; kapkyBarva[n*3+1] = k.g; kapkyBarva[n*3+2] = k.b;
     n++;
   }
   kapkyGeo.setDrawRange(0, n);
   kapkyGeo.attributes.position.needsUpdate = true;
+  kapkyGeo.attributes.color.needsUpdate = true;
   return n;
 }
 
@@ -748,9 +978,12 @@ function krokKapek(dt){
 // Kroužek, který se rozbíhá po ploše zásahu — to je to, co ve 2D verzi dělá
 // dopad čitelným. Kroužky jsou v poolu a leží v rovině plochy, do které proud
 // narazil, takže fungují na podlaze i na stěně.
+// Prstenec je TENČÍ než dřív (0,72 → 0,86). Tlustý kroužek se při plné síle
+// čte jako nakreslené kolečko, a když jich proud vyrábí desítky za vteřinu,
+// je z plochy komiks. Tenká čára projde jako vlnka po hladině.
 const KROUZKU = 26;
 const krouzky = [];
-const geoKrouzek = new THREE.RingGeometry(0.72, 1.0, 26);
+const geoKrouzek = new THREE.RingGeometry(0.86, 1.0, 26);
 const matKrouzek = new THREE.MeshBasicMaterial({
   color: 0xdff2ff, transparent: true, side: THREE.DoubleSide, depthWrite: false,
 });
@@ -782,37 +1015,71 @@ function krokKrouzku(dt){
     if(k.t >= k.zivot){ k.zivot = 0; k.m.visible = false; continue; }
     const u = k.t/k.zivot;
     k.m.scale.setScalar(k.max*(0.25 + u*0.95));
-    k.m.material.opacity = 0.55*(1-u)*(1-u);   // jemnější, rychleji mizí
+    k.m.material.opacity = 0.32*(1-u)*(1-u);   // jemnější, rychleji mizí
   }
 }
 
-// Rozprsk od PEVNÉHO POVRCHU. Voda se od koule neodrazí dozadu jako míč —
-// rozstříkne se do VĚJÍŘE kolem normály, tedy do plochy kolmé na ni, a jen
-// zčásti se vrací proti proudu. Kapky si nesou část rychlosti proudu, takže
-// rozprsk má směr — jinak by to vypadalo jako výbuch na místě.
+// Rozprsk od PEVNÉHO POVRCHU. Voda se od plochy neodrazí dozadu jako míč —
+// rozlije se PO NÍ a jen zlomek se vrací proti proudu. Tři věci, na kterých
+// stojí, že to čte jako lehký rozstřik a ne jako výbuch:
+//
+//   1. Vějíř se drží PLOCHY. Složka podél normály je jen 0,10–0,32 tangenciální
+//      (dřív 0,35–0,85), takže voda po stěně steče, místo aby od ní odletěla.
+//   2. Rozstřik má SMĚR — dopadová rychlost promítnutá do plochy. Voda po
+//      nárazu pokračuje tam, kam letěla: po stěně nahoru, po desce dopředu.
+//      Bez toho je z toho souměrná hvězda, tedy výbuch na místě.
+//   3. Dvě frakce. Většinu tvoří pomalá jemná mlha s krátkým životem, zbytek
+//      jsou větší, rychlejší kapky. Jedna velikost pro všechno vypadá buď
+//      jako mrholení, nebo jako broky, nikdy jako voda.
+//
+// Vektory jsou předem připravené — rozprsk se volá až desetkrát za snímek
+// a v herní smyčce se nealokuje.
+const _t1 = new THREE.Vector3(), _t2 = new THREE.Vector3();
+const _pom = new THREE.Vector3(), _tok = new THREE.Vector3();
+
 function rozprsk(bod, normala, dopadRychlost, kolik){
   // dvě osy kolmé na normálu = rovina, do které se voda rozlévá
-  const pom = Math.abs(normala.y) > 0.9
-    ? new THREE.Vector3(1,0,0) : new THREE.Vector3(0,1,0);
-  const t1 = new THREE.Vector3().crossVectors(normala, pom).normalize();
-  const t2 = new THREE.Vector3().crossVectors(normala, t1).normalize();
+  if(Math.abs(normala.y) > 0.9) _pom.set(1,0,0); else _pom.set(0,1,0);
+  _t1.crossVectors(normala, _pom).normalize();
+  _t2.crossVectors(normala, _t1).normalize();
   const v0 = dopadRychlost.length();
+  _tok.copy(dopadRychlost).addScaledVector(normala, -dopadRychlost.dot(normala)).normalize();
+
   for(let i=0;i<kolik;i++){
+    const jemna = Math.random() < 0.65;
     const a = Math.random()*Math.PI*2;
-    // slabší než dřív: sprška, ne výbuch
-    const sila = v0*(0.10 + Math.random()*0.20);
-    const v = new THREE.Vector3()
-      .addScaledVector(t1, Math.cos(a)*sila)
-      .addScaledVector(t2, Math.sin(a)*sila)
-      .addScaledVector(normala, sila*(0.35 + Math.random()*0.5));
-    pustDrobnou(bod.x, bod.y, bod.z, v.x, v.y, v.z);
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const s  = v0*(jemna ? 0.05 + Math.random()*0.11 : 0.11 + Math.random()*0.15);
+    const sn = s*(0.10 + Math.random()*0.22);          // od plochy pryč
+    const st = s*(0.45 + Math.random()*0.75);          // po směru dopadu
+    // origin rozhozený po ploše, ať rozstřik nevychází z jednoho bodu
+    const j1 = (Math.random()-0.5)*7, j2 = (Math.random()-0.5)*7;
+    pustDrobnou(
+      bod.x + _t1.x*j1 + _t2.x*j2,
+      bod.y + _t1.y*j1 + _t2.y*j2,
+      bod.z + _t1.z*j1 + _t2.z*j2,
+      _t1.x*ca*s + _t2.x*sa*s + normala.x*sn + _tok.x*st,
+      _t1.y*ca*s + _t2.y*sa*s + normala.y*sn + _tok.y*st,
+      _t1.z*ca*s + _t2.z*sa*s + normala.z*sn + _tok.z*st,
+      // Velikosti jsou ve stejných jednotkách jako `size` u PointsMaterial,
+      // tedy ve SVĚTĚ, ne v pixelech: ve vzdálenosti polic (~1160) vyjde
+      // z jednotky 0,45 px na obrazovce. Prvně jsem sem dal 3–6 a kapičky
+      // měly na obrazovce necelé dva pixely — v poolu jich žilo 310 a nebylo
+      // vidět vůbec nic. Teď to dělá 4–6 px mlha a 7–12 px větší kapky.
+      jemna ? 6 + Math.random()*4 : 11 + Math.random()*6,
+      jemna ? 0.20 + Math.random()*0.20 : 0.34 + Math.random()*0.28);
   }
 }
 
 // Dopad uzlu na podlahu: kroužek + rozstřik do stran. Uzel tím končí, protože
 // voda po dopadu pokračovat nemá — dřív proud podlahou prolétl skrz.
 function dopadNaZem(u){
-  krouzek(u.p.x, 1.5, u.p.z, 'up', 34 + Math.random()*26);
+  if(Math.random() < 0.18) krouzek(u.p.x, 1.5, u.p.z, 'up', 30 + Math.random()*22);
+  // Podlaha je místo, kde proud končí nejčastěji, takže lehký rozstřik patří
+  // hlavně sem. Velké kapky pod ním zůstávají — samotná mlha je málo.
+  _nor.set(0,1,0);
+  _bod.set(u.p.x, 3, u.p.z);
+  rozprsk(_bod, _nor, u.v, 3 + (Math.random()*3|0));
   const n = 3 + (Math.random()*4|0);
   for(let i=0;i<n;i++){
     const a = Math.random()*Math.PI*2;
@@ -823,14 +1090,40 @@ function dopadNaZem(u){
 }
 
 // ---- míření ---------------------------------------------------------------
-let cil = { x: 0, y: 260, z: -700 };
+let cil = { x: 0, y: 260 + STANOVISTE, z: -700 };
+const _paprsek = new THREE.Vector3();
+
+// Cíl se počítá PROMÍTNUTÍM PRSTU DO SCÉNY, ne přepočtem přes pevná rozpětí.
+//
+// Dřív to bylo `cil.y = … - ny*380` a `cil.x = nx*900`, tedy dvě čísla vycucaná
+// z prstu. Jenže kolik světa je vidět, závisí na zorném úhlu, poměru stran okna
+// a vzdálenosti cíle — a s těmi to nemělo nic společného:
+//   • SVISLE bylo rozpětí 760 jednotek proti ~1250, které jsou v hloubce polic
+//     na výšku vidět. Zaměřovač se tedy hýbal jen 0,6× rychlostí prstu a na
+//     horní okraj scény se šlo dostat, až když prst dojel úplně nahoru.
+//     Přesně tohle je to „jako by se to s pohybem nahoru zpomalovalo".
+//   • VODOROVNĚ to bylo obráceně: ±900 proti ~±290 viditelným na svislém
+//     displeji telefonu, takže do stran byl zaměřovač naopak přecitlivělý.
+// Průsečík paprsku od kamery s rovinou cílové hloubky drží zaměřovač přesně
+// pod prstem při jakémkoli poměru stran, a tím pádem i na mobilu.
 function mir(sx, sy){
   const nx = (sx/innerWidth)*2 - 1, ny = (sy/innerHeight)*2 - 1;
-  cil.x = nx*900;
-  cil.y = 420 - ny*380;
-  cil.z = -420 - (1-Math.abs(nx))*420;
+  // Hloubka cíle = rovina kachniček. Dřív se odvozovala od vodorovné výchylky
+  // (−420 až −840), jenže terče stojí v jedné hloubce: zaměřovač pak seděl na
+  // kachničce jen opticky a proud jí prolétl před nosem. Do čeho hráč míří,
+  // to musí trefit.
+  cil.z = KACH_Z;
+  // Paprsek skládám ze zorného úhlu ručně. `unproject` tu selhalo: pro NDC
+  // z = 0,5 vrací bod jen pár jednotek před kamerou, takže parametr průsečíku
+  // vyšel skoro nulový a cíl zůstal viset ve výšce kamery — zaměřovač se pak
+  // po celé výšce displeje pohnul o 19 px.
+  const tg = Math.tan(camera.fov*Math.PI/360);
+  _paprsek.set(nx*tg*camera.aspect, -ny*tg, -1).applyQuaternion(camera.quaternion);
+  const t = (cil.z - camera.position.z) / _paprsek.z;
+  cil.x = camera.position.x + _paprsek.x*t;
+  cil.y = camera.position.y + _paprsek.y*t;
 }
-let strika = true;             // drž = stříká, pusť = proud se odtrhne a doletí
+let strika = false;            // start bez proudu; drž = stříká, pusť = proud se odtrhne a doletí
 addEventListener('pointermove', e => mir(e.clientX, e.clientY));
 addEventListener('pointerdown', e => { mir(e.clientX, e.clientY); strika = true; });
 addEventListener('pointerup',   () => { strika = false; });
@@ -883,11 +1176,458 @@ function obnovPopisky(){
 }
 obnovPopisky();
 
+// ---- kachničky ------------------------------------------------------------
+// Automatické terče jako na pouťové střelnici: kachnička se objeví, chvíli
+// vydrží a zase zmizí. Kachničky jsou BANDITI z westernu — `img/bandit_ducks.png`,
+// tentýž soubor, jaký používá js/western.js. Pozadí má průhledné (ověřeno:
+// 61 % pixelů má alfu 0), takže jde rovnou na plane.
+//
+// Čtyři varianty v mřížce 2×2 se neřeší čtyřmi kopiemi textury (to by byly
+// čtyři nahrání 1024² na GPU), ale ČTYŘMI GEOMETRIEMI s posunutými UV nad
+// JEDNOU sdílenou texturou. Varianta = výměna geometrie, nic se nekopíruje.
+const texBandita = new THREE.TextureLoader().load('./img/bandit_ducks.png');
+texBandita.anisotropy = 4;
+const BANDITU = 4;
+const GEO_BANDITA = [];
+for(let i=0;i<BANDITU;i++){
+  const g = new THREE.PlaneGeometry(1, 1);
+  const gx = i % 2, gy = (i/2)|0;          // gy 0 = HORNÍ řada obrázku, tedy v v <0,5; 1>
+  const uv = g.attributes.uv;
+  for(let k=0;k<uv.count;k++) uv.setXY(k, (uv.getX(k) + gx)*0.5, (uv.getY(k) + (1-gy))*0.5);
+  uv.needsUpdate = true;
+  GEO_BANDITA.push(g);
+}
+// Kachnička vyplňuje jen část buňky (western si na to drží BANDIT_ZOOM 1,16),
+// takže se plane kreslí o kus větší, ať terč není opticky menší, než má být.
+const BANDIT_ZOOM = 1.22;
+
+// Hodnota podle patra. Na kachničce se NEUKAZUJE — hráč ji uvidí až v „+N"
+// po sestřelu; na těle je místo ní pouťový terčík.
+const HODNOTY = [10, 20, 30];
+
+// Červenobílý terčík. Tmavý obrys je nutný, jinak bílé mezikruží splyne se
+// žlutým tělem kachničky a z terče zbude jen pár červených fleků.
+function texturaTercik(){
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const kruh = (r, barva)=>{ g.fillStyle = barva; g.beginPath(); g.arc(64,64,r,0,Math.PI*2); g.fill(); };
+  kruh(60, '#f4f4f4');
+  kruh(46, '#e0362a');
+  kruh(31, '#f4f4f4');
+  kruh(16, '#e0362a');
+  g.strokeStyle = 'rgba(18,18,24,0.9)'; g.lineWidth = 5;
+  g.beginPath(); g.arc(64,64,60,0,Math.PI*2); g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter;
+  return t;
+}
+const texTercik = texturaTercik();
+
+// Prstenec plnění. Výseč se řeže v shaderu podle uniformu, takže se nemusí
+// každý snímek přestavovat geometrie — to je přesně ta realokace v herní
+// smyčce, která na Androidu stála nejvíc (viz proud ve v129).
+function novyPrstenec(){
+  return new THREE.ShaderMaterial({
+    uniforms: { postup: { value: 0 }, barva: { value: new THREE.Color(0x5ad1ff) } },
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: `
+      uniform float postup; uniform vec3 barva; varying vec2 vUv;
+      void main(){
+        vec2 p = vUv*2.0 - 1.0;
+        float r = length(p);
+        if(r > 1.0 || r < 0.74) discard;
+        float a = atan(p.x, p.y);            // 0 nahoře, po směru hodinových ručiček
+        if(a < 0.0) a += 6.2831853;
+        if(a > postup*6.2831853) discard;
+        gl_FragColor = vec4(barva, 0.95);
+      }`,
+  });
+}
+
+const KACHEN_MAX = 5;
+const KACH_R = 62;                  // poloměr těla ve světě (lahev má 118 na výšku)
+const KACH_TERC = 0.34;             // podíl poloměru, který se počítá jako střed terče
+const NAJEZD = 0.30, ODJEZD = 0.28, UMIRANI = 0.34;
+// posun terče proti středu kachničky — používá ho kresba i test zásahu,
+// takže je to jedno místo, ne dvě čísla, která se rozejdou
+const TERC_X = KACH_R*0.26, TERC_Y = -KACH_R*0.16;
+// PIVOT SKUPINY JE U PATY TĚLA, ne uprostřed. Squash se pak hroutí dolů do
+// sebe a kachnička zůstane stát na desce; se středovým pivotem se plácala na
+// obě strany a vypadala, že visí ve vzduchu. Ze stejného důvodu i naskočení
+// vyroste z police a cukání před odchodem se kýve kolem nohou.
+// KACH_STRED = jak vysoko nad patou leží optický střed kachničky.
+const KACH_STRED = KACH_R*0.92;
+const geoPlane = new THREE.PlaneGeometry(1, 1);
+// podklad terče musí být KRUH jako ve 2D (drawDuckBadge kreslí arc);
+// čtvercový plane pod kachničkou vypadal jako přilepená cedulka
+const geoDisk = new THREE.CircleGeometry(0.5, 28);
+const kachny = [];
+for(let i=0;i<KACHEN_MAX;i++){
+  const skup = new THREE.Group();
+  // materiál je vlastní pro každou kachničku (kvůli mizení při squashi),
+  // ale texturu sdílejí všechny — na GPU je nahraná jednou
+  const telo = new THREE.Mesh(GEO_BANDITA[0], new THREE.MeshBasicMaterial({
+    map: texBandita, transparent: true, alphaTest: 0.35, side: THREE.DoubleSide }));
+  telo.scale.set(KACH_R*2*BANDIT_ZOOM, KACH_R*2*BANDIT_ZOOM, 1);
+  telo.position.y = KACH_STRED;          // skupina má počátek u paty, ne ve středu
+  skup.add(telo);
+  // terč sedí na TĚLE, ne na hlavě — bandita se dívá doleva, tělo je vpravo dole
+  const TX = TERC_X, TY = KACH_STRED + TERC_Y;
+  const tercik = new THREE.Mesh(geoDisk, new THREE.MeshBasicMaterial({
+    map: texTercik, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+  tercik.scale.set(KACH_R*0.80, KACH_R*0.80, 1);
+  tercik.position.set(TX, TY, 3);
+  skup.add(tercik);
+  // prstenec plnění obíhá TĚSNĚ KOLEM terčíku, ať mu nepřekrývá kruhy
+  const matPrst = novyPrstenec();
+  const prstenec = new THREE.Mesh(geoPlane, matPrst);
+  prstenec.scale.set(KACH_R*1.04, KACH_R*1.04, 1);
+  prstenec.position.set(TX, TY, 4);
+  skup.add(prstenec);
+  skup.visible = false;
+  scene.add(skup);
+  kachny.push({ skup, telo, matPrst, stav:'volna', t:0, ttl:0,
+                naplneno:0, potreba:1, hodnota:10, patro:0, odZasahu:9 });
+}
+
+// ---- rytmus střelnice -----------------------------------------------------
+// Původně: nová každých 0,7–1,8 s, život 2,8–4,6 s pro všechny stejně. Bylo
+// to moc rychlé a hlavně nespravedlivé — kachnička za 30 spolkne trojnásobek
+// vody než ta za 10, ale času měla stejně. Čtyři pravidla, která to řeší:
+//
+//   1. ŽIVOT PODLE CENY. Dražší terč musí mít čas, který si zaslouží.
+//   2. ODPOČET SE ZASTAVÍ, KDYŽ DO NÍ TEČE. Ztratit kachničku na 90 % naplnění
+//      jen proto, že vypršel čas, je frustrace, ne obtížnost. Kdo ji drží,
+//      ten ji dostane.
+//   3. ODCHOD SE OHLÁSÍ. Poslední 0,9 s kachnička viditelně cuká — nic nesmí
+//      zmizet dřív, než na to hráč stihne zareagovat.
+//   4. VŽDYCKY JE NA CO STŘÍLET. Pod dva terče na scéně se dosypává hned,
+//      nad čtyři se nespawnuje vůbec.
+const ZIVOT_KACHNY = [3.8, 5.0, 6.4];    // podle patra, tedy podle hodnoty 10/20/30
+const VAROVANI = 0.9;                    // jak dlouho předem se ohlásí odchod
+const PAUZA_PO_ZASAHU = 0.6;             // do téhle doby od zásahu odpočet stojí
+const KACHEN_MIN = 2, KACHEN_NA_SCENE = 4;
+
+// Kachničky se rodí jen v pásu, který se vejde na TELEFON. Police jsou široké
+// ±620, jenže na svislém displeji je v hloubce terčů vidět jen zlomek — na
+// širokém monitoru by se kachničky rodily i tam, kde je hráč na mobilu nikdy
+// neuvidí. Pás se počítá ze zorného úhlu a poměru stran telefonu, ne z pevného
+// čísla, aby seděl i po případné změně kamery.
+// 0,45 = 20:9, tedy ten NEJUŽŠÍ z běžných telefonů. Musí se brát nejužší, ne
+// průměrný: staré 9:16 (0,5625) je nejširší a při něm by na 20:9 kachnička
+// u kraje vyčuhovala o 6 jednotek (naměřeno). Kdo má širší displej, uvidí
+// kachničky jen blíž ke středu, a to nevadí.
+const TELEFON_POMER = 0.45;
+function pasKachen(){
+  const hloubka = camera.position.z - KACH_Z;
+  const svisle = Math.tan(camera.fov*Math.PI/360) * hloubka;
+  return Math.max(140, svisle*TELEFON_POMER - KACH_R*BANDIT_ZOOM);
+}
+
+let kachTimer = 1.0;
+function zivych(){
+  let n = 0;
+  for(const k of kachny) if(k.stav === 'najizdi' || k.stav === 'zije') n++;
+  return n;
+}
+function najdiMisto(patro){
+  const pas = pasKachen();
+  // Nesmí vzniknout přes jinou kachničku — hráč pak neví, do které stříká.
+  for(let pokus=0; pokus<14; pokus++){
+    const x = rand(-pas, pas);
+    let volno = true;
+    for(const k of kachny){
+      if(k.stav === 'volna' || k.patro !== patro) continue;
+      if(Math.abs(k.skup.position.x - x) < KACH_R*2.3){ volno = false; break; }
+    }
+    if(volno) return x;
+  }
+  return null;
+}
+
+function pustKachnu(){
+  const k = kachny.find(k => k.stav === 'volna');
+  if(!k) return;
+  // Patro s nejmenším počtem kachniček — jinak se jich pár sesype do jednoho
+  // a zbytek střelnice zeje prázdnotou.
+  const obsazeno = POLICE_Y.map(() => 0);
+  for(const j of kachny) if(j.stav === 'najizdi' || j.stav === 'zije') obsazeno[j.patro]++;
+  const min = Math.min(...obsazeno);
+  const volna = obsazeno.map((n,i)=>[n,i]).filter(p=>p[0]===min).map(p=>p[1]);
+  const patro = volna[(Math.random()*volna.length)|0];
+  const x = najdiMisto(patro);
+  if(x === null) return;
+  k.patro = patro;
+  k.hodnota = HODNOTY[patro];
+  // Kolik vody kachnička spolkne, roste s hodnotou — dražší terč stojí víc
+  // času, stejně jako ve 2D (duckHpNeeded). Násobek šel z 12 přes 9 na 6:
+  // do kachničky se muselo vypálit tolik vody, že to přestalo být střílení
+  // a začalo být polévání.
+  k.potreba = k.hodnota * 6;
+  k.naplneno = 0;
+  k.odZasahu = 9;
+  k.stav = 'najizdi'; k.t = 0; k.ttl = ZIVOT_KACHNY[patro] * rand(0.9, 1.15);
+  k.telo.geometry = GEO_BANDITA[(Math.random()*BANDITU)|0];   // jeden ze čtyř banditů
+  k.telo.material.opacity = 1;
+  k.matPrst.uniforms.postup.value = 0;
+  k.matPrst.uniforms.barva.value.setHex(0x5ad1ff);
+  // Počátek skupiny = pata kachničky, tedy přesně horní plocha desky police.
+  k.skup.position.set(x, POLICE_Y[patro], KACH_Z);
+  k.skup.rotation.z = 0;
+  k.skup.scale.set(0.01, 0.01, 1);
+  k.skup.visible = true;
+}
+
+function krokKachen(dt){
+  const n = zivych();
+  kachTimer -= dt;
+  // pod minimem se dosypává skoro hned, nad plný stav se nespawnuje vůbec
+  if(kachTimer <= 0 && n < KACHEN_NA_SCENE){
+    pustKachnu();
+    kachTimer = rand(1.2, 2.4);
+  }
+  if(n < KACHEN_MIN && kachTimer > 0.35) kachTimer = 0.35;
+
+  for(const k of kachny){
+    if(k.stav === 'volna') continue;
+    k.t += dt;
+    k.odZasahu += dt;
+    const s = k.skup.scale;
+    if(k.stav === 'najizdi'){
+      // stretch: vyskočí přes cíl a zase se srovná
+      const u = Math.min(1, k.t/NAJEZD);
+      const p = 1 + 0.22*Math.sin(u*Math.PI);
+      s.set(1/p, p, 1);
+      if(u >= 1){ s.set(1,1,1); k.stav = 'zije'; k.t = 0; }
+    } else if(k.stav === 'zije'){
+      // Odpočet stojí, dokud do kachničky teče. Kdo ji drží, ten ji dostane.
+      if(k.odZasahu > PAUZA_PO_ZASAHU) k.ttl -= dt;
+      k.matPrst.uniforms.postup.value = k.naplneno/k.potreba;
+      if(k.ttl <= VAROVANI){
+        // ohlášený odchod: rychlé cukání, aby si toho hráč všiml
+        const c = 1 + 0.09*Math.sin(k.t*26);
+        s.set(1/c, c, 1);
+        k.skup.rotation.z = 0.06*Math.sin(k.t*22);
+      } else {
+        // dýchání, ať terč nestojí jako přibitý
+        const d = 1 + 0.02*Math.sin(k.t*3.1);
+        s.set(1/d, d, 1);
+        k.skup.rotation.z = 0;
+      }
+      if(k.ttl <= 0){ k.stav = 'mizi'; k.t = 0; k.skup.rotation.z = 0; }
+    } else if(k.stav === 'mizi'){
+      // netrefená kachnička se jen scvrkne a zmizí — bez peří a bez bodů
+      const u = Math.min(1, k.t/ODJEZD);
+      s.set(1 - u, 1 - u, 1);
+      if(u >= 1){ k.stav = 'volna'; k.skup.visible = false; }
+    } else if(k.stav === 'umira'){
+      // SQUASH: plácne se do široka a zmizí
+      const u = Math.min(1, k.t/UMIRANI);
+      s.set(1 + 1.1*u, Math.max(0.02, 1 - 1.35*u), 1);
+      k.telo.material.opacity = 1 - u;
+      k.telo.material.transparent = true;
+      if(u >= 1){ k.stav = 'volna'; k.skup.visible = false; k.telo.material.opacity = 1; }
+    }
+  }
+}
+
+// Zásah uzlem proudu. Střed terče plní rychleji než tělo — přesně to je důvod,
+// proč terč na těle je: odměnit míření, ne polévání.
+function zasahKachny(k, u){
+  const dx = u.p.x - (k.skup.position.x + TERC_X);
+  const dy = u.p.y - (k.skup.position.y + KACH_STRED + TERC_Y);
+  const stred = Math.hypot(dx, dy) < KACH_R*KACH_TERC;
+  k.naplneno += stred ? 2.5 : 1;
+  k.odZasahu = 0;                  // dokud teče, odpočet do odchodu stojí
+  _nor.set(0, 0, 1);
+  _bod.set(u.p.x, u.p.y, k.skup.position.z + 6);
+  rozprsk(_bod, _nor, u.v, stred ? 4 : 2);
+  // Bar zůstává MODRÝ i po trefě do středu. Přebarvoval se na zlatooranžovou
+  // (převzato z 2D badge), jenže tady je to ukazatel NAVODĚNÉ VODY — a voda
+  // je modrá. Oranžová k ní neseděla a pletla se s terčíkem.
+  if(stred) k.matPrst.uniforms.barva.value.setHex(0x9fe6ff);   // jen světlejší odstín
+  if(k.naplneno >= k.potreba && k.stav === 'zije'){
+    k.stav = 'umira'; k.t = 0;
+    k.matPrst.uniforms.postup.value = 1;
+    pripisSkore(k.hodnota);
+    pustPeri(k.skup.position.x, k.skup.position.y + KACH_STRED, k.skup.position.z, 18);
+    pustPopup(k.skup.position.x, k.skup.position.y + KACH_STRED + KACH_R*0.9,
+              k.skup.position.z, k.hodnota);
+  }
+}
+
+function narazDoKachny(p){
+  for(const k of kachny){
+    if(k.stav !== 'zije' && k.stav !== 'najizdi') continue;
+    if(Math.abs(p.z - k.skup.position.z) > 40) continue;
+    const dx = p.x - k.skup.position.x;
+    const dy = p.y - (k.skup.position.y + KACH_STRED);   // počátek je u paty
+    if(dx*dx + dy*dy < KACH_R*KACH_R*0.62) return k;
+  }
+  return null;
+}
+
+// ---- peří -----------------------------------------------------------------
+// Jeden Points s vlastním shaderem, protože pírko se musí OTÁČET — a to
+// PointsMaterial neumí. Rotace se dělá v fragmentu otočením gl_PointCoord,
+// takže je to pořád jeden draw call.
+function texturaPirka(){
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff';
+  g.beginPath(); g.ellipse(16, 16, 5.5, 13, 0, 0, Math.PI*2); g.fill();
+  g.fillStyle = 'rgba(0,0,0,0.18)';
+  g.fillRect(15, 4, 2, 24);
+  const t = new THREE.CanvasTexture(c);
+  t.generateMipmaps = false; t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter;
+  return t;
+}
+const texPirko = texturaPirka();
+const PERI_MAX = 140;
+const periPos = new Float32Array(PERI_MAX*3);
+const periVel = new Float32Array(PERI_MAX);
+const periUhel = new Float32Array(PERI_MAX);
+const periBarva = new Float32Array(PERI_MAX*3);
+const periKryti = new Float32Array(PERI_MAX);
+const peri = [];
+for(let i=0;i<PERI_MAX;i++) peri.push({ ziva:false, x:0,y:0,z:0, vx:0,vy:0,vz:0,
+                                        uhel:0, uhelV:0, t:0, zivot:0, vel:0, r:1,g:1,b:1, seed:0 });
+const periGeo = new THREE.BufferGeometry();
+periGeo.setAttribute('position', new THREE.BufferAttribute(periPos, 3));
+periGeo.setAttribute('velikost', new THREE.BufferAttribute(periVel, 1));
+periGeo.setAttribute('uhel',     new THREE.BufferAttribute(periUhel, 1));
+periGeo.setAttribute('barva',    new THREE.BufferAttribute(periBarva, 3));
+periGeo.setAttribute('kryti',    new THREE.BufferAttribute(periKryti, 1));
+const matPeri = new THREE.ShaderMaterial({
+  uniforms: { mapa: { value: texPirko },
+              mer: { value: innerHeight*0.5*Math.min(devicePixelRatio,2) } },
+  transparent: true, depthWrite: false,
+  vertexShader: `
+    attribute float velikost; attribute float uhel; attribute vec3 barva; attribute float kryti;
+    uniform float mer;
+    varying float vUhel; varying vec3 vBarva; varying float vKryti;
+    void main(){
+      vUhel = uhel; vBarva = barva; vKryti = kryti;
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = velikost * (mer / -mv.z);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    uniform sampler2D mapa;
+    varying float vUhel; varying vec3 vBarva; varying float vKryti;
+    void main(){
+      vec2 c = gl_PointCoord - 0.5;
+      float s = sin(vUhel), co = cos(vUhel);
+      vec2 r = vec2(c.x*co - c.y*s, c.x*s + c.y*co) + 0.5;
+      vec4 t = texture2D(mapa, r);
+      if(t.a * vKryti < 0.02) discard;
+      gl_FragColor = vec4(t.rgb * vBarva, t.a * vKryti);
+    }`,
+});
+const periMesh = new THREE.Points(periGeo, matPeri);
+periMesh.frustumCulled = false;
+scene.add(periMesh);
+
+// tři tóny jako ve 2D: žlutá, oranžová, bílá
+const TONY_PERI = [new THREE.Color(0xffd21f), new THREE.Color(0xff9c1a), new THREE.Color(0xfff6d5)];
+function pustPeri(x, y, z, kolik){
+  let dano = 0;
+  for(const f of peri){
+    if(dano >= kolik) break;
+    if(f.ziva) continue;
+    const a = rand(0, Math.PI*2), sp = rand(120, 380);
+    f.ziva = true; f.t = 0; f.zivot = rand(1.1, 2.0);
+    f.x = x + rand(-24,24); f.y = y + rand(-24,24); f.z = z + rand(-20,20);
+    f.vx = Math.cos(a)*sp;
+    f.vy = Math.abs(Math.sin(a))*sp*rand(0.6,1.4) + 180;   // nahoru
+    f.vz = rand(-70,70);
+    f.uhel = rand(0, Math.PI*2); f.uhelV = rand(-7, 7);
+    f.vel = rand(26, 44);
+    const t = TONY_PERI[(Math.random()*3)|0];
+    f.r = t.r; f.g = t.g; f.b = t.b;
+    f.seed = rand(0, Math.PI*2);
+    dano++;
+  }
+}
+
+function krokPeri(dt, cas){
+  let n = 0;
+  for(const f of peri){
+    if(!f.ziva) continue;
+    f.t += dt;
+    if(f.t > f.zivot || f.y < 2){ f.ziva = false; continue; }
+    // pírko padá pomalu a třepotá se — proto zlomek gravitace a silný odpor
+    f.vy -= G*0.16*dt;
+    const tlum = Math.exp(-2.2*dt);
+    f.vx *= tlum; f.vz *= tlum; f.vy *= Math.exp(-1.1*dt);
+    f.x += (f.vx + Math.sin(cas*7 + f.seed)*110)*dt;
+    f.y += f.vy*dt; f.z += f.vz*dt;
+    f.uhel += f.uhelV*dt;
+    const u = f.t/f.zivot;
+    periPos[n*3] = f.x; periPos[n*3+1] = f.y; periPos[n*3+2] = f.z;
+    periVel[n] = f.vel; periUhel[n] = f.uhel;
+    periBarva[n*3] = f.r; periBarva[n*3+1] = f.g; periBarva[n*3+2] = f.b;
+    periKryti[n] = u < 0.7 ? 1 : (1-u)/0.3;
+    n++;
+  }
+  periGeo.setDrawRange(0, n);
+  for(const a of ['position','velikost','uhel','barva','kryti']) periGeo.attributes[a].needsUpdate = true;
+  return n;
+}
+
+// ---- „+N" nad sestřelenou kachničkou --------------------------------------
+const POPUPU = 5;
+const popupy = [];
+for(let i=0;i<POPUPU;i++){
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 64;
+  const tex = new THREE.CanvasTexture(c);
+  tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sp.scale.set(150, 75, 1); sp.visible = false;
+  scene.add(sp);
+  popupy.push({ sp, c, tex, t: 0, ziva: false, y0: 0 });
+}
+function pustPopup(x, y, z, body){
+  for(const p of popupy){
+    if(p.ziva) continue;
+    const g = p.c.getContext('2d');
+    g.clearRect(0, 0, 128, 64);
+    g.font = '700 42px Arial, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineWidth = 6; g.strokeStyle = 'rgba(10,16,30,0.85)';
+    g.strokeText('+'+body, 64, 34);
+    g.fillStyle = '#ffd54a';
+    g.fillText('+'+body, 64, 34);
+    p.tex.needsUpdate = true;
+    p.sp.position.set(x, y, z); p.y0 = y;
+    p.sp.visible = true; p.ziva = true; p.t = 0;
+    return;
+  }
+}
+function krokPopupu(dt){
+  for(const p of popupy){
+    if(!p.ziva) continue;
+    p.t += dt;
+    const u = p.t/1.1;
+    if(u >= 1){ p.ziva = false; p.sp.visible = false; continue; }
+    p.sp.position.y = p.y0 + 90*u;
+    p.sp.material.opacity = u < 0.6 ? 1 : (1-u)/0.4;
+  }
+}
+
 // ---- smyčka ---------------------------------------------------------------
 function resize(){
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
   camera.aspect = w/h; camera.updateProjectionMatrix();
+  // vlastní shader kapiček si měřítko pro sizeAttenuation nedopočítá sám
+  matDrobne.uniforms.mer.value = h*0.5*Math.min(devicePixelRatio, 2);
+  matPeri.uniforms.mer.value  = h*0.5*Math.min(devicePixelRatio, 2);
 }
 addEventListener('resize', resize); resize();
 
@@ -896,8 +1636,11 @@ function smycka(now){
   requestAnimationFrame(smycka);
   const dt = Math.min((now - t0)/1000, 0.05); t0 = now;
 
+  krokKachen(dt);
   krokProudu(dt, cil, strika);
   const kapekZivych = krokKapek(dt) + krokDrobnych(dt);
+  krokPeri(dt, now/1000);
+  krokPopupu(dt);
   krokKrouzku(dt);
   postavJet(now/1000);
   // Tok = posouvání textury po délce. Tohle je celý „pohyb vody".
