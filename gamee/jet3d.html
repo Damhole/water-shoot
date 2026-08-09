@@ -88,6 +88,8 @@
   <div class="row"><span>proudů ve vzduchu</span><b id="gen">–</b></div>
   <div class="row"><span>kapek</span><b id="kap">–</b></div>
   <div class="row"><span>SKÓRE</span><b id="skore">0</b></div>
+  <label>zorný úhel (nižší = blíž) <span id="vFov"></span></label>
+  <input type="range" id="fov" min="30" max="60" step="1" value="48">
   <label>hran po obvodu <span id="vRad"></span></label>
   <input type="range" id="rad" min="3" max="16" step="1" value="8">
   <label>poloměr proudu <span id="vTl"></span></label>
@@ -134,7 +136,15 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color('#101c2b');
 scene.fog = new THREE.Fog('#101c2b', 900, 2600);
 
-const camera = new THREE.PerspectiveCamera(55, 1, 1, 5000);
+// ZORNÝ ÚHEL 48° místo původních 55°. Řeším tím „na telefonu vidím víc, než
+// bych chtěl": užší úhel přiblíží police, aniž by se hnula kamera. To je
+// podstatné — kdyby kamera popojela, změní se jí vztah k ústí trysky a musela
+// by se přeladit balistika i dostřik. Takhle zůstává všechno na svém místě
+// a mění se jen výřez. Míření i pás, ve kterém vznikají kachničky, si
+// `camera.fov` čtou, takže se přizpůsobí samy.
+// Je to na posuvníku v ⚙ panelu, protože správná hodnota se pozná až na
+// telefonu v ruce, ne na monitoru.
+const camera = new THREE.PerspectiveCamera(48, 1, 1, 5000);
 // Kamera zůstává tam, kde byla u koulí — v téhle poloze se tryska chová
 // nejlíp (dostřik i oblouk sedí). Zátiší se místo toho posadilo níž, viz
 // POLICE_Y, aby padlo do jejího záběru.
@@ -398,6 +408,23 @@ function prestavLahve(sek){
 sekce.push(novaSekce(0));            // ta, ve které se hraje
 sekce.push(novaSekce(SEKCE_V));      // ta, která se odkryje po vyčištění
 sekce[1].slot = 1;
+
+// PODPATŘÍ: dvě police pod hrací sekcí. Sokl sám o sobě byl jen hnědá plocha
+// a působil prázdně — tohle je vizuálně to patro, které hráč právě vyčistil.
+// Nejsou součástí sekcí schválně: recyklovaná sekce vyjede nahoru a její
+// „spodní" police by se pak kryly se skutečnými policemi patra pod ní.
+// Rozestup 185 pokračuje v rytmu POLICE_Y (50 → −135 → −320).
+const podpatri = { zaklY: 0, skupina: new THREE.Group(), telesa: [], drevo: [], lahve: [] };
+scene.add(podpatri.skupina);
+for(const y of [-135, -320]){
+  const deska = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matDrevo);
+  deska.position.set(0, y - 9, POLICE_Z);
+  podpatri.skupina.add(deska);
+  const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matObrysTelo);
+  o.scale.setScalar(1.02); o.position.copy(deska.position);
+  podpatri.skupina.add(o);
+  podpatri.drevo.push(pridejDrevo(0, y - 9, POLICE_Z, POLICE_HW, 9, 75));
+}
 
 let skore = 0;
 // Skóre se zapisuje HNED při připsání, ne až v půlvteřinovém taktu, ve kterém
@@ -1334,7 +1361,7 @@ addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 // Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
 // přežijí reload, aby se doladěné nastavení neztrácelo.
 const ULOZ_KLIC = 'ws_jet3d_tune';
-const POSUVNIKY = ['rad','tl','sp','sila','ramp','imp'];
+const POSUVNIKY = ['fov','rad','tl','sp','sila','ramp','imp'];
 
 function uloz(){
   const o = {};
@@ -1360,7 +1387,7 @@ hud.addEventListener('pointerdown', e => e.stopPropagation());
 hud.addEventListener('pointermove', e => e.stopPropagation());
 
 document.getElementById('reset').addEventListener('click', ()=>{
-  const vych = { rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34 };
+  const vych = { fov:48, rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34 };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -1370,6 +1397,10 @@ for(const id of POSUVNIKY){
 }
 if(nacti()) console.log('[jet3d] nastavení obnoveno');
 function obnovPopisky(){
+  // zorný úhel se propisuje rovnou do kamery — míření i pás kachniček si ho
+  // čtou z camera.fov, takže se přizpůsobí samy
+  vFov.textContent = fov.value + '°';
+  camera.fov = +fov.value; camera.updateProjectionMatrix();
   vRad.textContent = rad.value;
   vTl.textContent = tl.value;  vSp.textContent = sp.value;
   vSila.textContent = sila.value; vRamp.textContent = (+ramp.value).toFixed(2);
@@ -1639,6 +1670,7 @@ function krokPostupu(dt){
   const u = Math.min(1, 1 - prechod/PRECHOD_T);
   posun = -SEKCE_V * easing(u);
   for(const s of sekce) nastavSekci(s, s.slot*SEKCE_V + posun);
+  nastavSekci(podpatri, posun);          // police pod hrací sekcí jedou taky
   // Lahve jedou SE SVOU SEKCÍ. Posouvám je o rozdíl, ne na pevnou pozici —
   // tím si zachovají i to, jak zrovna leží nebo se kutálejí.
   const dY = posun - posunMinuly;
@@ -1659,6 +1691,7 @@ function krokPostupu(dt){
     dole.slot = 1; nahore.slot = 0;
     nastavSekci(nahore, 0);
     nastavSekci(dole, SEKCE_V);
+    nastavSekci(podpatri, 0);            // podpatří zpátky pod novou hrací sekci
     prestavLahve(dole);                    // odjetá sekce se přestaví a čeká nahoře
     patro++; zbyva = kvota(); ukazPatro();
     otresT = 0;                                  // kamera teď dobrzdí
