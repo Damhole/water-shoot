@@ -42,10 +42,10 @@
   #patroRoh{position:fixed;left:50%;top:27vh;transform:translate(-50%,-50%);z-index:4;
     pointer-events:none;font:700 2.1vh/1 Arial, sans-serif;color:#cfe3ff;opacity:.75;
     font-variant-numeric:tabular-nums;text-shadow:0 0.2vh 0 rgba(0,0,0,.45)}
-  /* „PATRO VYČIŠTĚNO" — přes celou šířku, uprostřed výšky terčů. Naskočí
+  /* „Floor cleared!" — přes celou šířku, uprostřed výšky terčů. Naskočí
      s krátkým přiblížením, ať to má úder; bez animace by to jen bliklo. */
   #hlaska{position:fixed;left:0;right:0;top:45vh;z-index:5;text-align:center;
-    pointer-events:none;font:800 5vh/1 "Arial Black", Arial, sans-serif;
+    pointer-events:none;font:800 3.1vh/1 "Arial Black", Arial, sans-serif;
     color:#ffe98a;text-shadow:0 0.4vh 0 rgba(0,0,0,.55);letter-spacing:.06em;
     opacity:0;transform:scale(.75);transition:opacity .16s ease, transform .16s ease}
   #hlaska.vidno{opacity:1;transform:scale(1)}
@@ -1409,6 +1409,10 @@ const TERC_X = KACH_R*0.26, TERC_Y = -KACH_R*0.16;
 // vyroste z police a cukání před odchodem se kýve kolem nohou.
 // KACH_STRED = jak vysoko nad patou leží optický střed kachničky.
 const KACH_STRED = KACH_R*0.92;
+// tloušťka „překližky": pět vrstev po 3,5 jednotky = 14 hloubky
+const KACH_VRSTEV = 5, KACH_VRSTVA = 3.5;
+// o kolik je kachnička vytočená kolem svislé osy (radiány, náhodně na obě strany)
+const KACH_VYTOCENI = 0.30;
 const geoPlane = new THREE.PlaneGeometry(1, 1);
 // podklad terče musí být KRUH jako ve 2D (drawDuckBadge kreslí arc);
 // čtvercový plane pod kachničkou vypadal jako přilepená cedulka
@@ -1416,13 +1420,26 @@ const geoDisk = new THREE.CircleGeometry(0.5, 28);
 const kachny = [];
 for(let i=0;i<KACHEN_MAX;i++){
   const skup = new THREE.Group();
-  // materiál je vlastní pro každou kachničku (kvůli mizení při squashi),
-  // ale texturu sdílejí všechny — na GPU je nahraná jednou
-  const telo = new THREE.Mesh(GEO_BANDITA[0], new THREE.MeshBasicMaterial({
-    map: texBandita, transparent: true, alphaTest: 0.35, side: THREE.DoubleSide }));
-  telo.scale.set(KACH_R*2*BANDIT_ZOOM, KACH_R*2*BANDIT_ZOOM, 1);
-  telo.position.y = KACH_STRED;          // skupina má počátek u paty, ne ve středu
-  skup.add(telo);
+  // HLOUBKA Z VRSTEV. Kachnička je pořád plochý sprite, ale je jich na sobě
+  // pět s odstupem — jako vyřezaná překližka, což je přesně to, co na pouťové
+  // střelnici stojí. Zadní vrstvy jsou tmavší, takže z boku vypadají jako
+  // stín tloušťky. Skutečný 3D model by v cel-shadingu vedle lahví působil
+  // cize a stejně ho nemáme.
+  //
+  // Vrstvy dávají smysl teprve dohromady s VYTOČENÍM: zepředu jsou schované
+  // za sebou, po natočení o pár stupňů se z nich stane bok.
+  const vrstvy = [];
+  for(let v=0; v<KACH_VRSTEV; v++){
+    const jas = 1 - v*(0.58/(KACH_VRSTEV-1));      // dopředu světlé, dozadu tmavé
+    const m = new THREE.Mesh(GEO_BANDITA[0], new THREE.MeshBasicMaterial({
+      map: texBandita, transparent: true, alphaTest: 0.35, side: THREE.DoubleSide,
+      color: new THREE.Color(jas, jas, jas) }));
+    m.scale.set(KACH_R*2*BANDIT_ZOOM, KACH_R*2*BANDIT_ZOOM, 1);
+    m.position.set(0, KACH_STRED, -v*KACH_VRSTVA); // skupina má počátek u paty
+    skup.add(m);
+    vrstvy.push(m);
+  }
+  const telo = vrstvy[0];
   // terč sedí na TĚLE, ne na hlavě — bandita se dívá doleva, tělo je vpravo dole
   const TX = TERC_X, TY = KACH_STRED + TERC_Y;
   const tercik = new THREE.Mesh(geoDisk, new THREE.MeshBasicMaterial({
@@ -1438,8 +1455,8 @@ for(let i=0;i<KACHEN_MAX;i++){
   skup.add(prstenec);
   skup.visible = false;
   scene.add(skup);
-  kachny.push({ skup, telo, matPrst, stav:'volna', t:0, ttl:0,
-                naplneno:0, potreba:1, hodnota:10, patro:0, odZasahu:9 });
+  kachny.push({ skup, telo, vrstvy, matPrst, stav:'volna', t:0, ttl:0,
+                naplneno:0, potreba:1, hodnota:10, patro:0, odZasahu:9, vytoceni:0 });
 }
 
 // ---- rytmus střelnice -----------------------------------------------------
@@ -1489,7 +1506,8 @@ function pasKachen(){
 // samy — to je matoucí i nespravedlivé.
 const KVOTA_ZAKLAD = 4;
 const PRECHOD_T = 1.4;
-const HLASKA_T = 1.2;                // jak dlouho svítí „PATRO VYČIŠTĚNO"
+const HLASKA_T = 1.2;                // jak dlouho svítí „Floor cleared!"
+const BLUR_MAX = 3.2;                // px v nejrychlejším okamžiku přejezdu
 let patro = 1, zbyva = 0, prechod = 0, posun = 0, posunMinuly = 0, hlaska = 0;
 const patroEl = document.getElementById('patroRoh');
 const hlaskaEl = document.getElementById('hlaska');
@@ -1505,7 +1523,7 @@ zbyva = kvota(); ukazPatro();
 // zaregistrovat, že něco dokázal.
 function patroVycisteno(){
   hlaska = HLASKA_T;
-  if(hlaskaEl){ hlaskaEl.textContent = 'PATRO VYČIŠTĚNO'; hlaskaEl.classList.add('vidno'); }
+  if(hlaskaEl){ hlaskaEl.textContent = 'Floor cleared!'; hlaskaEl.classList.add('vidno'); }
 }
 
 function spustPrechod(){
@@ -1527,6 +1545,11 @@ function krokPostupu(dt){
   prechod -= dt;
   const u = Math.min(1, 1 - prechod/PRECHOD_T);
   posun = -SEKCE_V * (u*u*(3 - 2*u));      // smoothstep: měkký rozjezd i dojezd
+  // ROZMAZÁNÍ PODLE RYCHLOSTI, ne podle času: derivace smoothstepu je 6u(1-u),
+  // takže je nula na obou koncích a maximum uprostřed — přesně tam, kde se
+  // scéna žene nejrychleji. Konstantní blur by na začátku i konci vypadal jako
+  // rozostřená kamera, ne jako pohyb.
+  renderer.domElement.style.filter = 'blur(' + (BLUR_MAX*6*u*(1-u)).toFixed(2) + 'px)';
   for(const s of sekce) nastavSekci(s, s.slot*SEKCE_V + posun);
   // Lahve jedou SE SVOU SEKCÍ. Posouvám je o rozdíl, ne na pevnou pozici —
   // tím si zachovají i to, jak zrovna leží nebo se kutálejí.
@@ -1546,6 +1569,7 @@ function krokPostupu(dt){
     nastavSekci(dole, SEKCE_V);
     prestavLahve(dole);                    // odjetá sekce se přestaví a čeká nahoře
     patro++; zbyva = kvota(); ukazPatro();
+    renderer.domElement.style.filter = 'none';   // blur pryč, ať scéna nezůstane měkká
   }
 }
 
@@ -1594,14 +1618,17 @@ function pustKachnu(){
   k.naplneno = 0;
   k.odZasahu = 9;
   k.stav = 'najizdi'; k.t = 0; k.ttl = ZIVOT_KACHNY[patroK] * rand(0.9, 1.15);
-  k.telo.geometry = GEO_BANDITA[(Math.random()*BANDITU)|0];   // jeden ze čtyř banditů
-  k.telo.material.opacity = 1;
+  // jeden ze čtyř banditů — všechny vrstvy musí dostat tutéž variantu
+  const geo = GEO_BANDITA[(Math.random()*BANDITU)|0];
+  for(const v of k.vrstvy){ v.geometry = geo; v.material.opacity = 1; }
+  // vytočení na náhodnou stranu: teprve tím je vrstvení vidět
+  k.vytoceni = (Math.random() < 0.5 ? -1 : 1) * KACH_VYTOCENI * rand(0.55, 1);
   k.matPrst.uniforms.postup.value = 0;
   k.matPrst.uniforms.barva.value.setHex(0x5ad1ff);
   // Počátek skupiny = pata kachničky, tedy přesně horní plocha desky police
   // TÉ SEKCE, ve které se zrovna hraje.
   k.skup.position.set(x, hraciSekce().zaklY + POLICE_Y[patroK], KACH_Z);
-  k.skup.rotation.z = 0;
+  k.skup.rotation.set(0, k.vytoceni, 0);
   k.skup.scale.set(0.01, 0.01, 1);
   k.skup.visible = true;
 }
@@ -1661,9 +1688,11 @@ function krokKachen(dt){
       // SQUASH: plácne se do široka a zmizí
       const u = Math.min(1, k.t/UMIRANI);
       s.set(1 + 1.1*u, Math.max(0.02, 1 - 1.35*u), 1);
-      k.telo.material.opacity = 1 - u;
-      k.telo.material.transparent = true;
-      if(u >= 1){ k.stav = 'volna'; k.skup.visible = false; k.telo.material.opacity = 1; }
+      for(const v of k.vrstvy) v.material.opacity = 1 - u;   // mizí celá tloušťka
+      if(u >= 1){
+        k.stav = 'volna'; k.skup.visible = false;
+        for(const v of k.vrstvy) v.material.opacity = 1;
+      }
     }
   }
 }
@@ -1671,7 +1700,8 @@ function krokKachen(dt){
 // Zásah uzlem proudu. Střed terče plní rychleji než tělo — přesně to je důvod,
 // proč terč na těle je: odměnit míření, ne polévání.
 function zasahKachny(k, u){
-  const dx = u.p.x - (k.skup.position.x + TERC_X);
+  // vytočená kachnička má terč blíž ke středu — o kosinus natočení
+  const dx = u.p.x - (k.skup.position.x + TERC_X*Math.cos(k.vytoceni));
   const dy = u.p.y - (k.skup.position.y + KACH_STRED + TERC_Y);
   const stred = Math.hypot(dx, dy) < KACH_R*KACH_TERC;
   k.naplneno += stred ? 2.5 : 1;
