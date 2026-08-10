@@ -489,7 +489,45 @@ const lahve = [];
 const HP_LAHVE = 14;
 const SILA_ZASAHU = () => +document.getElementById('imp').value;
 
-function novaLahev(sek, police, i){
+// ---- kompozice police -----------------------------------------------------
+// Rovnoměrné dělení šířky vypadá jako regál v obchodě. Skutečný bar má lahve
+// ve SKUPINKÁCH s mezerami mezi nimi — pár kusů u sebe, pak volno.
+//
+// Vrací x-souřadnice pro `n` kusů: rozdělí je do dvou nebo tří skupinek,
+// uvnitř skupinky stojí těsně u sebe a zbylé místo se rozdá jako mezery
+// (včetně krajů) v náhodném poměru. Díky tomu není žádné dvě police stejné.
+const ROZESTUP_VE_SKUPINE = 62;      // nejširší lahev má 27, sklenice 26
+const MEZERA_MIN = 80;               // aby skupinky nesplynuly v řadu
+function rozlozPolici(n){
+  const W = POLICE_HW*1.72;
+  const skupin = Math.min(n, 2 + (Math.random()*2|0));
+  // velikosti skupinek: každá aspoň jedna, zbytek náhodně
+  const vel = new Array(skupin).fill(1);
+  for(let z = n - skupin; z > 0; z--) vel[(Math.random()*skupin)|0]++;
+
+  const sirkaKusu = vel.reduce((a,v)=>a + (v-1)*ROZESTUP_VE_SKUPINE, 0);
+  const mezer = skupin + 1;                       // dva kraje + mezi skupinkami
+  let volno = W - sirkaKusu - MEZERA_MIN*(skupin-1);
+  if(volno < 0) volno = 0;
+  // náhodné rozdělení volna mezi mezery — kraje smí být i skoro nulové,
+  // takže kompozice jednou sedí vlevo, jindy uprostřed
+  const vahy = Array.from({length:mezer}, ()=> 0.35 + Math.random());
+  const suma = vahy.reduce((a,b)=>a+b, 0);
+  const mezery = vahy.map((v,i)=> v/suma*volno + (i>0 && i<mezer-1 ? MEZERA_MIN : 0));
+
+  const xs = [];
+  let x = -W/2 + mezery[0];
+  for(let g=0; g<skupin; g++){
+    for(let k=0; k<vel[g]; k++){
+      xs.push(x + rand(-5, 5));                   // drobný rozhoz, ať to není pravítko
+      if(k < vel[g]-1) x += ROZESTUP_VE_SKUPINE;
+    }
+    x += mezery[g+1];
+  }
+  return xs;
+}
+
+function novaLahev(sek, police, i, xPozice){
   const typ = SKLA[(Math.random()*SKLA.length)|0];
   const m = new THREE.Mesh(typ.geo, barevny(new THREE.MeshToonMaterial({
     color: typ.barva, gradientMap: toonGrad }), typ.barva));
@@ -502,7 +540,7 @@ function novaLahev(sek, police, i){
   m.castShadow = true;          // obrys zůstává bez stínu, je o 7 % větší
   scene.add(m);
 
-  const x = -POLICE_HW*0.85 + (i + 0.5)*(POLICE_HW*1.7/LAHVI_NA_POLICI) + rand(-16, 16);
+  const x = xPozice;
   const telo = new CANNON.Body({
     mass: 1.4,
     shape: new CANNON.Cylinder(typ.w*0.9, typ.w*0.9, typ.h, 10),
@@ -560,8 +598,10 @@ function novaSekce(zaklY){
       position: new CANNON.Vec3(0, y - 9, POLICE_Z) }), lokY: y - 9 });
   }
   for(const t of sek.telesa) world.addBody(t.telo);
-  for(let p=0;p<POLIC;p++)
-    for(let i=0;i<LAHVI_NA_POLICI;i++) lahve.push(novaLahev(sek, p, i));
+  for(let p=0;p<POLIC;p++){
+    const xs = rozlozPolici(LAHVI_NA_POLICI);
+    for(let i=0;i<LAHVI_NA_POLICI;i++) lahve.push(novaLahev(sek, p, i, xs[i]));
+  }
   nastavSekci(sek, zaklY);
   return sek;
 }
@@ -585,9 +625,12 @@ function nastavSekci(sek, y){
 // Nové rozestavení lahví — sekce, která vyjede nahoru, musí vypadat jako jiný
 // kus baru, ne jako ten, co hráč právě vyčistil.
 function prestavLahve(sek){
+  // Kompozice se losuje ZNOVU a pro každou polici zvlášť — jinak by vyjelo
+  // stejné patro, jaké hráč právě vyčistil.
+  const xsPodle = POLICE_Y.map(()=> rozlozPolici(LAHVI_NA_POLICI));
   for(const L of sek.lahve){
     L.hp = HP_LAHVE; L.mrtva = 0; L.pada = false; L.m.visible = true;
-    L.zaklX = -POLICE_HW*0.85 + (L.i + 0.5)*(POLICE_HW*1.7/LAHVI_NA_POLICI) + rand(-16, 16);
+    L.zaklX = xsPodle[L.police][L.i];
     L.telo.position.set(L.zaklX, sek.zaklY + POLICE_Y[L.police] + L.typ.h/2, POLICE_Z + rand(-16, 16));
     L.telo.quaternion.setFromEuler(0, Math.random()*Math.PI*2, 0);
     L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
