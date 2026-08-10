@@ -14,7 +14,9 @@
     cursor:pointer;z-index:3;-webkit-tap-highlight-color:transparent}
   #cog:active{transform:translateY(1px)}
   #hud{position:fixed;left:10px;top:56px;background:rgba(8,14,24,.86);
-    padding:10px 12px;border-radius:9px;min-width:210px;z-index:2}
+    padding:10px 12px;border-radius:9px;min-width:210px;
+    /* nad VŠÍM — skóre má 4, hláška 5; dřív panel s 2 mizel pod nimi */
+    z-index:50;max-height:calc(100vh - 70px);overflow-y:auto}
   #hud[hidden]{display:none}
   #hud .btn{margin-top:9px;width:100%;padding:7px;border-radius:7px;
     background:rgba(255,255,255,.12);color:#cfe0f5;border:1px solid rgba(207,224,255,.3);
@@ -160,6 +162,10 @@
   <input type="range" id="vodaA" min="30" max="100" step="2" value="94">
   <label>svítivost vody <span id="vVodaS"></span></label>
   <input type="range" id="vodaS" min="0" max="160" step="5" value="75">
+  <label>obrys vody – tloušťka <span id="vObrT"></span></label>
+  <input type="range" id="obrT" min="100" max="160" step="2" value="122">
+  <label>obrys vody – barva</label>
+  <input type="color" id="obrB" value="#123a52" style="width:100%;height:26px;padding:0;border:0;background:none">
   <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
     <input type="checkbox" id="autoStrik"> automatické stříkání (na ladění)</label>
   <label>poloměr proudu <span id="vTl"></span></label>
@@ -821,7 +827,7 @@ const matObrys = new THREE.MeshBasicMaterial({
   color: 0x123a52, side: THREE.BackSide,
   transparent: true, opacity: 1, depthWrite: false,
 });
-const OBRYS_RUST = 1.22;
+let OBRYS_RUST = 1.22;   // násobek poloměru, mění se posuvníkem
 
 let jet = null;                       // mesh trubice
 let jetGeo = null;
@@ -1470,7 +1476,13 @@ const _paprsek = new THREE.Vector3();
 // pohybu prstu: kamera pod ním jezdí paralaxou, a kdyby se cíl nepřepočítal,
 // zaměřovač by se prstu vysmekl vždycky, když se kamera rozjede.
 let mirSX = null, mirSY = null;
+// Zaškrtávátko se čte i tady, takže se musí získat DŘÍV než ho začne používat
+// míření. `typeof` by nepomohlo — na const v dočasné mrtvé zóně vyhodí chybu.
+const cbAuto = document.getElementById('autoStrik');
 function mir(sx, sy){
+  // V automatickém stříkání si scénu řídí ladicí režim sám — myš ani prst
+  // do míření nesmí, jinak by se s ním praly a nešlo by nic v klidu doladit.
+  if(cbAuto.checked) return;
   mirSX = sx; mirSY = sy;
   const nx = (sx/innerWidth)*2 - 1, ny = (sy/innerHeight)*2 - 1;
   // paralaxa se řídí polohou PRSTU, ne cílem ve světě — cíl závisí na kameře
@@ -1493,6 +1505,21 @@ function mir(sx, sy){
 }
 // Dojíždění je exponenciální, ne lineární: kamera se rozjede hned, ale
 // doklouže měkce, a hlavně je to stabilní i při dlouhém snímku.
+// Ladicí míření: proud stojí VODOROVNĚ NA STŘEDU a jen pomalu přejíždí
+// nahoru a dolů, takže je vidět celý rozsah dostřiku i tvar oblouku, aniž by
+// do toho někdo sahal. Paralaxa se drží na nule — jinak by se scéna při
+// každém přejezdu naklápěla a ladění barvy by bylo k ničemu.
+const AUTO_PERIODA = 5.2;              // vteřin na jeden cyklus nahoru a dolů
+let autoT = 0;
+function krokAutoMireni(dt){
+  autoT += dt;
+  const u = 0.5 - 0.5*Math.cos(autoT*Math.PI*2/AUTO_PERIODA);   // 0..1 a zpět
+  cil.z = KACH_Z;
+  cil.x = 0;
+  cil.y = -120 + u*900;
+  paralaxCil.set(0, 0, 0);
+}
+
 function krokKamery(dt){
   paralax.lerp(paralaxCil, 1 - Math.exp(-PARALAX_TUHOST*dt));
   // Dobrzdění po přejezdu: tlumená sinusovka na výšce kamery. Kamera se za
@@ -1510,7 +1537,8 @@ function krokKamery(dt){
   // celého obrazu včetně proudu, kdežto paralaxa má proud nechat na místě.
   USTI.set(USTI_ZAKLAD.x + paralax.x, USTI_ZAKLAD.y + paralax.y, USTI_ZAKLAD.z);
   // cíl se přepočítá až po posunu kamery, ať zaměřovač zůstane pod prstem
-  if(mirSX !== null) mir(mirSX, mirSY);
+  if(cbAuto.checked) krokAutoMireni(dt);
+  else if(mirSX !== null) mir(mirSX, mirSY);
 }
 
 // MÍŘENÍ NA DOTYKU JE RELATIVNÍ, jako trackpad. Prst netahá zaměřovač pod
@@ -1562,7 +1590,7 @@ addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 // Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
 // přežijí reload, aby se doladěné nastavení neztrácelo.
 const ULOZ_KLIC = 'ws_jet3d_tune';
-const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','rad','tl','sp','sila','ramp','imp'];
+const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','obrT','obrB','rad','tl','sp','sila','ramp','imp'];
 
 function uloz(){
   const o = {};
@@ -1602,15 +1630,14 @@ function nastavStiny(){
     .forEach(m => m.needsUpdate = true); });
 }
 cbStiny.addEventListener('change', ()=>{ nastavStiny(); uloz(); });
-// Automatické stříkání je JEN NA LADĚNÍ: proud teče pořád, takže se dá
-// hýbat posuvníky a hned vidět, co to udělalo, aniž by člověk musel držet
-// tlačítko a mířit zároveň.
-const cbAuto = document.getElementById('autoStrik');
+// Automatické stříkání je JEN NA LADĚNÍ: proud teče pořád a míří si sám
+// (viz krokAutoMireni), takže se dá hýbat posuvníky a hned vidět, co to
+// udělalo, aniž by člověk musel držet tlačítko a mířit zároveň.
 cbAuto.addEventListener('change', uloz);
 
 document.getElementById('reset').addEventListener('click', ()=>{
   const vych = { fov:48, syt:135, svx:-70, svy:110, stinS:75,
-                 vodaB:'#4aa9dd', vodaA:94, vodaS:75, rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34 };
+                 vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52', rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34 };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -1647,6 +1674,12 @@ function obnovPopisky(){
   matVoda.opacity = +vodaA.value/100;
   matVoda.emissiveIntensity = +vodaS.value/100;
   matVoda.emissive.set(vodaB.value).multiplyScalar(0.55);
+  // Obrys proudu je druhá trubice kreslená zevnitř (BackSide) o kus tlustší.
+  // Tloušťka je NÁSOBEK poloměru, ne pevný přídavek — jinak by u tenkého
+  // proudu obrys převládl a u tlustého zmizel.
+  vObrT.textContent = obrT.value + ' %';
+  OBRYS_RUST = +obrT.value/100;
+  matObrys.color.set(obrB.value);
   vRad.textContent = rad.value;
   vTl.textContent = tl.value;  vSp.textContent = sp.value;
   vSila.textContent = sila.value; vRamp.textContent = (+ramp.value).toFixed(2);
