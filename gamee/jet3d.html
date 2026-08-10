@@ -269,7 +269,7 @@ scene.add(slunce);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 slunce.castShadow = true;
-slunce.shadow.mapSize.set(1024, 1024);
+slunce.shadow.mapSize.set(2048, 2048);
 {
   // Rozsah kamery stínu = ostrost. Mapa 1024 rozprostřená přes 2000×2200
   // dávala 2 jednotky na texel a stíny byly rozmazané šmouhy; 820×900 je
@@ -280,9 +280,11 @@ slunce.shadow.mapSize.set(1024, 1024);
   sc.near = 200; sc.far = 3600;
   sc.updateProjectionMatrix();
 }
-// bias proti „shadow acne" — pruhování na vlastním povrchu tělesa
-slunce.shadow.bias = -0.0012;
-slunce.shadow.normalBias = 2.5;
+// Proti „shadow acne", tedy diagonálnímu pruhování na vlastním povrchu.
+// Hlavní práci dělá normalBias (odsazení ve SVĚTOVÝCH jednotkách po normále),
+// ne depth bias — ten při velkém rozsahu scény jen odlepí stín od předmětu.
+slunce.shadow.bias = -0.0003;
+slunce.shadow.normalBias = 5;
 
 // ---- barvy ----------------------------------------------------------------
 // Three od r152 barvy spravuje: hex se bere jako sRGB, převede se do lineárního
@@ -514,7 +516,11 @@ function novaSekce(zaklY){
   for(const y of POLICE_Y){
     const deska = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, POLICE_HL), matDrevo);
     deska.position.set(0, y - 9, POLICE_Z);
-    deska.receiveShadow = true;
+    // Deska stín VRHÁ, ale NECHYTÁ. Světlo je frontální, takže na její
+    // vodorovnou plochu dopadá skoro po tečně — a to je přesně situace, kde
+    // vzniká pruhování. Kamera se navíc dívá skoro vodorovně, takže je ta
+    // plocha stejně vidět z boku a o nic nepřicházíme.
+    deska.receiveShadow = false;
     deska.castShadow = true;      // bez toho stín lahve prosvítá pod polici
     sek.skupina.add(deska);
     const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, POLICE_HL), matObrysDrevo);
@@ -575,7 +581,7 @@ scene.add(podpatri.skupina);
 for(const y of [-135, -320]){
   const deska = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, POLICE_HL), matDrevo);
   deska.position.set(0, y - 9, POLICE_Z);
-  deska.receiveShadow = true;
+  deska.receiveShadow = false;
   deska.castShadow = true;
   podpatri.skupina.add(deska);
   const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, POLICE_HL), matObrysDrevo);
