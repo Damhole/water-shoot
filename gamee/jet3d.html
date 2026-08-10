@@ -20,8 +20,20 @@
   #cog:active{transform:translateY(1px)}
   #hud{position:fixed;left:10px;top:56px;background:rgba(8,14,24,.86);
     padding:10px 12px;border-radius:9px;min-width:210px;
+    /* border-box je tu nutný: max-height se jinak počítá na OBSAHOVOU
+       krabici a padding se k ní přičte — panel pak přetekl přesně o těch
+       24 px odsazení. */
+    box-sizing:border-box;
     /* nad VŠÍM — skóre má 4, hláška 5; dřív panel s 2 mizel pod nimi */
-    z-index:50;max-height:calc(100vh - 70px);overflow-y:auto;
+    z-index:50;overflow-y:auto;
+    /* VÝŠKA PANELU: 100vh je na mobilu výška BEZ prohlížečových lišt, takže
+       panel sahal pod spodní lištu a na jeho konec se nedalo dorolovat.
+       100svh je „malý" viewport, tedy stav, kdy jsou lišty vidět — panel se
+       pak vejde vždycky. K tomu bezpečná zóna kvůli iPhonu s home indikátorem.
+       První řádek je záloha pro prohlížeče, které svh neumí. */
+    max-height:calc(100vh - 70px);
+    max-height:calc(100svh - 66px - env(safe-area-inset-bottom, 0px));
+    padding-bottom:14px;
     /* svislé posouvání uvnitř panelu povolené, vodorovné ne — jinak by tah
        do strany po posuvníku ujel celým panelem */
     touch-action:pan-y;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
@@ -35,7 +47,8 @@
      posuvníku v půlce překlopil do rolování panelu */
   #hud input[type=range]{width:100%;touch-action:none}
   .row{display:flex;gap:10px;justify-content:space-between}
-  #note{position:fixed;left:10px;bottom:10px;right:10px;color:#7f93aa;font-size:11px}
+  #note{position:fixed;left:10px;right:10px;color:#7f93aa;font-size:11px;
+    bottom:calc(10px + env(safe-area-inset-bottom, 0px))}
   #fpsRoh{position:fixed;right:8px;top:6px;font-size:11px;color:#8fd0ff;
     background:rgba(8,14,24,.55);padding:2px 7px;border-radius:6px;z-index:4;
     pointer-events:none;font-variant-numeric:tabular-nums}
