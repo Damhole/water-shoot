@@ -297,7 +297,11 @@
          má moc detailů (zobák, ocas, oko), které na 37 px splynou. Korunka
          drží tvar i v malém, protože je to pár rovných hran a tři špičky.
          Plná silueta v tmavém zlatě, ne obrys: z linek by zbyla šedá kaše. -->
-    <g fill="#9c6210" opacity=".95">
+    <!-- Zmenšeno na 80 % kolem středu mince: v plné velikosti se korunka
+         dotýkala vnitřního kroužku a mince působila přecpaně. Zmenšuje se
+         transformací, ne přepsáním souřadnic — tvar tím zůstane ten samý
+         a dá se velikost kdykoli doladit jedním číslem. -->
+    <g fill="#9c6210" opacity=".95" transform="translate(32 32) scale(.8) translate(-32 -32)">
       <path d="M20 41.5 17.4 24l7.1 6.2L32 19.6l7.5 10.6 7.1-6.2L44 41.5z"/>
       <rect x="19" y="41.5" width="26" height="4.6" rx="2"/>
       <circle cx="17.4" cy="22" r="2.5"/><circle cx="32" cy="17.6" r="2.7"/>
