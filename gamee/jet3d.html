@@ -14,11 +14,16 @@
     -webkit-user-select:none;user-select:none;
     touch-action:manipulation;overscroll-behavior:none}
   canvas{display:block;width:100%;height:100%;touch-action:none}
-  #cog{position:fixed;left:10px;top:10px;width:38px;height:38px;border:0;
+  /* Tlačítko nastavení je DOLE V ROHU: nahoře přebíjelo pruh života a hráč
+     má nahoře koukat na stav, ne na ozubené kolo. */
+  #cog{position:fixed;left:10px;bottom:calc(10px + env(safe-area-inset-bottom, 0px));
+    width:38px;height:38px;border:0;
     border-radius:50%;background:rgba(8,14,24,.8);color:#cfe0f5;font-size:19px;
     cursor:pointer;z-index:3;-webkit-tap-highlight-color:transparent}
   #cog:active{transform:translateY(1px)}
-  #hud{position:fixed;left:10px;top:56px;background:rgba(8,14,24,.86);
+  /* Panel vyjíždí od tlačítka, tedy ODE DNA nahoru. */
+  #hud{position:fixed;left:10px;
+    bottom:calc(56px + env(safe-area-inset-bottom, 0px));background:rgba(8,14,24,.86);
     padding:10px 12px;border-radius:9px;min-width:210px;
     /* border-box je tu nutný: max-height se jinak počítá na OBSAHOVOU
        krabici a padding se k ní přičte — panel pak přetekl přesně o těch
@@ -47,8 +52,6 @@
      posuvníku v půlce překlopil do rolování panelu */
   #hud input[type=range]{width:100%;touch-action:none}
   .row{display:flex;gap:10px;justify-content:space-between}
-  #note{position:fixed;left:10px;right:10px;color:#7f93aa;font-size:11px;
-    bottom:calc(10px + env(safe-area-inset-bottom, 0px))}
   #fpsRoh{position:fixed;right:8px;top:6px;font-size:11px;color:#8fd0ff;
     background:rgba(8,14,24,.55);padding:2px 7px;border-radius:6px;z-index:4;
     pointer-events:none;font-variant-numeric:tabular-nums}
@@ -120,6 +123,101 @@
   #patroRoh{position:fixed;left:50%;top:calc(27.4vh - 50px);transform:translate(-50%,-50%);z-index:4;
     pointer-events:none;font-size:2.4vh;line-height:1;--o:0.11vh;--o2:0.16vh;--hloubka:0.17vh;
     letter-spacing:.02em}
+  /* ŽIVOT — srdce a pruh vlevo, v pásu MEZI ⚙ a skóre.
+     Proč ne přímo ve výšce skóre: skóre je vycentrované a roste do stran, takže
+     od pětimístného (a to padne zhruba po pátém patře, lahev je za 100) by si
+     s pruhem vlezly do sebe — naměřeno 9,6 px překryv při 12500 a 23,5 px při
+     šestimístném. V pásu nad ním je volno přes celou šířku.
+     Výška: střed přesně mezi spodkem ⚙ (48 px) a horní hranou skóre
+     (21,5vh − 50px − 3,1vh) → (18,4vh − 2px)/2.
+     Šířka je v `vh` stejně jako písmo skóre, takže spolu drží poměr na každém
+     displeji; kdyby byla ve `vw`, na širokém telefonu by pruh vyrostl proti
+     zbytku HUD. Rozměr je odvozený od jediné proměnné --vys, ať jde velikost
+     měnit na jednom místě. Srdce leží PŘES levý konec pruhu (jako v předloze),
+     proto je absolutně a pruh má o půl srdce větší odsazení. */
+  /* Oba ukazatele sdílejí VŠECHNO až na barvy a stranu — proto společný
+     předpis a v něm jen dva rozdíly: kde stojí a čím jsou vyplněné.
+     Voda je zrcadlově vpravo, aby dvojice rámovala skóre. */
+  #zivotRoh,#vodaRoh,#minceRoh{position:fixed;top:calc(9.2vh - 1px);
+    transform:translateY(-50%);z-index:4;pointer-events:none;
+    --vys:2.7vh; --ikona:4.7vh;
+    /* obrys je tu ČERNÝ, ne hnědá --obrys od písma — na předloze je černá
+       a proti sytě červené drží ostřeji než hnědá */
+    --zobrys:#000;
+    /* HLOUBKA: o kolik je vysunutá tmavá kopie pod tvarem. Totéž, co dělá
+       .titulek::after u písma — bez ní pruh plave na ploše. */
+    --hloub:.34vh}
+  #zivotRoh{left:max(10px,3vw)}
+  #vodaRoh{right:max(10px,3vw)}
+  #zivotRoh .pruh,#vodaRoh .pruh{width:9.5vh;height:var(--vys);
+    box-sizing:border-box;overflow:hidden;position:relative;display:flex;
+    border:calc(var(--vys)*.15) solid var(--zobrys);
+    border-radius:calc(var(--vys)*.5);
+    /* Vysunutá kopie je PLNÝ stín s nulovým rozostřením: kopíruje tvar
+       i zaoblení sám od sebe, takže se nemusí kreslit druhý prvek (ten by
+       se navíc musel klonovat i pro ikonu). Měkký stín jde až pod ni, jinak
+       by se tmavá kopie v jeho šedi ztratila. */
+    box-shadow:0 var(--hloub) 0 var(--zobrys),
+               0 calc(var(--hloub) + .25vh) .45vh rgba(0,0,0,.35)}
+  /* PRÁZDNÁ ČÁST JE U OBOU TMAVÁ, i když v předloze jen vybledne. Vybledlá
+     verze totiž neobstála periferním viděním: hráč se dívá na terče a stav
+     musí přečíst koutkem oka, kde se rozlišuje hlavně JAS, ne barva —
+     a světle červená proti sytě červené (stejně jako světle modrá proti
+     modré) se jasem skoro neliší. Proti tmavému podkladu je hranice
+     jednoznačná i mimo pohled. */
+  #zivotRoh .pruh{margin-left:calc(var(--ikona)*.46);
+    background:linear-gradient(#3b1418,#1c080b)}
+  /* Kapka je u LEVÉHO konce jako srdce a voda ubývá stejným směrem, tedy
+     doprava. Zrcadlení se neosvědčilo: pruh je sice vpravo, ale ubývat měl
+     opačně než život a oko to muselo číst dvakrát. */
+  #vodaRoh .pruh{margin-left:calc(var(--ikona)*.46);
+    background:linear-gradient(#16303f,#0b1c27)}
+  /* Výplň je samostatný prvek, aby se dala měnit jen šířka — animovat
+     gradient na pozadí by znamenalo překreslovat celý pruh. */
+  #zivotRoh .vypln,#vodaRoh .vypln{display:block;height:100%;width:100%;
+    transition:width .25s ease}
+  #zivotRoh .vypln{background:linear-gradient(#f2453f 0%,#dd2026 52%,#a91218 100%)}
+  #vodaRoh .vypln{background:linear-gradient(#7ddcff 0%,#2f9fe0 52%,#12689f 100%)}
+  /* NÁBOJNICE. Leží PŘES výplň, takže dělení platí i pro plnou i pro
+     prázdnou část a tekutina je vidět „uvnitř" nich.
+     Válec se čte ze tří věcí: tmavá spára mezi náboji, světlý pruh blízko
+     levé hrany (odlesk) a ztmavení u pravé (odvrácená strana). K tomu
+     vodorovný proužek u dna = obruba nábojnice. Všechno průsvitné, ať to
+     jen stínuje modrou pod sebou a nepřebarvuje ji. */
+  #vodaRoh .naboje{position:absolute;inset:0;--cela:calc(var(--vys)*.46);
+    background:
+      linear-gradient(rgba(0,0,0,0) 0 62%, rgba(0,0,0,.30) 62% 76%, rgba(0,0,0,0) 76%),
+      repeating-linear-gradient(90deg,
+        rgba(0,0,0,.55) 0 calc(var(--cela)*.12),
+        rgba(255,255,255,.30) calc(var(--cela)*.12) calc(var(--cela)*.32),
+        rgba(255,255,255,0) calc(var(--cela)*.32) calc(var(--cela)*.66),
+        rgba(0,0,0,.22) calc(var(--cela)*.66) var(--cela))}
+  /* U ikon dělá totéž drop-shadow s nulovým rozostřením — box-shadow by
+     obkreslil čtverec kolem SVG, drop-shadow jde po tvaru glyfu. */
+  #zivotRoh .srdce,#vodaRoh .kapka,#minceRoh .mince{position:absolute;top:50%;
+    width:var(--ikona);height:var(--ikona);transform:translateY(-50%);
+    filter:drop-shadow(0 var(--hloub) 0 var(--zobrys))
+           drop-shadow(0 .28vh .38vh rgba(0,0,0,.4))}
+  #zivotRoh .srdce{left:0}
+  #vodaRoh .kapka{left:0}
+  /* MINCE — mezi oběma pruhy. Stejná stavba jako oni (ikona přes levý konec,
+     týž obrys i vysunutá kopie), jen je pruh černý a místo výplně je v něm
+     číslo. Šířka je na obsahu, ne pevná: čtyřmístný počet mincí by se do
+     pevného pruhu nevešel a rozsypal by se ven. */
+  #minceRoh{left:50%;transform:translate(-50%,-50%)}
+  #minceRoh .pruh{margin-left:calc(var(--ikona)*.46);height:var(--vys);
+    min-width:7vh;box-sizing:border-box;
+    display:flex;align-items:center;justify-content:center;
+    padding:0 .7vh 0 calc(var(--ikona)*.30);
+    border:calc(var(--vys)*.15) solid var(--zobrys);
+    border-radius:calc(var(--vys)*.5);
+    background:linear-gradient(#23262e,#0d0f13);
+    box-shadow:0 var(--hloub) 0 var(--zobrys),
+               0 calc(var(--hloub) + .25vh) .45vh rgba(0,0,0,.35)}
+  #minceRoh .pocet{font-family:'Lilita One',"Arial Rounded MT Bold",Arial,sans-serif;
+    font-weight:400;font-size:calc(var(--vys)*.78);line-height:1;color:var(--krem);
+    font-variant-numeric:tabular-nums;letter-spacing:.02em}
+  #minceRoh .mince{position:absolute;left:0}
   /* „Floor cleared!" — přes celou šířku, uprostřed výšky terčů. Naskočí
      s krátkým přiblížením, ať to má úder; bez animace by to jen bliklo. */
   #hlaska{position:fixed;left:0;right:0;top:45vh;z-index:5;text-align:center;
@@ -147,6 +245,53 @@
 <div id="fpsRoh">– FPS</div>
 <div id="skoreRoh" class="titulek" data-text="0">0</div>
 <div id="patroRoh" class="titulek" data-text="floor 1 · 4 left">floor 1 · 4 left</div>
+<!-- Ukazatel života. Srdce je SVG, ne emoji — emoji vykreslí každý systém
+     jinak (a na Androidu bez obrysu), takže by se s pruhem nesešlo barvou.
+     Obrys je táž tmavá jako u písma a zaměřovače, aby to patřilo k sobě. -->
+<div id="zivotRoh" aria-hidden="true">
+  <div class="pruh"><i class="vypln"></i></div>
+  <svg class="srdce" viewBox="0 0 64 64">
+    <defs><linearGradient id="gSrdce" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2453f"/><stop offset="1" stop-color="#a91218"/>
+    </linearGradient></defs>
+    <path d="M32 57C11 42 4 30 8.5 19.5 12.5 10 25 8.5 32 18c7-9.5 19.5-8 23.5 1.5C60 30 53 42 32 57Z"
+          fill="url(#gSrdce)" stroke="#000" stroke-width="5" stroke-linejoin="round"/>
+    <ellipse cx="22" cy="22" rx="7" ry="4.6" fill="#ff9f9b" opacity=".85"
+             transform="rotate(-38 22 22)"/>
+  </svg>
+</div>
+<!-- Zásoba vody. Zrcadlový dvojník života: kapka místo srdce, modrá místo
+     červené a pruh ubývá od kapky doleva. Uvnitř leží vrstva `naboje`,
+     která pruh rozdělí na nábojnice — kresba je jen stínování, tekutina
+     pod ní zůstává vidět. -->
+<div id="vodaRoh" aria-hidden="true">
+  <div class="pruh"><i class="vypln"></i><i class="naboje"></i></div>
+  <svg class="kapka" viewBox="0 0 64 64">
+    <defs><linearGradient id="gKapka" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7ddcff"/><stop offset="1" stop-color="#12689f"/>
+    </linearGradient></defs>
+    <path d="M32 5c8 15 20 25 20 35a20 20 0 0 1-40 0c0-10 12-20 20-35Z"
+          fill="url(#gKapka)" stroke="#000" stroke-width="5" stroke-linejoin="round"/>
+    <ellipse cx="23" cy="41" rx="5.6" ry="8" fill="#c9f2ff" opacity=".8"
+             transform="rotate(-20 23 41)"/>
+  </svg>
+</div>
+<!-- Mince mezi oběma pruhy. Zatím se počítá jedna za sestřelenou kachničku
+     a jedna za rozbitou lahev; s tím, na co se bude utrácet, se to doladí. -->
+<div id="minceRoh">
+  <div class="pruh"><span class="pocet" id="minceCislo">0</span></div>
+  <svg class="mince" viewBox="0 0 64 64">
+    <defs><linearGradient id="gMince" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#ffe07a"/><stop offset="1" stop-color="#d08b1c"/>
+    </linearGradient></defs>
+    <circle cx="32" cy="32" r="26" fill="url(#gMince)" stroke="#000" stroke-width="5"/>
+    <circle cx="32" cy="32" r="17" fill="none" stroke="#a86a12" stroke-width="3.4" opacity=".75"/>
+    <path d="M32 20v24M26.5 25.5h9M26.5 38.5h9" stroke="#a86a12" stroke-width="4"
+          stroke-linecap="round" fill="none" opacity=".85"/>
+    <ellipse cx="23" cy="22" rx="6" ry="3.6" fill="#fff6d0" opacity=".75"
+             transform="rotate(-38 23 22)"/>
+  </svg>
+</div>
 <div id="hlaska" class="titulek"></div>
 <!-- Zaměřovač podle předlohy: silnější a v týchž barvách jako text, tedy
      krémová na tmavém obrysu. Ryska PROCHÁZÍ prstencem místo aby končila
@@ -173,6 +318,10 @@
   <div class="row"><span>proudů ve vzduchu</span><b id="gen">–</b></div>
   <div class="row"><span>kapek</span><b id="kap">–</b></div>
   <div class="row"><span>SKÓRE</span><b id="skore">0</b></div>
+  <label>život (na ladění) <span id="vZiv"></span></label>
+  <input type="range" id="ziv" min="0" max="100" step="1" value="100">
+  <label>voda (na ladění) <span id="vVod"></span></label>
+  <input type="range" id="vod" min="0" max="100" step="1" value="100">
   <label>zorný úhel (nižší = blíž) <span id="vFov"></span></label>
   <input type="range" id="fov" min="30" max="60" step="1" value="48">
   <label>sytost barev <span id="vSyt"></span></label>
@@ -199,6 +348,8 @@
   <input type="range" id="sila" min="900" max="4200" step="100" value="2600">
   <label>náběh a doběh trysky (s) <span id="vRamp"></span></label>
   <input type="range" id="ramp" min="0" max="1.2" step="0.05" value="0.45">
+  <label>velikost korunky (0 = vypnuto) <span id="vKor"></span></label>
+  <input type="range" id="kor" min="0" max="200" step="5" value="100">
   <label>síla zásahu do lahví <span id="vImp"></span></label>
   <input type="range" id="imp" min="1" max="120" step="1" value="34">
   <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
@@ -211,9 +362,8 @@
   <input type="range" id="stinS" min="0" max="100" step="5" value="75">
   <button class="btn" id="reset">↺ výchozí hodnoty</button>
 </div>
-<div id="note">Táhni prstem/myší = miř. Proud je JEDNA trubice podél balistické dráhy,
-žádné částice. Uzly ale letí KAŽDÝ SVOU drahou, takže při pohybu se proud ohne
-a odtrhne. Pusť tlačítko (nebo mezerník) a proud doletí sám. Koule jdou sestřelit.</div>
+<!-- Popis ovládání odsud zmizel: byl to text pro první seznámení s prototypem
+     a v hratelné verzi jen ukrajoval spodní třetinu obrazu. -->
 
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.min.js", "cannon": "./lib/cannon-es.js" } }
@@ -422,7 +572,9 @@ const GEO_SKLENICE = lathe(PROFIL_SKLENICE, 14);
 
 const SKLA = [
   { geo:GEO_LAHEV,    barva:0x4d7a3f, w:26, h:118 },
-  { geo:GEO_LAHEV,    barva:0x8a5f2c, w:27, h:126 },
+  // Hnědá 0x8a5f2c splývala se stěnou (0x8a5c33) — je to prakticky tatáž
+  // barva. Posunuto do oranžova a zesvětleno, ať se lahev od pozadí odlepí.
+  { geo:GEO_LAHEV,    barva:0xc9762a, w:27, h:126 },
   { geo:GEO_LAHEV,    barva:0x3f5d7a, w:25, h:104 },
   { geo:GEO_SKLENICE, barva:0xa8ccdd, w:26, h:52  },
 ];
@@ -521,37 +673,88 @@ const SILA_ZASAHU = () => +document.getElementById('imp').value;
 // (včetně krajů) v náhodném poměru. Díky tomu není žádné dvě police stejné.
 const ROZESTUP_VE_SKUPINE = 62;      // nejširší lahev má 27, sklenice 26
 const MEZERA_MIN = 80;               // aby skupinky nesplynuly v řadu
+// OKNO PRO KACHNIČKU. Kachnička se smí objevit jen v úzkém pásu kolem středu
+// (pasKachen(), naměřeno 157 jednotek na telefonním poměru), kdežto police je
+// široká 1066. Když do toho pásu padla celá skupinka lahví, nebylo kam
+// kachničku postavit a stála za sklem celá — naměřeno 85 až 100 % míst pod
+// prahem výkuku.
+//
+// Zkusil jsem to nejdřív POSUNEM hotové kompozice tak, aby jí do pásu najela
+// mezera. Nefunguje to: kompozice je široká 1066 a deska 1240, takže je kam
+// posouvat jen o ±47, kdežto potřeba jsou stovky. Police se proto skládá
+// rovnou KOLEM OKNA — okno se vybere první a lahve se rozdělí do dvou oblastí
+// vedle něj.
+//
+// Okno je schválně jen o málo širší než kachnička, ne co nejširší: v široké
+// mezeře stála volně a zmizel dojem, že je zastrčená mezi lahvemi (naměřeno
+// 98 ze 112 jednotek siluety nezakrytých, tedy prakticky celá). Takhle z ní
+// z boků kus zapadne za sklo a kouká hlava s pistolí.
+const OKNO_PAS = 75;                        // kam až smí střed okna od středu
+const OKNO_MIN = 105, OKNO_MAX = 165;       // šířka okna (kachnička má 112)
+const KRAJ_MIN = 30;                        // aby lahev nestála přesně na hraně
+
+// Rozloží `k` lahví do oblasti <a, b> jako jednu nebo dvě skupinky.
+function rozlozOblast(a, b, k, xs){
+  if(k <= 0) return;
+  const sirka = b - a;
+  const skupin = (k >= 4 && sirka > 520) ? 2 : 1;
+  const vel = new Array(skupin).fill(1);
+  for(let z = k - skupin; z > 0; z--) vel[(Math.random()*skupin)|0]++;
+
+  const sirkaKusu = vel.reduce((s,v)=>s + (v-1)*ROZESTUP_VE_SKUPINE, 0);
+  let volno = sirka - sirkaKusu - MEZERA_MIN*(skupin-1) - 2*KRAJ_MIN;
+  if(volno < 0) volno = 0;
+  // náhodné rozdělení volna mezi mezery (kraje + mezi skupinkami), takže
+  // kompozice jednou sedí u okna, jindy u kraje police
+  const vahy = Array.from({length: skupin+1}, ()=> 0.35 + Math.random());
+  const suma = vahy.reduce((p,q)=>p+q, 0);
+
+  let x = a + KRAJ_MIN + vahy[0]/suma*volno;
+  for(let g=0; g<skupin; g++){
+    for(let i=0;i<vel[g];i++){
+      xs.push(x + rand(-5, 5));                   // drobný rozhoz, ať to není pravítko
+      if(i < vel[g]-1) x += ROZESTUP_VE_SKUPINE;
+    }
+    x += MEZERA_MIN + vahy[g+1]/suma*volno;
+  }
+}
+
+// POŘADÍ NESMÍ MĚNIT. `prestavLahve` přiřazuje pozice lahvím podle indexu
+// (`xsPodle[police][L.i]`) a typ lahve se při přestavění nemění — index 0 je
+// proto vždycky ta sklenice v okně a nikdy se nesmí přerovnat jinam.
 function rozlozPolici(n){
   const W = POLICE_HW*1.72;
-  const skupin = Math.min(n, 2 + (Math.random()*2|0));
-  // velikosti skupinek: každá aspoň jedna, zbytek náhodně
-  const vel = new Array(skupin).fill(1);
-  for(let z = n - skupin; z > 0; z--) vel[(Math.random()*skupin)|0]++;
-
-  const sirkaKusu = vel.reduce((a,v)=>a + (v-1)*ROZESTUP_VE_SKUPINE, 0);
-  const mezer = skupin + 1;                       // dva kraje + mezi skupinkami
-  let volno = W - sirkaKusu - MEZERA_MIN*(skupin-1);
-  if(volno < 0) volno = 0;
-  // náhodné rozdělení volna mezi mezery — kraje smí být i skoro nulové,
-  // takže kompozice jednou sedí vlevo, jindy uprostřed
-  const vahy = Array.from({length:mezer}, ()=> 0.35 + Math.random());
-  const suma = vahy.reduce((a,b)=>a+b, 0);
-  const mezery = vahy.map((v,i)=> v/suma*volno + (i>0 && i<mezer-1 ? MEZERA_MIN : 0));
+  const c = rand(-OKNO_PAS, OKNO_PAS);
+  const pul = rand(OKNO_MIN, OKNO_MAX)/2;
+  const vlevo = { a: -W/2, b: c - pul }, vpravo = { a: c + pul, b: W/2 };
 
   const xs = [];
-  let x = -W/2 + mezery[0];
-  for(let g=0; g<skupin; g++){
-    for(let k=0; k<vel[g]; k++){
-      xs.push(x + rand(-5, 5));                   // drobný rozhoz, ať to není pravítko
-      if(k < vel[g]-1) x += ROZESTUP_VE_SKUPINE;
-    }
-    x += mezery[g+1];
-  }
+  // index 0 = SKLENICE V OKNĚ. Bez ní zůstal střed každé police prázdný a bar
+  // vypadal jako vybílený zrovna tam, kam se hráč dívá. Sklenice je vysoká 52
+  // proti kachniččiným 151, takže zakryje břicho a hlava s pistolí koukají
+  // přes ni — to je přesně to „za sklenicí", o které šlo.
+  xs.push(c + rand(-12, 12));
+
+  // zbytek se dělí podle toho, kolik místa která strana má — jinak by se na
+  // užší straně namačkaly na sebe
+  const sirL = Math.max(0, vlevo.b - vlevo.a), sirP = Math.max(0, vpravo.b - vpravo.a);
+  const zbytek = n - 1;
+  let nL = Math.round(zbytek * sirL/(sirL + sirP || 1));
+  // kus nejistoty, ať police nejsou souměrné
+  if(zbytek > 1 && Math.random() < 0.5) nL += (Math.random() < 0.5 ? -1 : 1);
+  nL = Math.max(0, Math.min(zbytek, nL));
+
+  rozlozOblast(vlevo.a, vlevo.b, nL, xs);
+  rozlozOblast(vpravo.a, vpravo.b, zbytek - nL, xs);
   return xs;
 }
 
-function novaLahev(sek, police, i, xPozice){
-  const typ = SKLA[(Math.random()*SKLA.length)|0];
+// SKLA[3] je sklenice. Index lahve na polici určuje typ NATRVALO (při
+// přestavění se mění jen pozice), takže „nultá je vždycky sklenice" stačí
+// zařídit jednou tady a v okně pak stojí sklenice i po přestavění.
+const TYP_SKLENICE = 3;
+function novaLahev(sek, police, i, xPozice, typVynuceny){
+  const typ = SKLA[typVynuceny !== undefined ? typVynuceny : (Math.random()*SKLA.length)|0];
   const m = new THREE.Mesh(typ.geo, barevny(new THREE.MeshToonMaterial({
     color: typ.barva, gradientMap: toonGrad }), typ.barva));
   // model má počátek ve SPODKU (profil 0..1), fyzikální válec ve STŘEDU —
@@ -623,7 +826,8 @@ function novaSekce(zaklY){
   for(const t of sek.telesa) world.addBody(t.telo);
   for(let p=0;p<POLIC;p++){
     const xs = rozlozPolici(LAHVI_NA_POLICI);
-    for(let i=0;i<LAHVI_NA_POLICI;i++) lahve.push(novaLahev(sek, p, i, xs[i]));
+    for(let i=0;i<LAHVI_NA_POLICI;i++)
+      lahve.push(novaLahev(sek, p, i, xs[i], i === 0 ? TYP_SKLENICE : undefined));
   }
   nastavSekci(sek, zaklY);
   return sek;
@@ -705,6 +909,40 @@ function pripisSkore(n){
   nastavTitulek(skoreEl, skore);
 }
 
+// ---- život ----------------------------------------------------------------
+// Zatím JEN UKAZATEL: nic ho neubírá, protože hráč ještě nemá jak přijít
+// k újmě. Je schválně vedený jako podíl 0..1, ne jako počet srdcí — na počet
+// se dá kdykoli přejít krokováním, obráceně by se plynulý pruh musel předělat.
+let zivot = 1;
+const zivotEl = document.querySelector('#zivotRoh .vypln');
+function nastavZivot(v){
+  zivot = Math.max(0, Math.min(1, v));
+  zivotEl.style.width = (zivot*100).toFixed(1) + '%';
+}
+function uberZivot(v){ nastavZivot(zivot - v); }
+nastavZivot(1);
+
+// Zásoba vody — druhý ukazatel, zatím taky jen kresba. Vedená stejně jako
+// život (podíl 0..1), aby se oba daly obsluhovat týmž způsobem, až budou mít
+// co ukazovat: voda ubývá stříkáním a sbírá se, život bere újmu.
+let voda = 1;
+const vodaEl = document.querySelector('#vodaRoh .vypln');
+function nastavVodu(v){
+  voda = Math.max(0, Math.min(1, v));
+  vodaEl.style.width = (voda*100).toFixed(1) + '%';
+}
+function uberVodu(v){ nastavVodu(voda - v); }
+nastavVodu(1);
+
+// Mince. Zatím jen počítadlo bez utrácení — jedna za sestřelenou kachničku,
+// jedna za rozbitou lahev. Až bude za co utrácet, změní se sazba tady.
+let mince = 0;
+const minceEl = document.getElementById('minceCislo');
+function pripisMinci(n){
+  mince += n;
+  minceEl.textContent = mince;
+}
+
 const _q = new THREE.Quaternion(), _v = new THREE.Vector3();
 
 function zasahyLahvi(dt){
@@ -738,7 +976,7 @@ function zasahyLahvi(dt){
         rozprsk(L.m.position, new THREE.Vector3(0,1,0), new THREE.Vector3(0, 420, 0), 16);
         krouzek(L.m.position.x, 1.5, L.m.position.z, 'up', 40);
       }
-      L.m.visible = false; L.mrtva = 2.2; pripisSkore(100);
+      L.m.visible = false; L.mrtva = 2.2; pripisSkore(100); pripisMinci(1);
       L.telo.position.set(0, -4000, 0);       // uklidit mimo scénu
       L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
       continue;
@@ -785,7 +1023,7 @@ function _stary(dt){
         rozprsk(L.m.position, new THREE.Vector3(0,1,0), new THREE.Vector3(0, 420, 0), 16);
         krouzek(L.m.position.x, 1.5, L.m.position.z, 'up', 40);
         L.m.visible = false; L.mrtva = 2.2; L.pada = false;
-        pripisSkore(100);
+        pripisSkore(100); pripisMinci(1);
       }
       continue;
     }
@@ -1322,7 +1560,12 @@ function pustDrobnou(x, y, z, vx, vy, vz, vel, zivot){
     if(k.ziva) continue;
     k.ziva = true; k.t = 0; k.zivot = zivot;
     k.x = x; k.y = y; k.z = z; k.vx = vx; k.vy = vy; k.vz = vz; k.vel = vel;
-    const c = barvaKapky(); k.r = c.r; k.g = c.g; k.b = c.b;
+    // U DOPADU JE KAPIČKA MODRÁ a cestou bledne do pěny (dělá to krokDrobnych).
+    // Souvislá hmota vody je modrá, protože je jí přes sebe hodně; jakmile se
+    // rozpadne na kapky a nabere vzduch, rozptýlí světlo a bílá. Tady se
+    // ukládá jen výchozí odstín, ať každá kapka nezačíná stejná.
+    const c = _barva.copy(BARVA_VODY).lerp(BARVA_PENY, Math.random()*0.25);
+    k.r = c.r; k.g = c.g; k.b = c.b;
     return;
   }
 }
@@ -1349,7 +1592,13 @@ function krokDrobnych(dt){
     // šmouhy — právě to „rozostření na konci", které tam nemá být.
     drobneVel[n]   = k.vel * (1 - 0.20*u);
     drobneKryti[n] = u < 0.75 ? 1 : (1-u)*4;
-    drobneBarva[n*3] = k.r; drobneBarva[n*3+1] = k.g; drobneBarva[n*3+2] = k.b;
+    // BLEDNUTÍ ZA LETU: u dopadu modrá, dál v letu bílá. Bílá je hotová ve
+    // dvou třetinách života, aby zbytek dráhy kapka doletěla jako pěna a
+    // nezhasla dřív, než se přebarví.
+    const w = Math.min(1, u*1.5);
+    drobneBarva[n*3]   = k.r + (BARVA_PENY.r - k.r)*w;
+    drobneBarva[n*3+1] = k.g + (BARVA_PENY.g - k.g)*w;
+    drobneBarva[n*3+2] = k.b + (BARVA_PENY.b - k.b)*w;
     n++;
   }
   drobneGeo.setDrawRange(0, n);
@@ -1451,6 +1700,111 @@ function krokKrouzku(dt){
   }
 }
 
+// ---- korunka ---------------------------------------------------------------
+// TOHLE dělá ze šplouchance 3D. Bodové kapičky i kroužek jsou cedulky natočené
+// na kameru, takže náraz je plochý; korunka je skutečné těleso — rozevřený
+// otevřený kužel, co v místě dopadu vyroste, roztáhne se a splaskne. V
+// perspektivě se sama zkracuje a na polici stojí jinak než na stěně.
+//
+// Tři věci, bez kterých to nefunguje:
+//
+//   1. OSA SE DRŽÍ NORMÁLY: 0,65 normály + 0,35 svislice. Korunka je tím
+//      u kachniček a zadní stěny natočená k divákovi a je vidět celá.
+//      Zkusil jsem to obrátit (0,35 normály + 0,65 svislice), protože mi
+//      první verze přišla jako šedivý kotouč — jenže za tu šeď mohlo KRYTÍ,
+//      ne osa, a vyklopená korunka se pak na stěně ukazovala z profilu jako
+//      placka. Uživatel to poznal hned. Zpátky na 0,65 a nesahat na to.
+//   2. SPODEK MUSÍ SEDĚT NA PLOŠE. Kužel je centrovaný, takže se odsazuje o
+//      půl své výšky po ose — jinak by při růstu do plochy zajel.
+//   3. NEJDŘÍV VYROSTE, POTOM ZESLÁBNE. Rozšiřuje se celou dobu, ale krytí
+//      klesá s druhou mocninou; kdyby mizela lineárně, čte se to jako
+//      zhasnutí, ne jako rozpad vody.
+//
+// Geometrie je JEDNA sdílená a předalokovaná, materiál per kus kvůli krytí —
+// stejný vzorec jako u kroužků. V herní smyčce se tedy nic nealokuje.
+const KORUNEK = 10;
+const korunky = [];
+const geoKorunka = new THREE.CylinderGeometry(1, 0.42, 1, 16, 1, true);
+// ZUBY NAHOŘE. Hladký kužel se čte jako stínítko lampy, ne jako voda —
+// korunka má po obvodu cípy. Dělají se posunem horního věnce: kde je cíp,
+// je poloměr větší A vrchol výš. Počítá se to z ÚHLU, ne z pořadí vrcholů,
+// takže je jedno, jak si three geometrii poskládá.
+// K tomu pěna nahoře a voda dole jako barva po vrcholech, ať to není placka.
+{
+  const p = geoKorunka.attributes.position;
+  const barvy = new Float32Array(p.count*3);
+  for(let i=0;i<p.count;i++){
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    if(y > 0){
+      const cip = 0.5 + 0.5*Math.cos(Math.atan2(z, x)*8);   // 0 mezera, 1 cíp
+      const f = 1 - 0.30*(1 - cip);
+      p.setXYZ(i, x*f, y + 0.16*cip, z*f);
+    }
+    const u = p.getY(i) + 0.5;                       // 0 dole, 1 nahoře
+    barvy[i*3]   = 0.52 + 0.48*u;
+    barvy[i*3+1] = 0.84 + 0.16*u;
+    barvy[i*3+2] = 0.97 + 0.03*u;
+  }
+  geoKorunka.setAttribute('color', new THREE.BufferAttribute(barvy, 3));
+}
+const matKorunka = new THREE.MeshBasicMaterial({
+  vertexColors: true, transparent: true, side: THREE.DoubleSide, depthWrite: false,
+});
+for(let i=0;i<KORUNEK;i++){
+  const m = new THREE.Mesh(geoKorunka, matKorunka.clone());
+  m.visible = false;
+  scene.add(m);
+  korunky.push({ m, t: 0, zivot: 0, velikost: 0, sila: 1,
+                 bx:0, by:0, bz:0, ox:0, oy:0, oz:0 });
+}
+const _kOsa = new THREE.Vector3(), _kUp = new THREE.Vector3(0,1,0);
+const _kQ = new THREE.Quaternion();
+// Odstup mezi korunkami. Bez něj by jich při plném proudu vznikalo přes sto za
+// vteřinu, slily by se do jedné svítící hroudy a sežraly pool. S 0,055 s jich
+// žije 4–5 naráz v různé fázi, což je přesně to, co čte jako živý šplouchanec.
+const KORUNKA_ODSTUP = 0.055;
+let korunkaOdpocet = 0;
+// Měřítko z ⚙ panelu. 0 = korunky vypnuté, takže se dá rovnou porovnat se
+// stavem před nimi, aniž by se sahalo do kódu.
+let korunkaMer = 1;
+
+function korunka(bod, normala, velikost){
+  for(const k of korunky){
+    if(k.zivot > 0) continue;
+    _kOsa.copy(normala).multiplyScalar(0.65).addScaledVector(_kUp, 0.35).normalize();
+    _kQ.setFromUnitVectors(_kUp, _kOsa);
+    k.m.quaternion.copy(_kQ);
+    k.t = 0; k.velikost = velikost;
+    // Slabý ráz nesmí jen zmenšit korunku, musí ji i ZTLUMIT a ZKRÁTIT.
+    // Samotné zmenšení vypadá jako táž věc z dálky; teprve když dostřik
+    // sotva bliknul, čte se jako „už to jen doprsklo".
+    k.sila = Math.max(0.30, Math.min(1, velikost/42));
+    k.zivot = 0.15 + 0.13*k.sila;
+    k.bx = bod.x; k.by = bod.y; k.bz = bod.z;
+    k.ox = _kOsa.x; k.oy = _kOsa.y; k.oz = _kOsa.z;
+    k.m.visible = true;
+    return;
+  }
+}
+
+function krokKorunek(dt){
+  if(korunkaOdpocet > 0) korunkaOdpocet -= dt;
+  for(const k of korunky){
+    if(k.zivot <= 0) continue;
+    k.t += dt;
+    if(k.t >= k.zivot){ k.zivot = 0; k.m.visible = false; continue; }
+    const u = k.t/k.zivot;
+    const r = k.velikost*(0.30 + 0.80*u);
+    const h = k.velikost*(0.50 + 0.95*u);
+    k.m.scale.set(r, h, r);
+    // spodek kužele na plochu = posun o půl výšky po ose
+    k.m.position.set(k.bx + k.ox*h*0.5, k.by + k.oy*h*0.5, k.bz + k.oz*h*0.5);
+    // Krytí drží vysoko a padá až v druhé půlce. S 0,62 na začátku prosvítalo
+    // hnědé dřevo natolik, že z bílé vody byl šedivý flek.
+    k.m.material.opacity = 0.95*k.sila*Math.min(1, 2.2*(1-u)*(1-u));
+  }
+}
+
 // Rozprsk od PEVNÉHO POVRCHU. Voda se od plochy neodrazí dozadu jako míč —
 // rozlije se PO NÍ a jen zlomek se vrací proti proudu. Tři věci, na kterých
 // stojí, že to čte jako lehký rozstřik a ne jako výbuch:
@@ -1477,13 +1831,34 @@ function rozprsk(bod, normala, dopadRychlost, kolik){
   const v0 = dopadRychlost.length();
   _tok.copy(dopadRychlost).addScaledVector(normala, -dopadRychlost.dot(normala)).normalize();
 
+  // Korunka patří ke KAŽDÉMU dopadu — na podlahu, dřevo, kachničky i lahve —
+  // ale jen jedna za KORUNKA_ODSTUP, jinak by se slily.
+  //
+  // VELIKOST JDE ZA RÁZEM VODY, ne za tím, že dopad nastal. Dřív to bylo
+  // 22 + min(18, v0*0,008), tedy pevný základ 22 a k němu špetka rychlosti:
+  // proud na konci dostřiku (v0 kolem 400) dělal korunku 25, plný zásah
+  // zblízka (v0 kolem 2600) korunku 40 — poměr 1,6, ačkoli ráz se liší
+  // šestkrát. Vypadalo to, že dostřikující voda mlátí do police stejně jako
+  // proud z metru. Nově je základ jen 6 a zbytek je úměrný rychlosti, takže
+  // stejné dvojici vyjde 15 a 47, tedy poměr 3,1.
+  if(korunkaMer > 0 && korunkaOdpocet <= 0){
+    korunkaOdpocet = KORUNKA_ODSTUP;
+    korunka(bod, normala, (6 + Math.min(44, v0*0.0165))*korunkaMer);
+  }
+
   for(let i=0;i<kolik;i++){
     const jemna = Math.random() < 0.65;
     const a = Math.random()*Math.PI*2;
     const ca = Math.cos(a), sa = Math.sin(a);
     const s  = v0*(jemna ? 0.05 + Math.random()*0.11 : 0.11 + Math.random()*0.15);
     const sn = s*(0.10 + Math.random()*0.22);          // od plochy pryč
-    const st = s*(0.45 + Math.random()*0.75);          // po směru dopadu
+    const st = s*(0.25 + Math.random()*0.55);          // po směru dopadu
+    // VZHŮRU. Bez téhle složky rozstřik jen stekl po ploše dolů: tažení po
+    // směru dopadu (st) bylo dvakrát silnější než cokoli jiného, a proud
+    // dopadá na sestupné části oblouku, takže „směr dopadu" míří dolů.
+    // Gravitace je 1500, takže aby kapka viditelně stoupala aspoň 0,2 s,
+    // potřebuje kolem 300 nahoru — proto je násobek takhle velký.
+    const su = s*(0.55 + Math.random()*0.75);
     // origin rozhozený po ploše, ať rozstřik nevychází z jednoho bodu
     const j1 = (Math.random()-0.5)*7, j2 = (Math.random()-0.5)*7;
     pustDrobnou(
@@ -1491,7 +1866,7 @@ function rozprsk(bod, normala, dopadRychlost, kolik){
       bod.y + _t1.y*j1 + _t2.y*j2,
       bod.z + _t1.z*j1 + _t2.z*j2,
       _t1.x*ca*s + _t2.x*sa*s + normala.x*sn + _tok.x*st,
-      _t1.y*ca*s + _t2.y*sa*s + normala.y*sn + _tok.y*st,
+      _t1.y*ca*s + _t2.y*sa*s + normala.y*sn + _tok.y*st + su,
       _t1.z*ca*s + _t2.z*sa*s + normala.z*sn + _tok.z*st,
       // Velikosti jsou ve stejných jednotkách jako `size` u PointsMaterial,
       // tedy ve SVĚTĚ, ne v pixelech: ve vzdálenosti polic (~1160) vyjde
@@ -1499,7 +1874,10 @@ function rozprsk(bod, normala, dopadRychlost, kolik){
       // měly na obrazovce necelé dva pixely — v poolu jich žilo 310 a nebylo
       // vidět vůbec nic. Teď to dělá 4–6 px mlha a 7–12 px větší kapky.
       jemna ? 6 + Math.random()*4 : 11 + Math.random()*6,
-      jemna ? 0.20 + Math.random()*0.20 : 0.34 + Math.random()*0.28);
+      // Delší život než dřív (0,20–0,40 a 0,34–0,62). Kapka musí přežít celý
+      // oblouk — vystoupat a spadnout; s krátkým životem zmizela ve vrcholu
+      // a z rozstřiku zbylo jen vyfouknutí do stran.
+      jemna ? 0.30 + Math.random()*0.26 : 0.46 + Math.random()*0.36);
   }
 }
 
@@ -1656,7 +2034,7 @@ addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 // Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
 // přežijí reload, aby se doladěné nastavení neztrácelo.
 const ULOZ_KLIC = 'ws_jet3d_tune';
-const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','obrT','obrB','rad','tl','sp','sila','ramp','imp'];
+const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','obrT','obrB','rad','tl','sp','sila','ramp','imp','kor'];
 
 function uloz(){
   const o = {};
@@ -1701,9 +2079,24 @@ cbStiny.addEventListener('change', ()=>{ nastavStiny(); uloz(); });
 // udělalo, aniž by člověk musel držet tlačítko a mířit zároveň.
 cbAuto.addEventListener('change', uloz);
 
+// Posuvník života je čistě na ladění a ZÁMĚRNĚ se neukládá — hra musí po
+// reloadu vždycky začít s plným životem, jinak by se uložená čtvrtina tvářila
+// jako stav hry. Proto není v POSUVNIKY.
+const ziv = document.getElementById('ziv'), vod = document.getElementById('vod');
+ziv.addEventListener('input', ()=>{
+  nastavZivot(+ziv.value/100);
+  vZiv.textContent = ziv.value + ' %';
+});
+vod.addEventListener('input', ()=>{
+  nastavVodu(+vod.value/100);
+  vVod.textContent = vod.value + ' %';
+});
+vZiv.textContent = ziv.value + ' %';
+vVod.textContent = vod.value + ' %';
+
 document.getElementById('reset').addEventListener('click', ()=>{
   const vych = { fov:48, syt:135, svx:-70, svy:110, stinS:75,
-                 vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52', rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34 };
+                 vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52', rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34, kor:100 };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -1750,6 +2143,8 @@ function obnovPopisky(){
   vTl.textContent = tl.value;  vSp.textContent = sp.value;
   vSila.textContent = sila.value; vRamp.textContent = (+ramp.value).toFixed(2);
   vImp.textContent = imp.value;
+  korunkaMer = +kor.value/100;
+  vKor.textContent = kor.value + ' %';
 }
 obnovPopisky();
 nastavStiny();
@@ -2066,19 +2461,106 @@ function zivych(){
   for(const k of kachny) if(k.stav === 'najizdi' || k.stav === 'zije') n++;
   return n;
 }
+// ---- aby kachnička nezmizela za lahvemi -------------------------------------
+// Kachničky stojí O 40 DÁL než lahve (KACH_Z = POLICE_Z - 40), takže je lahve
+// zakrývají. Jedna lahev je proti kachničce úzká (poloměr 25 proti 62), jenže
+// lahve stojí ve skupinkách po dvou třech a taková skupinka schová celou
+// kachničku i s hlavou. Být ZA sklem je v pořádku a vypadá to dobře — zmizet
+// za ním celá ne.
+//
+// Silueta se musí počítat v PERSPEKTIVĚ, ne porovnáním x: lahev je blíž ke
+// kameře, takže na obrazovce zabírá víc a je posunutá dál od středu, než jaké
+// má x. Přepočet je podíl vzdáleností od kamery — lahev se tím promítne do
+// roviny kachniček a od té chvíle se dá měřit obyčejným rozdílem.
+const LAHVI_MAX = 48;
+const _lahvX = new Float32Array(LAHVI_MAX);
+const _lahvR = new Float32Array(LAHVI_MAX);
+let _lahvN = 0;
+// Kolik kachničky musí zůstat souvisle nezakryté. 0,55 poloměru = 34 jednotek,
+// což je zhruba hlava s kloboukem nebo napřažená pistole.
+const VYKUK_MIN = KACH_R*0.55;
+
+function siluetyLahvi(patroK){
+  _lahvN = 0;
+  const sek = hraciSekce();
+  const dKach = KAM_ZAKLAD.z - KACH_Z;
+  const podlazi = sek.zaklY + POLICE_Y[patroK];
+  // Zakrývá jen to, co dosáhne KE HLAVĚ. Sklenice je vysoká 52 proti
+  // kachniččiným 151, takže jí zakryje břicho a hlava kouká přes ni — to je
+  // v pořádku a je to přesně ten pohled, o který jde. Kdyby se počítala jako
+  // překážka, vytlačila by kachničku z okna, ve kterém stojí.
+  const hlavaY = podlazi + KACH_VYSKA*0.52;
+  for(const L of sek.lahve){
+    if(L.police !== patroK || L.mrtva > 0 || _lahvN >= LAHVI_MAX) continue;
+    if(podlazi + L.typ.h < hlavaY) continue;
+    const p = L.telo.position;
+    // Ležící a spadlá lahev nezakrývá — leží pod úrovní, kde má kachnička tělo.
+    if(p.y < podlazi + L.typ.h*0.35) continue;
+    const d = KAM_ZAKLAD.z - p.z;
+    if(d <= 1) continue;
+    const mer = dKach/d;
+    _lahvX[_lahvN] = p.x*mer;
+    _lahvR[_lahvN] = L.typ.w*mer;
+    _lahvN++;
+  }
+}
+
+// Největší SOUVISLÝ nezakrytý pruh siluety kachničky. Souvislý je tu podstatné:
+// dva pruhy po pěti jednotkách vlevo a vpravo dají dohromady stejné číslo jako
+// jeden desetijednotkový, ale vypadají jako kachnička rozřezaná na plátky.
+// Počítá se navzorkováním, ne slučováním intervalů — 24 vzorků krát pár lahví
+// je pár set porovnání, zato bez řazení a bez alokace.
+function vykukKachny(x){
+  const R = KACH_R*0.9, KROK = R*2/24;
+  let nej = 0, bezi = 0;
+  for(let i=0;i<24;i++){
+    const px = x - R + KROK*(i + 0.5);
+    let kryto = false;
+    for(let j=0;j<_lahvN;j++){
+      if(Math.abs(px - _lahvX[j]) < _lahvR[j]){ kryto = true; break; }
+    }
+    if(kryto) bezi = 0;
+    else { bezi += KROK; if(bezi > nej) nej = bezi; }
+  }
+  return nej;
+}
+
+// Předalokovaný seznam vyhovujících míst — losuje se z něj až nakonec.
+const _vhodne = new Float32Array(32);
+let vhodnychN = 0;
+
+// Nesmí vzniknout přes jinou kachničku — hráč pak neví, do které stříká.
+function volnoOdKachen(x, patro){
+  for(const k of kachny){
+    if(k.stav === 'volna' || k.patro !== patro) continue;
+    if(Math.abs(k.skup.position.x - x) < KACH_R*2.3) return false;
+  }
+  return true;
+}
+
 function najdiMisto(patro){
   const pas = pasKachen();
-  // Nesmí vzniknout přes jinou kachničku — hráč pak neví, do které stříká.
-  for(let pokus=0; pokus<14; pokus++){
-    const x = rand(-pas, pas);
-    let volno = true;
-    for(const k of kachny){
-      if(k.stav === 'volna' || k.patro !== patro) continue;
-      if(Math.abs(k.skup.position.x - x) < KACH_R*2.3){ volno = false; break; }
-    }
-    if(volno) return x;
+  siluetyLahvi(patro);
+  // PROČ NE NÁHODNÉ POKUSY. Dřív se losovalo čtrnáct x a bral se první volný.
+  // Jenže mezera mezi skupinkami lahví je proti celému pásu úzká, takže se do
+  // ní čtrnáct losů netrefilo a kachnička skončila za sklem i tam, kde vedle
+  // bylo prázdno — naměřeno 74 % míst pod prahem výkuku na plné polici.
+  // Místa se proto PROJEDOU po řadě a teprve mezi vyhovujícími se losuje, aby
+  // se kachničky pořád neobjevovaly na stejném místě.
+  const KROKU = 32;
+  let nejX = null, nejVykuk = -1;
+  vhodnychN = 0;
+  for(let i=0;i<KROKU;i++){
+    const x = -pas + (2*pas)*(i + 0.5)/KROKU + rand(-6, 6);
+    if(!volnoOdKachen(x, patro)) continue;
+    const v = vykukKachny(x);
+    if(v >= VYKUK_MIN){ if(vhodnychN < KROKU) _vhodne[vhodnychN++] = x; }
+    else if(v > nejVykuk){ nejVykuk = v; nejX = x; }
   }
-  return null;
+  // Když nevyhovuje ani jedno místo, pořád je lepší postavit kachničku tam,
+  // kde je z ní vidět nejvíc, než ji nepostavit vůbec (dřív se vracelo null).
+  if(vhodnychN > 0) return _vhodne[(Math.random()*vhodnychN)|0];
+  return nejX;
 }
 
 function pustKachnu(){
@@ -2125,6 +2607,14 @@ function pustKachnu(){
   k.skup.visible = true;
 }
 
+// CITOSLOVCE. Zvuk hra nemá, takže tohle je jediné, čím kachnička promluví.
+// Šance je nízká schválně: při šesti kachničkách na patro by z každé druhé
+// hlášky byl rámus a přestala by být vtipná.
+const CITOSLOVCE_SANCE = 0.35;
+// Anglicky, ať to ladí s „Floor cleared!" a „floor 1 · 3 left".
+const KVAKY = ['Quack!', 'Quaaack!', 'Ouch!'];
+const SMICH = ['Ha ha ha!', 'Hehe!', 'Ha!'];
+
 function krokKachen(dt){
   const n = zivych();
   kachTimer -= dt;
@@ -2170,7 +2660,14 @@ function krokKachen(dt){
         s.set(1/d, d, 1);
         k.skup.rotation.z = 0;
       }
-      if(k.ttl <= 0){ k.stav = 'mizi'; k.t = 0; k.skup.rotation.z = 0; }
+      if(k.ttl <= 0){
+        k.stav = 'mizi'; k.t = 0; k.skup.rotation.z = 0;
+        // Kachnička, která hráči utekla, se mu ještě vysměje. Jen občas —
+        // kdyby to udělala pokaždé, je z toho tik, ne vtip.
+        if(Math.random() < CITOSLOVCE_SANCE)
+          pustNapis(k.skup.position.x, k.skup.position.y + k.stred + KACH_R*0.9,
+                    k.skup.position.z, SMICH[(Math.random()*SMICH.length)|0], 'komiks');
+      }
     } else if(k.stav === 'mizi'){
       // netrefená kachnička se jen scvrkne a zmizí — bez peří a bez bodů
       const u = Math.min(1, k.t/ODJEZD);
@@ -2209,9 +2706,16 @@ function zasahKachny(k, u){
     k.stav = 'umira'; k.t = 0;
     k.matPrst.uniforms.postup.value = 1;
     pripisSkore(k.hodnota);
+    pripisMinci(1);
     pustPeri(k.skup.position.x, k.skup.position.y + k.stred, k.skup.position.z, 18);
     pustPopup(k.skup.position.x, k.skup.position.y + k.stred + KACH_R*0.9,
               k.skup.position.z, k.hodnota);
+    // Kváknutí letí VEDLE „+N", ne přes něj — jinak se dva nápisy překrývají
+    // a nepřečte se ani jeden.
+    if(Math.random() < CITOSLOVCE_SANCE)
+      pustNapis(k.skup.position.x + (Math.random() < 0.5 ? -1 : 1)*KACH_R*1.15,
+                k.skup.position.y + k.stred + KACH_R*0.35,
+                k.skup.position.z, KVAKY[(Math.random()*KVAKY.length)|0], 'komiks');
     // `zbyva` klesá JEN sestřelem; zasunutá kachnička se vrátí jinde
     zbyva = Math.max(0, zbyva - 1);
     ukazPatro();
@@ -2354,6 +2858,16 @@ const POPUP_HLOUBKA = 6;
 // document.fonts nečeká a tiše by vzal náhradní písmo.
 if(document.fonts && document.fonts.load) document.fonts.load(POPUP_FONT.replace('400 ',''));
 
+// DVA STYLY NA JEDNOM POOLU. Odměna „+N" je krémová s tmavou hloubkou jako
+// skóre, kdežto citoslovce je komiksové: ČERNÉ písmo v bílém obrysu, nakřivo
+// a lehce se viklá. Bublina k tomu není potřeba — bílý obrys ji nahradí
+// a nezakryje kachničku pod sebou.
+const STYLY = {
+  skore:  { px:76, barva:'#fbf1dc', obrys:'#2c1a0d', obrysSir:9,  hloubka:6, mer:[130,65],
+            stoupa:90, doba:1.1, kriv:0 },
+  komiks: { px:70, barva:'#15171d', obrys:'#ffffff', obrysSir:15, hloubka:0, mer:[186,93],
+            stoupa:62, doba:1.0, kriv:0.20 },
+};
 for(let i=0;i<POPUPU;i++){
   const c = document.createElement('canvas');
   c.width = POPUP_W; c.height = POPUP_H;
@@ -2362,41 +2876,69 @@ for(let i=0;i<POPUPU;i++){
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
   sp.scale.set(130, 65, 1); sp.visible = false;
   scene.add(sp);
-  popupy.push({ sp, c, tex, t: 0, ziva: false, y0: 0 });
+  popupy.push({ sp, c, tex, t: 0, ziva: false, y0: 0, x0: 0, s: null, kriv: 0, faze: 0 });
 }
-function pustPopup(x, y, z, body){
+
+function pustNapis(x, y, z, text, stylJm){
+  const s = STYLY[stylJm];
   for(const p of popupy){
     if(p.ziva) continue;
     const g = p.c.getContext('2d');
-    const t = '+' + body, sx = POPUP_W/2, sy = POPUP_H/2 - 6;
+    const sx = POPUP_W/2, sy = POPUP_H/2 - 6;
     g.clearRect(0, 0, POPUP_W, POPUP_H);
-    g.font = POPUP_FONT;
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.lineJoin = 'round';                       // bez toho trčí z rohů písmen ostny
-    // tělo: tmavé a o kus tlustší, posunuté dolů — stejný recept jako v HUD
-    g.lineWidth = 16; g.strokeStyle = '#2c1a0d';
-    g.strokeText(t, sx, sy + POPUP_HLOUBKA);
-    g.fillStyle = '#2c1a0d';
-    g.fillText(t, sx, sy + POPUP_HLOUBKA);
-    // přední text: krémový s tenkým obrysem
-    g.lineWidth = 9; g.strokeStyle = '#2c1a0d';
-    g.strokeText(t, sx, sy);
-    g.fillStyle = '#fbf1dc';
-    g.fillText(t, sx, sy);
+    // „Ha ha ha!" je proti „+30" třikrát delší, takže se písmo musí zmenšit,
+    // aby text nevyjel z plátna. Zjišťuje se to měřením, ne odhadem z počtu
+    // znaků — Lilita One má hodně rozdílné šířky.
+    let px = s.px;
+    g.font = POPUP_FONT.replace('76px', px + 'px');
+    const max = POPUP_W - 4*s.obrysSir;
+    const w = g.measureText(text).width;
+    if(w > max){ px = Math.max(28, Math.floor(px*max/w)); g.font = POPUP_FONT.replace('76px', px + 'px'); }
+    if(s.hloubka){
+      // tělo: tmavé a o kus tlustší, posunuté dolů — stejný recept jako v HUD
+      g.lineWidth = s.obrysSir*1.8; g.strokeStyle = s.obrys;
+      g.strokeText(text, sx, sy + s.hloubka);
+      g.fillStyle = s.obrys;
+      g.fillText(text, sx, sy + s.hloubka);
+    }
+    g.lineWidth = s.obrysSir; g.strokeStyle = s.obrys;
+    g.strokeText(text, sx, sy);
+    g.fillStyle = s.barva;
+    g.fillText(text, sx, sy);
     p.tex.needsUpdate = true;
-    p.sp.position.set(x, y, z); p.y0 = y;
+    p.sp.scale.set(s.mer[0], s.mer[1], 1);
+    p.sp.position.set(x, y, z); p.y0 = y; p.x0 = x;
+    p.s = s;
+    // Náhodné naklonění a náhodná fáze viklání, ať dvě citoslovce vedle sebe
+    // nekmitají svorně jako metronom.
+    p.kriv = s.kriv ? (Math.random() < 0.5 ? -1 : 1)*s.kriv*rand(0.6, 1) : 0;
+    p.faze = Math.random()*6.28;
+    p.sp.material.rotation = p.kriv;
     p.sp.visible = true; p.ziva = true; p.t = 0;
     return;
   }
 }
+function pustPopup(x, y, z, body){ pustNapis(x, y, z, '+' + body, 'skore'); }
+
 function krokPopupu(dt){
   for(const p of popupy){
     if(!p.ziva) continue;
     p.t += dt;
-    const u = p.t/1.1;
+    const s = p.s;
+    const u = p.t/s.doba;
     if(u >= 1){ p.ziva = false; p.sp.visible = false; continue; }
-    p.sp.position.y = p.y0 + 90*u;
+    p.sp.position.y = p.y0 + s.stoupa*u;
     p.sp.material.opacity = u < 0.6 ? 1 : (1-u)/0.4;
+    // VIKLÁNÍ jen u komiksu. Kolébá se kolem svého náklonu a zároveň se
+    // sotva znatelně houpe do stran — samotná rotace působí jako přilepený
+    // obrázek, teprve s posunem to čte jako vykřiknuté slovo.
+    if(s.kriv){
+      const f = p.faze + p.t*13;
+      p.sp.material.rotation = p.kriv + Math.sin(f)*0.075;
+      p.sp.position.x = p.x0 + Math.sin(f*0.7)*5;
+    }
   }
 }
 
@@ -2425,6 +2967,7 @@ function smycka(now){
   krokPeri(dt, now/1000);
   krokPopupu(dt);
   krokKrouzku(dt);
+  krokKorunek(dt);
   postavJet(now/1000);
   // Tok = posouvání textury po délce. Tohle je celý „pohyb vody".
   // U TubeGeometry jde 'u' PODÉL trubice a 'v' po obvodu. Vzor musí být tedy
