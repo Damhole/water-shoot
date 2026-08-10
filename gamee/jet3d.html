@@ -218,6 +218,15 @@
     font-weight:400;font-size:calc(var(--vys)*.78);line-height:1;color:var(--krem);
     font-variant-numeric:tabular-nums;letter-spacing:.02em}
   #minceRoh .mince{position:absolute;left:0}
+  /* MINCE ZE SESTŘELENÉ KACHNIČKY. Nejdřív se poskládají pod skóre, pak
+     přeletí do pruhu. Je to HUD, ne scéna: kdyby letěly ve 3D, musely by se
+     promítat do rohu obrazovky a v perspektivě by se u cíle scvrkly na nic.
+     Let dělá jedna transformace, aby se to na mobilu zvládlo na GPU. */
+  .letMince{position:fixed;z-index:6;pointer-events:none;
+    width:3.6vh;height:3.6vh;opacity:0;
+    transform:translate(-50%,-50%) scale(.25);
+    transition:transform .34s cubic-bezier(.32,.85,.4,1), opacity .18s ease;
+    filter:drop-shadow(0 .3vh .4vh rgba(0,0,0,.45))}
   /* „Floor cleared!" — přes celou šířku, uprostřed výšky terčů. Naskočí
      s krátkým přiblížením, ať to má úder; bez animace by to jen bliklo. */
   #hlaska{position:fixed;left:0;right:0;top:45vh;z-index:5;text-align:center;
@@ -285,11 +294,18 @@
       <stop offset="0" stop-color="#ffe07a"/><stop offset="1" stop-color="#d08b1c"/>
     </linearGradient></defs>
     <circle cx="32" cy="32" r="26" fill="url(#gMince)" stroke="#000" stroke-width="5"/>
-    <circle cx="32" cy="32" r="17" fill="none" stroke="#a86a12" stroke-width="3.4" opacity=".75"/>
-    <path d="M32 20v24M26.5 25.5h9M26.5 38.5h9" stroke="#a86a12" stroke-width="4"
-          stroke-linecap="round" fill="none" opacity=".85"/>
-    <ellipse cx="23" cy="22" rx="6" ry="3.6" fill="#fff6d0" opacity=".75"
-             transform="rotate(-38 23 22)"/>
+    <circle cx="32" cy="32" r="19.5" fill="none" stroke="#a86a12" stroke-width="2.6" opacity=".6"/>
+    <!-- Ražba: kachnička z profilu. Ne obrys, ale plná silueta v tmavém zlatě —
+         na velikosti 37 px by z linek zbyla šedá skvrna. -->
+    <g fill="#9c6210" opacity=".92">
+      <ellipse cx="30" cy="38" rx="13" ry="8.6"/>
+      <path d="M17 34.5l8 2.2-7.4 4.4z"/>
+      <circle cx="38.5" cy="27.5" r="7"/>
+      <path d="M44 25.6l7.5 2.2-7.5 3.2z"/>
+    </g>
+    <circle cx="36.6" cy="26" r="1.6" fill="#ffe9a8"/>
+    <ellipse cx="21" cy="21" rx="5.4" ry="3.2" fill="#fff6d0" opacity=".7"
+             transform="rotate(-38 21 21)"/>
   </svg>
 </div>
 <div id="hlaska" class="titulek"></div>
@@ -943,6 +959,44 @@ function pripisMinci(n){
   minceEl.textContent = mince;
 }
 
+// LET MINCÍ ze sestřelené kachničky. Nejdřív se poskládají do řady pod skóre
+// a údaj o patře, chvíli tam počkají a teprve pak letí do pruhu s penězi.
+// Ta pauza je podstatná: bez ní letí mince dřív, než si hráč všimne, že
+// nějaké byly, a z celého efektu zbude bliknutí u pruhu.
+// Připisují se AŽ PŘI DOLETU, po jedné — číslo v pruhu tak naskakuje
+// v rytmu přilétajících mincí, ne skokem dopředu.
+const MINCE_PAUZA = 300, MINCE_LET = 340, MINCE_ODSTUP = 70;
+function letMinci(pocet){
+  if(pocet <= 0) return;
+  const sablona = document.querySelector('#minceRoh .mince');
+  const patro = document.getElementById('patroRoh').getBoundingClientRect();
+  const cil = sablona.getBoundingClientRect();
+  const cx = (cil.left + cil.right)/2, cy = (cil.top + cil.bottom)/2;
+  const vel = innerHeight*0.036, rozestup = vel*1.2;
+  const y0 = patro.bottom + vel*0.95;
+  const x0 = (patro.left + patro.right)/2 - rozestup*(pocet-1)/2;
+  for(let i=0;i<pocet;i++){
+    const el = sablona.cloneNode(true);
+    el.removeAttribute('class');
+    el.classList.add('letMince');
+    const sx = x0 + i*rozestup;
+    el.style.left = sx + 'px';
+    el.style.top = y0 + 'px';
+    document.body.appendChild(el);
+    // naskočení musí přijít až v dalším snímku, jinak prohlížeč obě
+    // hodnoty transformace slije do jedné a přechod se neodehraje
+    requestAnimationFrame(()=>{
+      el.style.opacity = '1';
+      el.style.transform = 'translate(-50%,-50%) scale(1)';
+    });
+    setTimeout(()=>{
+      el.style.transform = `translate(-50%,-50%) translate(${cx - sx}px, ${cy - y0}px) scale(.5)`;
+    }, MINCE_PAUZA + i*MINCE_ODSTUP);
+    setTimeout(()=>{ el.remove(); pripisMinci(1); },
+               MINCE_PAUZA + i*MINCE_ODSTUP + MINCE_LET);
+  }
+}
+
 const _q = new THREE.Quaternion(), _v = new THREE.Vector3();
 
 function zasahyLahvi(dt){
@@ -976,7 +1030,7 @@ function zasahyLahvi(dt){
         rozprsk(L.m.position, new THREE.Vector3(0,1,0), new THREE.Vector3(0, 420, 0), 16);
         krouzek(L.m.position.x, 1.5, L.m.position.z, 'up', 40);
       }
-      L.m.visible = false; L.mrtva = 2.2; pripisSkore(100); pripisMinci(1);
+      L.m.visible = false; L.mrtva = 2.2; pripisSkore(100);
       L.telo.position.set(0, -4000, 0);       // uklidit mimo scénu
       L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
       continue;
@@ -1023,7 +1077,7 @@ function _stary(dt){
         rozprsk(L.m.position, new THREE.Vector3(0,1,0), new THREE.Vector3(0, 420, 0), 16);
         krouzek(L.m.position.x, 1.5, L.m.position.z, 'up', 40);
         L.m.visible = false; L.mrtva = 2.2; L.pada = false;
-        pripisSkore(100); pripisMinci(1);
+        pripisSkore(100);
       }
       continue;
     }
@@ -2584,6 +2638,10 @@ function pustKachnu(){
   // do kachničky se muselo vypálit tolik vody, že to přestalo být střílení
   // a začalo být polévání.
   k.potreba = k.hodnota * 6;
+  // MINCE V KACHNIČCE. Jen některá je má, jinak by z toho byl stálý proud
+  // mincí a doletu by si nikdo nevšiml. Kolik jich nese, roste s patrem,
+  // takže dražší kachnička je i bohatší.
+  k.mince = Math.random() < 0.4 ? 1 + ((Math.random()*(patroK + 2))|0) : 0;
   k.naplneno = 0;
   k.odZasahu = 9;
   k.stav = 'najizdi'; k.t = 0; k.ttl = ZIVOT_KACHNY[patroK] * rand(0.9, 1.15);
@@ -2611,9 +2669,14 @@ function pustKachnu(){
 // Šance je nízká schválně: při šesti kachničkách na patro by z každé druhé
 // hlášky byl rámus a přestala by být vtipná.
 const CITOSLOVCE_SANCE = 0.35;
-// Anglicky, ať to ladí s „Floor cleared!" a „floor 1 · 3 left".
-const KVAKY = ['Quack!', 'Quaaack!', 'Ouch!'];
-const SMICH = ['Ha ha ha!', 'Hehe!', 'Ha!'];
+// Anglicky, ať to ladí s „Floor cleared!" a „floor 1 · 3 left", a
+// westernovým slangem — bandita v klobouku má mluvit jako bandita.
+// Krátce: jedno až dvě slova. Delší hláška se v půl vteřině nepřečte
+// a musela by se zmenšit natolik, že by zanikla.
+const KVAKY = ['Quack!', 'Tarnation!', 'Dagnabbit!', 'Hot dang!',
+               'Aw, shoot!', 'Yee-ouch!', 'Much obliged!'];
+const SMICH = ['Yeehaw!', 'Too slow!', 'Nice try!', 'Adios!',
+               'So long!', 'Haw haw!', 'Ha ha ha!'];
 
 function krokKachen(dt){
   const n = zivych();
@@ -2706,7 +2769,7 @@ function zasahKachny(k, u){
     k.stav = 'umira'; k.t = 0;
     k.matPrst.uniforms.postup.value = 1;
     pripisSkore(k.hodnota);
-    pripisMinci(1);
+    letMinci(k.mince);
     pustPeri(k.skup.position.x, k.skup.position.y + k.stred, k.skup.position.z, 18);
     pustPopup(k.skup.position.x, k.skup.position.y + k.stred + KACH_R*0.9,
               k.skup.position.z, k.hodnota);
@@ -2865,8 +2928,8 @@ if(document.fonts && document.fonts.load) document.fonts.load(POPUP_FONT.replace
 const STYLY = {
   skore:  { px:76, barva:'#fbf1dc', obrys:'#2c1a0d', obrysSir:9,  hloubka:6, mer:[130,65],
             stoupa:90, doba:1.1, kriv:0 },
-  komiks: { px:70, barva:'#15171d', obrys:'#ffffff', obrysSir:15, hloubka:0, mer:[186,93],
-            stoupa:62, doba:1.0, kriv:0.20 },
+  komiks: { px:60, barva:'#000000', obrys:'#ffffff', obrysSir:9, hloubka:0, mer:[168,84],
+            stoupa:52, doba:0.80, kriv:0.20 },
 };
 for(let i=0;i<POPUPU;i++){
   const c = document.createElement('canvas');
@@ -2934,10 +2997,14 @@ function krokPopupu(dt){
     // VIKLÁNÍ jen u komiksu. Kolébá se kolem svého náklonu a zároveň se
     // sotva znatelně houpe do stran — samotná rotace působí jako přilepený
     // obrázek, teprve s posunem to čte jako vykřiknuté slovo.
+    // Rychleji a s menší výchylkou: s 13 rad/s a ±0,075 to bylo rozplizlé
+    // kolébání, ne kmit. S 26 rad/s a ±0,038 stihne za kratší život dvakrát
+    // tolik kmitů, a protože je výchylka poloviční, čte se to jako chvění,
+    // ne jako houpačka.
     if(s.kriv){
-      const f = p.faze + p.t*13;
-      p.sp.material.rotation = p.kriv + Math.sin(f)*0.075;
-      p.sp.position.x = p.x0 + Math.sin(f*0.7)*5;
+      const f = p.faze + p.t*26;
+      p.sp.material.rotation = p.kriv + Math.sin(f)*0.038;
+      p.sp.position.x = p.x0 + Math.sin(f*0.8)*2.6;
     }
   }
 }
