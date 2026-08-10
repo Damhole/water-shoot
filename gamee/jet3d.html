@@ -378,6 +378,18 @@ const SKLA = [
 const matDrevo = barevny(new THREE.MeshToonMaterial({ color: 0x7b5330, gradientMap: toonGrad }), 0x7b5330);
 const matStena = barevny(new THREE.MeshToonMaterial({ color: 0x8a5c33, gradientMap: toonGrad }), 0x8a5c33);
 const matObrysTelo = new THREE.MeshBasicMaterial({ color: 0x14161c, side: THREE.BackSide, fog: false });
+// Vlastní, tmavší obrys pro dřevo. Sdílet ho s lahvemi nejde — ty ho mají
+// dobře a ztmavením by zčernaly.
+const matObrysDrevo = new THREE.MeshBasicMaterial({ color: 0x080a0e, side: THREE.BackSide, fog: false });
+
+// LEM POLICE. Obrys desky se nesmí škálovat rovnoměrně: deska je 1240 × 18 × 150,
+// takže 2 % dají 12 jednotek do stran, ale jen 0,18 nahoru — a nahoru a dolů
+// je právě to, kde je obrys vidět. Proto se ke KAŽDÉ ose přičítá stejný lem
+// a měřítko se z toho dopočítá.
+const LEM_POLICE = 3.4;
+function lemDesky(w, h, d){
+  return [ (w + LEM_POLICE*2)/w, (h + LEM_POLICE*2)/h, (d + LEM_POLICE*2)/d ];
+}
 
 // Dřevo je pro vodu pevné. Kvádry se registrují PŘÍMO při stavbě baru, aby
 // kolizní tvar vycházel z týchž rozměrů jako kreslená deska — dvě sady čísel
@@ -499,8 +511,8 @@ function novaSekce(zaklY){
     deska.receiveShadow = true;
     deska.castShadow = true;      // bez toho stín lahve prosvítá pod polici
     sek.skupina.add(deska);
-    const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matObrysTelo);
-    o.scale.setScalar(1.02); o.position.copy(deska.position);
+    const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matObrysDrevo);
+    o.scale.set(...lemDesky(POLICE_HW*2, 18, 150)); o.position.copy(deska.position);
     sek.skupina.add(o);
     sek.drevo.push(pridejDrevo(0, y - 9, POLICE_Z, POLICE_HW, 9, 75));
     sek.telesa.push({ telo: new CANNON.Body({ type: CANNON.Body.STATIC,
@@ -560,8 +572,8 @@ for(const y of [-135, -320]){
   deska.receiveShadow = true;
   deska.castShadow = true;
   podpatri.skupina.add(deska);
-  const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matObrysTelo);
-  o.scale.setScalar(1.02); o.position.copy(deska.position);
+  const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matObrysDrevo);
+  o.scale.set(...lemDesky(POLICE_HW*2, 18, 150)); o.position.copy(deska.position);
   podpatri.skupina.add(o);
   podpatri.drevo.push(pridejDrevo(0, y - 9, POLICE_Z, POLICE_HW, 9, 75));
 }
