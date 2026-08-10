@@ -311,10 +311,21 @@ function nastavSytost(k){
   }
 }
 
-// podlaha a zadní stěna, ať je vidět hloubka a kam proud dopadá
+// Toon gradient musí vzniknout DŘÍV než cokoli, co ho používá — podlaha ho
+// nově potřebuje taky a `const` nemá výtah, takže by to spadlo na TDZ.
+const toonGrad = new THREE.DataTexture(new Uint8Array([120, 200, 255]), 3, 1, THREE.RedFormat);
+toonGrad.minFilter = THREE.NearestFilter;
+toonGrad.magFilter = THREE.NearestFilter;
+toonGrad.generateMipmaps = false;
+toonGrad.needsUpdate = true;
+
+// Podlaha a zadní stěna, ať je vidět hloubka a kam proud dopadá.
+// Podlaha je DŘEVĚNÁ jako zbytek baru, jen tmavší — modrá tam byla z doby,
+// kdy scéna ještě nebyla bar. Materiál je toon jako police, aby na ni stín
+// dopadal stejným způsobem.
 const podlaha = new THREE.Mesh(
   new THREE.PlaneGeometry(3000, 3000),
-  barevny(new THREE.MeshLambertMaterial({ color:0x1b2f45 }), 0x1b2f45));
+  barevny(new THREE.MeshLambertMaterial({ color:0x4a3119 }), 0x4a3119));
 podlaha.rotation.x = -Math.PI/2;
 podlaha.receiveShadow = true;
 scene.add(podlaha);
@@ -324,12 +335,6 @@ const stena = new THREE.Mesh(
   barevny(new THREE.MeshLambertMaterial({ color:0x24405c }), 0x24405c));
 stena.position.set(0, 600, -1200);
 scene.add(stena);
-
-const toonGrad = new THREE.DataTexture(new Uint8Array([120, 200, 255]), 3, 1, THREE.RedFormat);
-toonGrad.minFilter = THREE.NearestFilter;
-toonGrad.magFilter = THREE.NearestFilter;
-toonGrad.generateMipmaps = false;
-toonGrad.needsUpdate = true;
 
 // ---- zátiší: barové police s lahvemi --------------------------------------
 // Stejná scéna jako western mód, jen ve 3D. Lahve jsou rotační tělesa
@@ -425,10 +430,9 @@ function pridejDrevo(x, y, z, hx, hy, hz){
 // stoupala kamera, musela by se s ní posunout celá ta soustava a každé číslo,
 // které jsme týden ladili, by se muselo přepočítat.
 //
-// Dvě sekce stačí právě proto, že spodní mizí pod podlahou: podlaha je
-// neprůhledná rovina v y = 0 a odjíždějící sekci schová.
+// Sekce jsou tři — proč, viz komentář u jejich vzniku.
 const SEKCE_V = 620;                 // výška jedné části baru
-const sekce = [];                    // dvě, slot 0 = ta, ve které se hraje
+const sekce = [];                    // slot 0 = ta, ve které se hraje
 
 // ---- 3D fyzika (cannon-es) ------------------------------------------------
 // Lahve jsou skutečná tělesa: stojí na deskách, opírají se o sebe, dají se
@@ -452,12 +456,19 @@ world.addBody(teloPodlahy);
 // peří i lahve. Nad přízemím leží pod spodní hranou záběru (−430), takže se
 // pád dokoná mimo obraz.
 let podlahaY = 0, maPodlahu = true;
+// Posun podlahy na danou výšku. Musí se hýbat KRESBA, FYZIKÁLNÍ ROVINA
+// i `podlahaY` naráz — jinak by voda končila ve vzduchu tam, kde podlaha
+// bývala, nebo by lahve propadaly skrz tu, která je vidět.
+function posunPodlahu(y){
+  podlahaY = y;
+  podlaha.position.y = y;
+  teloPodlahy.position.y = y;
+  teloPodlahy.aabbNeedsUpdate = true;
+}
 function nastavPodlahu(){
   maPodlahu = (patro === 1);
-  podlahaY = maPodlahu ? 0 : -430;
   podlaha.visible = maPodlahu;
-  teloPodlahy.position.y = podlahaY;
-  teloPodlahy.aabbNeedsUpdate = true;
+  posunPodlahu(maPodlahu ? 0 : -430);
 }
 
 const lahve = [];
@@ -1888,6 +1899,9 @@ function krokPostupu(dt){
   posun = -SEKCE_V * easing(u);
   for(const s of sekce) nastavSekci(s, s.slot*SEKCE_V + posun);
   nastavSekci(podpatri, posun);          // police pod hrací sekcí jedou taky
+  // Podlaha odjíždí spolu s barem, ne že by zmizela skokem. Týká se to jen
+  // prvního stoupání — od druhého patra už žádná není.
+  if(maPodlahu) posunPodlahu(posun);
   // Lahve jedou SE SVOU SEKCÍ. Posouvám je o rozdíl, ne na pevnou pozici —
   // tím si zachovají i to, jak zrovna leží nebo se kutálejí.
   const dY = posun - posunMinuly;
