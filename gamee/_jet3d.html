@@ -342,7 +342,7 @@
   <label>voda (na ladění) <span id="vVod"></span></label>
   <input type="range" id="vod" min="0" max="100" step="1" value="100">
   <label>zorný úhel (nižší = blíž) <span id="vFov"></span></label>
-  <input type="range" id="fov" min="30" max="60" step="1" value="48">
+  <input type="range" id="fov" min="30" max="60" step="1" value="53">
   <label>sytost barev <span id="vSyt"></span></label>
   <input type="range" id="syt" min="100" max="200" step="5" value="135">
   <label>hran po obvodu <span id="vRad"></span></label>
@@ -360,11 +360,11 @@
   <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
     <input type="checkbox" id="autoStrik"> automatické stříkání (na ladění)</label>
   <label>poloměr proudu <span id="vTl"></span></label>
-  <input type="range" id="tl" min="2" max="26" step="1" value="9">
+  <input type="range" id="tl" min="2" max="26" step="1" value="8">
   <label>rychlost toku <span id="vSp"></span></label>
-  <input type="range" id="sp" min="0" max="12" step="0.25" value="5">
+  <input type="range" id="sp" min="0" max="12" step="0.25" value="3.75">
   <label>síla proudu (vyšší = plošší oblouk) <span id="vSila"></span></label>
-  <input type="range" id="sila" min="900" max="4200" step="100" value="2600">
+  <input type="range" id="sila" min="900" max="4200" step="100" value="1700">
   <label>náběh a doběh trysky (s) <span id="vRamp"></span></label>
   <input type="range" id="ramp" min="0" max="1.2" step="0.05" value="0.45">
   <label>velikost korunky (0 = vypnuto) <span id="vKor"></span></label>
@@ -741,8 +741,14 @@ function rozlozOblast(a, b, k, xs){
 // POŘADÍ NESMÍ MĚNIT. `prestavLahve` přiřazuje pozice lahvím podle indexu
 // (`xsPodle[police][L.i]`) a typ lahve se při přestavění nemění — index 0 je
 // proto vždycky ta sklenice v okně a nikdy se nesmí přerovnat jinam.
+// ŠÍŘKA KOMPOZICE. Byla 1,72 poloviny police, tedy ±533 — jenže kamera na
+// telefonním poměru ukáže z police jen ±230. Skoro celá kompozice tak stála
+// mimo obraz a v záběru zbyly dvě lahve u krajů; s oknem uprostřed pak police
+// působila vybíleně. S 1,22 (±378) padne většina lahví do záběru a mezi okno
+// a kraj se jich vejde víc.
+const KOMPOZICE_SIR = 1.22;
 function rozlozPolici(n){
-  const W = POLICE_HW*1.72;
+  const W = POLICE_HW*KOMPOZICE_SIR;
   const c = rand(-OKNO_PAS, OKNO_PAS);
   const pul = rand(OKNO_MIN, OKNO_MAX)/2;
   const vlevo = { a: -W/2, b: c - pul }, vpravo = { a: c + pul, b: W/2 };
@@ -2194,8 +2200,14 @@ vZiv.textContent = ziv.value + ' %';
 vVod.textContent = vod.value + ' %';
 
 document.getElementById('reset').addEventListener('click', ()=>{
-  const vych = { fov:48, syt:135, svx:-70, svy:110, stinS:75,
-                 vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52', rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34, kor:100 };
+  // VÝCHOZÍ HODNOTY = to, co si uživatel doladil na telefonu (10. 8. 2026).
+  // Proti mému původnímu odhadu se změnily čtyři: zorný úhel 48 → 53, poloměr
+  // proudu 9 → 8, rychlost toku 5 → 3,75 a síla proudu 2600 → 1700 (nižší síla
+  // = vyklenutější oblouk). Barva vody, obrys ani svítivost se neměnily, ty
+  // seděly hned napoprvé.
+  const vych = { fov:53, syt:135, svx:-70, svy:110, stinS:75,
+                 vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52',
+                 rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100 };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -2336,6 +2348,10 @@ const KACH_STRED = KACH_R*0.92;
 const KACH_VRSTEV = 5, KACH_VRSTVA = 3.5;
 // o kolik je kachnička vytočená kolem svislé osy (radiány, náhodně na obě strany)
 const KACH_VYTOCENI = 0.30;
+// Reakce na zásah: o kolik se natáhne, jak vysoko povyskočí a za jak dlouho
+// je nahoře. Natažení 0,30 je znát i na malé kachničce; se 0,10 (což je řád
+// dýchání) by to zaniklo úplně stejně jako dosavadní nic.
+const ZASAH_NATAZENI = 0.30, ZASAH_SKOK = 26, ZASAH_VZHURU = 0.09;
 // POSAZENÍ NA POLICI. Kachnička nevyplňuje svou buňku ve spritu celou a každá
 // varianta jinak — naměřeno z alfa kanálu bandit_ducks.png, kolik prázdna
 // zbývá pod ní: 16,0 / 11,5 / 24,2 / 24,4 %. Se společnou výškou proto dvě
@@ -2394,7 +2410,8 @@ for(let i=0;i<KACHEN_MAX;i++){
   scene.add(skup);
   kachny.push({ skup, telo, vrstvy, tercik, prstenec, matPrst, stred: KACH_STRED,
                 stav:'volna', t:0, ttl:0,
-                naplneno:0, potreba:1, hodnota:10, patro:0, odZasahu:9, vytoceni:0 });
+                naplneno:0, potreba:1, hodnota:10, patro:0, odZasahu:9, vytoceni:0,
+                zaklY:0, mince:0 });
 }
 
 // ---- rytmus střelnice -----------------------------------------------------
@@ -2704,7 +2721,10 @@ function pustKachnu(){
   k.matPrst.uniforms.barva.value.setHex(0x5ad1ff);
   // Počátek skupiny = pata kachničky, tedy přesně horní plocha desky police
   // TÉ SEKCE, ve které se zrovna hraje.
-  k.skup.position.set(x, hraciSekce().zaklY + POLICE_Y[patroK], KACH_Z);
+  // zaklY = výška, na které kachnička stojí. Drží se stranou, protože při
+  // zásahu se `position.y` mění (povyskočení) a musí se mít kam vrátit.
+  k.zaklY = hraciSekce().zaklY + POLICE_Y[patroK];
+  k.skup.position.set(x, k.zaklY, KACH_Z);
   k.skup.rotation.set(0, k.vytoceni, 0);
   k.skup.scale.set(0.01, 0.01, 1);
   k.skup.visible = true;
@@ -2768,6 +2788,25 @@ function krokKachen(dt){
         s.set(1/d, d, 1);
         k.skup.rotation.z = 0;
       }
+      // REAKCE NA ZÁSAH. Dosud se zásah projevil jen na prstenci plnění, takže
+      // z něj nebyl žádný náraz — kachnička stála, jako by se nic nedělo.
+      // Nejdřív se natáhne vzhůru a povyskočí (voda ji nadzvedne), pak spadne
+      // do smrsknutí a dokmitá. Kmit jde do ZÁPORU, jinak by z toho bylo jen
+      // splasknutí zpátky a ta druhá půlka pohybu chybí — právě proto to
+      // „skoro nešlo vidět".
+      // Pivot je u paty (počátek skupiny), takže se kachnička natahuje nahoru
+      // a nezajíždí do desky.
+      const tz = k.odZasahu;
+      const nat = tz < ZASAH_VZHURU
+        ? tz/ZASAH_VZHURU
+        : Math.exp(-(tz - ZASAH_VZHURU)*7.5)*Math.cos((tz - ZASAH_VZHURU)*19);
+      if(Math.abs(nat) > 0.002){
+        const p = 1 + ZASAH_NATAZENI*nat;
+        s.set(s.x/p, s.y*p, 1);
+        k.skup.position.y = k.zaklY + ZASAH_SKOK*Math.max(0, nat);
+      } else if(k.skup.position.y !== k.zaklY){
+        k.skup.position.y = k.zaklY;
+      }
       if(k.ttl <= 0){
         k.stav = 'mizi'; k.t = 0; k.skup.rotation.z = 0;
         // Kachnička, která hráči utekla, se mu ještě vysměje. Jen občas —
@@ -2778,11 +2817,13 @@ function krokKachen(dt){
       }
     } else if(k.stav === 'mizi'){
       // netrefená kachnička se jen scvrkne a zmizí — bez peří a bez bodů
+      k.skup.position.y = k.zaklY;      // srovnat po případném povyskočení
       const u = Math.min(1, k.t/ODJEZD);
       s.set(1 - u, 1 - u, 1);
       if(u >= 1){ k.stav = 'volna'; k.skup.visible = false; }
     } else if(k.stav === 'umira'){
       // SQUASH: plácne se do široka a zmizí
+      k.skup.position.y = k.zaklY;      // srovnat po případném povyskočení
       const u = Math.min(1, k.t/UMIRANI);
       s.set(1 + 1.1*u, Math.max(0.02, 1 - 1.35*u), 1);
       for(const v of k.vrstvy) v.material.opacity = 1 - u;   // mizí celá tloušťka
