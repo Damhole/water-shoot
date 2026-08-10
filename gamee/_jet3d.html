@@ -2348,10 +2348,14 @@ const KACH_STRED = KACH_R*0.92;
 const KACH_VRSTEV = 5, KACH_VRSTVA = 3.5;
 // o kolik je kachnička vytočená kolem svislé osy (radiány, náhodně na obě strany)
 const KACH_VYTOCENI = 0.30;
-// Reakce na zásah: o kolik se natáhne, jak vysoko povyskočí a za jak dlouho
-// je nahoře. Natažení 0,30 je znát i na malé kachničce; se 0,10 (což je řád
-// dýchání) by to zaniklo úplně stejně jako dosavadní nic.
-const ZASAH_NATAZENI = 0.30, ZASAH_SKOK = 26, ZASAH_VZHURU = 0.09;
+// CHVĚNÍ POD PROUDEM. Drobné, ale rychlé — 44 rad/s je sedm kmitů za vteřinu,
+// což se čte jako drnčení, kdežto řád dýchání (3 rad/s) jako pohupování.
+// Výchylky jsou schválně malinké: 3,5 % v měřítku, 1,8° náklonu a 2 px stranou.
+const ZASAH_CHVENI_S = 0.035, ZASAH_CHVENI_R = 0.032, ZASAH_CHVENI_X = 2.0;
+const ZASAH_CHVENI_W = 44, ZASAH_UTLUM = 14;   // útlum: po odtržení proudu utichne za ~0,2 s
+// Zhynutí: kolik z animace zabere natažení vzhůru, než kachnička plácne
+// do široka. Tohle je to pravé squash and stretch — u zásahu nemá co dělat.
+const UMIRANI_NATAH = 0.30, UMIRANI_VYSKA = 22;
 // POSAZENÍ NA POLICI. Kachnička nevyplňuje svou buňku ve spritu celou a každá
 // varianta jinak — naměřeno z alfa kanálu bandit_ducks.png, kolik prázdna
 // zbývá pod ní: 16,0 / 11,5 / 24,2 / 24,4 %. Se společnou výškou proto dvě
@@ -2411,7 +2415,7 @@ for(let i=0;i<KACHEN_MAX;i++){
   kachny.push({ skup, telo, vrstvy, tercik, prstenec, matPrst, stred: KACH_STRED,
                 stav:'volna', t:0, ttl:0,
                 naplneno:0, potreba:1, hodnota:10, patro:0, odZasahu:9, vytoceni:0,
-                zaklY:0, mince:0 });
+                zaklX:0, zaklY:0, mince:0 });
 }
 
 // ---- rytmus střelnice -----------------------------------------------------
@@ -2721,10 +2725,12 @@ function pustKachnu(){
   k.matPrst.uniforms.barva.value.setHex(0x5ad1ff);
   // Počátek skupiny = pata kachničky, tedy přesně horní plocha desky police
   // TÉ SEKCE, ve které se zrovna hraje.
-  // zaklY = výška, na které kachnička stojí. Drží se stranou, protože při
-  // zásahu se `position.y` mění (povyskočení) a musí se mít kam vrátit.
+  // zaklX/zaklY = místo, na kterém kachnička stojí. Drží se stranou, protože
+  // chvění pod proudem hýbe `position.x` a zhynutí `position.y` — obojí se
+  // musí mít kam vrátit.
+  k.zaklX = x;
   k.zaklY = hraciSekce().zaklY + POLICE_Y[patroK];
-  k.skup.position.set(x, k.zaklY, KACH_Z);
+  k.skup.position.set(k.zaklX, k.zaklY, KACH_Z);
   k.skup.rotation.set(0, k.vytoceni, 0);
   k.skup.scale.set(0.01, 0.01, 1);
   k.skup.visible = true;
@@ -2788,24 +2794,21 @@ function krokKachen(dt){
         s.set(1/d, d, 1);
         k.skup.rotation.z = 0;
       }
-      // REAKCE NA ZÁSAH. Dosud se zásah projevil jen na prstenci plnění, takže
-      // z něj nebyl žádný náraz — kachnička stála, jako by se nic nedělo.
-      // Nejdřív se natáhne vzhůru a povyskočí (voda ji nadzvedne), pak spadne
-      // do smrsknutí a dokmitá. Kmit jde do ZÁPORU, jinak by z toho bylo jen
-      // splasknutí zpátky a ta druhá půlka pohybu chybí — právě proto to
-      // „skoro nešlo vidět".
-      // Pivot je u paty (počátek skupiny), takže se kachnička natahuje nahoru
-      // a nezajíždí do desky.
-      const tz = k.odZasahu;
-      const nat = tz < ZASAH_VZHURU
-        ? tz/ZASAH_VZHURU
-        : Math.exp(-(tz - ZASAH_VZHURU)*7.5)*Math.cos((tz - ZASAH_VZHURU)*19);
-      if(Math.abs(nat) > 0.002){
-        const p = 1 + ZASAH_NATAZENI*nat;
-        s.set(s.x/p, s.y*p, 1);
-        k.skup.position.y = k.zaklY + ZASAH_SKOK*Math.max(0, nat);
-      } else if(k.skup.position.y !== k.zaklY){
-        k.skup.position.y = k.zaklY;
+      // CHVĚNÍ POD PROUDEM. Žádné natahování ani poskakování — to patří až
+      // ke zhynutí. Tryska do kachničky tluče, takže se jen rozdrncá: rychlý
+      // kmit v měřítku, náklonu i do stran, všechno v řádu jednotek procent
+      // a pixelů. Amplituda se drží podle času OD POSLEDNÍHO ZÁSAHU, takže
+      // chvění trvá, dokud proud drží, a po odtržení do dvou desetin utichne.
+      const w = Math.exp(-k.odZasahu*ZASAH_UTLUM);
+      if(w > 0.01){
+        const f = k.t*ZASAH_CHVENI_W;
+        const c = 1 + ZASAH_CHVENI_S*w*Math.sin(f);
+        s.set(s.x/c, s.y*c, 1);
+        // náklon se PŘIČÍTÁ, ať se nepere s cukáním ohlášeného odchodu
+        k.skup.rotation.z += ZASAH_CHVENI_R*w*Math.sin(f*0.83);
+        k.skup.position.x = k.zaklX + ZASAH_CHVENI_X*w*Math.sin(f*1.17);
+      } else if(k.skup.position.x !== k.zaklX){
+        k.skup.position.x = k.zaklX;
       }
       if(k.ttl <= 0){
         k.stav = 'mizi'; k.t = 0; k.skup.rotation.z = 0;
@@ -2817,15 +2820,29 @@ function krokKachen(dt){
       }
     } else if(k.stav === 'mizi'){
       // netrefená kachnička se jen scvrkne a zmizí — bez peří a bez bodů
-      k.skup.position.y = k.zaklY;      // srovnat po případném povyskočení
+      k.skup.position.set(k.zaklX, k.zaklY, KACH_Z);   // srovnat po chvění
       const u = Math.min(1, k.t/ODJEZD);
       s.set(1 - u, 1 - u, 1);
       if(u >= 1){ k.stav = 'volna'; k.skup.visible = false; }
     } else if(k.stav === 'umira'){
-      // SQUASH: plácne se do široka a zmizí
-      k.skup.position.y = k.zaklY;      // srovnat po případném povyskočení
+      // SQUASH AND STRETCH. Nejdřív se kachnička lekne a vytáhne vzhůru
+      // i s povyskočením, teprve pak plácne do široka a zmizí. Samotné
+      // plácnutí bylo jen půlka pohybu a působilo, že splaskla — nádech
+      // před ním je to, co z toho dělá ránu.
+      k.skup.position.x = k.zaklX;      // srovnat po chvění pod proudem
       const u = Math.min(1, k.t/UMIRANI);
-      s.set(1 + 1.1*u, Math.max(0.02, 1 - 1.35*u), 1);
+      const SY = 1.42, SX = 1/SY;       // vrchol natažení
+      if(u < UMIRANI_NATAH){
+        const a = Math.sin((u/UMIRANI_NATAH)*Math.PI*0.5);   // rychle nahoru, měkce doraz
+        s.set(1 + (SX - 1)*a, 1 + (SY - 1)*a, 1);
+        k.skup.position.y = k.zaklY + UMIRANI_VYSKA*a;
+      } else {
+        // Navazuje se PŘESNĚ na hodnoty z vrcholu natažení, ne od jedničky —
+        // jinak by měřítko v půlce animace poskočilo.
+        const a = (u - UMIRANI_NATAH)/(1 - UMIRANI_NATAH);
+        s.set(SX + (2.1 - SX)*a, Math.max(0.02, SY + (0.02 - SY)*a), 1);
+        k.skup.position.y = k.zaklY + UMIRANI_VYSKA*(1 - a)*(1 - a);
+      }
       for(const v of k.vrstvy) v.material.opacity = 1 - u;   // mizí celá tloušťka
       if(u >= 1){
         k.stav = 'volna'; k.skup.visible = false;
