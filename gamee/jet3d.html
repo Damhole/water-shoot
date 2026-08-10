@@ -27,30 +27,44 @@
   #fpsRoh{position:fixed;right:8px;top:6px;font-size:11px;color:#8fd0ff;
     background:rgba(8,14,24,.55);padding:2px 7px;border-radius:6px;z-index:4;
     pointer-events:none;font-variant-numeric:tabular-nums}
-  /* Skóre jako ve 2D střelnici: velké, uprostřed, ve výšce 21,5 % obrazovky —
-     tam ho má hráč v zorném poli, aniž by mu leželo na terčích. Rozměry jsou
-     ve `vh`, protože 2D verze je počítá z výšky plátna (46*S, kde S = H/800),
-     takže 5,75vh je totéž číslo. Barva #ffe98a a tmavý posunutý stín jsou
-     převzaté z game.js.
-     Tabulární číslice jsou tu podstatné: bez nich se při každé změně cifer
-     text posouvá do stran a poskakuje. */
+  /* TYPOGRAFIE PODLE PŘEDLOHY.
+     Tři věci dělají ten vzhled: krémová (ne zlatá) barva, TMAVÝ OBRYS kolem
+     písmen a měkký stín pod ním. Obrys je zásadní — text pak drží čitelnost
+     na světlé i tmavé části scény, což posunutý stín neumí; na hnědé stěně
+     se dosavadní zlatá s šedým stínem ztrácela.
+     Obrys se skládá z osmi text-shadow do kříže a diagonál. Vypadá to jako
+     hloupost proti -webkit-text-stroke, jenže ten kreslí obrys DOVNITŘ glyfu
+     a tenká písma tím ukrojí; tohle obepíná zvenčí.
+     Písmo je zaoblený grotesk, ne Arial Black — Arial Rounded je na iOS
+     i macOS, Android spadne na svůj těžký systémový řez.
+     Tabulární číslice: bez nich se text při každé změně cifer posouvá. */
+  :root{ --krem:#fbf1dc; --obrys:#2c1a0d; }
+  .titulek{ font-family:"Arial Rounded MT Bold","Helvetica Rounded",
+      "Trebuchet MS","Arial Black",Arial,sans-serif;
+    color:var(--krem); font-variant-numeric:tabular-nums;
+    text-shadow:
+      calc(var(--o))   calc(var(--o))   0 var(--obrys),
+      calc(-1*var(--o)) calc(var(--o))  0 var(--obrys),
+      calc(var(--o))   calc(-1*var(--o)) 0 var(--obrys),
+      calc(-1*var(--o)) calc(-1*var(--o)) 0 var(--obrys),
+      var(--o) 0 0 var(--obrys), calc(-1*var(--o)) 0 0 var(--obrys),
+      0 var(--o) 0 var(--obrys), 0 calc(-1*var(--o)) 0 var(--obrys),
+      0 0.45vh 0.5vh rgba(0,0,0,.45); }
   #skoreRoh{position:fixed;left:50%;top:calc(21.5vh - 50px);transform:translate(-50%,-50%);z-index:4;
-    pointer-events:none;font:800 5.75vh/1 "Arial Black", Arial, sans-serif;
-    color:#ffe98a;font-variant-numeric:tabular-nums;
-    text-shadow:0.32vh 0.32vh 0 rgba(0,0,0,0.4)}
+    pointer-events:none;font-size:6.2vh;font-weight:800;line-height:1;--o:0.42vh}
   /* patro a postup ke kvótě — pod skóre, drobněji, ať to nekřičí */
-  #patroRoh{position:fixed;left:50%;top:calc(27vh - 50px);transform:translate(-50%,-50%);z-index:4;
-    pointer-events:none;font:700 2.1vh/1 Arial, sans-serif;color:#cfe3ff;opacity:.75;
-    font-variant-numeric:tabular-nums;text-shadow:0 0.2vh 0 rgba(0,0,0,.45)}
+  #patroRoh{position:fixed;left:50%;top:calc(27.4vh - 50px);transform:translate(-50%,-50%);z-index:4;
+    pointer-events:none;font-size:2.4vh;font-weight:700;line-height:1;--o:0.22vh;
+    letter-spacing:.02em}
   /* „Floor cleared!" — přes celou šířku, uprostřed výšky terčů. Naskočí
      s krátkým přiblížením, ať to má úder; bez animace by to jen bliklo. */
   #hlaska{position:fixed;left:0;right:0;top:45vh;z-index:5;text-align:center;
-    pointer-events:none;font:800 3.1vh/1 "Arial Black", Arial, sans-serif;
-    color:#ffe98a;text-shadow:0 0.4vh 0 rgba(0,0,0,.55);letter-spacing:.06em;
+    pointer-events:none;font-size:3.4vh;font-weight:800;line-height:1;--o:0.3vh;
+    letter-spacing:.04em;
     opacity:0;transform:scale(.75);transition:opacity .16s ease, transform .16s ease}
   #hlaska.vidno{opacity:1;transform:scale(1)}
-  #kriz{position:fixed;left:0;top:0;width:46px;height:46px;margin:-23px 0 0 -23px;
-    pointer-events:none;z-index:3;opacity:.95}
+  #kriz{position:fixed;left:0;top:0;width:54px;height:54px;margin:-27px 0 0 -27px;
+    pointer-events:none;z-index:3}
 </style>
 </head>
 <body>
@@ -67,17 +81,24 @@
   </filter>
 </svg>
 <div id="fpsRoh">– FPS</div>
-<div id="skoreRoh">0</div>
-<div id="patroRoh">floor 1 · 4 left</div>
-<div id="hlaska"></div>
-<svg id="kriz" viewBox="0 0 46 46">
-  <circle cx="23" cy="23" r="15" fill="none" stroke="#06121d" stroke-width="5"/>
-  <circle cx="23" cy="23" r="15" fill="none" stroke="#eaf6ff" stroke-width="2.4"/>
-  <g stroke="#06121d" stroke-width="5" stroke-linecap="round">
-    <path d="M23 2v9M23 35v9M2 23h9M35 23h9"/></g>
-  <g stroke="#eaf6ff" stroke-width="2.4" stroke-linecap="round">
-    <path d="M23 2v9M23 35v9M2 23h9M35 23h9"/></g>
-  <circle cx="23" cy="23" r="2.2" fill="#eaf6ff"/>
+<div id="skoreRoh" class="titulek">0</div>
+<div id="patroRoh" class="titulek">floor 1 · 4 left</div>
+<div id="hlaska" class="titulek"></div>
+<!-- Zaměřovač podle předlohy: silnější a v týchž barvách jako text, tedy
+     krémová na tmavém obrysu. Ryska PROCHÁZÍ prstencem místo aby končila
+     před ním — tím vznikne ten sevřený „terčíkový" tvar. Obrys je tlustší
+     než výplň, takže kříž drží čitelnost i na světlé stěně. -->
+<svg id="kriz" viewBox="0 0 54 54">
+  <g fill="none" stroke="#2c1a0d" stroke-width="7.5" stroke-linecap="round">
+    <circle cx="27" cy="27" r="15.5"/>
+    <path d="M27 5.5v11M27 37.5v11M5.5 27h11M37.5 27h11"/>
+  </g>
+  <g fill="none" stroke="#fbf1dc" stroke-width="3.6" stroke-linecap="round">
+    <circle cx="27" cy="27" r="15.5"/>
+    <path d="M27 5.5v11M27 37.5v11M5.5 27h11M37.5 27h11"/>
+  </g>
+  <circle cx="27" cy="27" r="4.4" fill="#2c1a0d"/>
+  <circle cx="27" cy="27" r="2.4" fill="#fbf1dc"/>
 </svg>
 <button id="cog" aria-label="nastavení">⚙</button>
 <div id="hud" hidden>
