@@ -1691,6 +1691,15 @@ const KACH_STRED = KACH_R*0.92;
 const KACH_VRSTEV = 5, KACH_VRSTVA = 3.5;
 // o kolik je kachnička vytočená kolem svislé osy (radiány, náhodně na obě strany)
 const KACH_VYTOCENI = 0.30;
+// POSAZENÍ NA POLICI. Kachnička nevyplňuje svou buňku ve spritu celou a každá
+// varianta jinak — naměřeno z alfa kanálu bandit_ducks.png, kolik prázdna
+// zbývá pod ní: 16,0 / 11,5 / 24,2 / 24,4 %. Se společnou výškou proto dvě
+// z nich levitovaly o skoro čtvrtinu své výšky nad deskou.
+// Pro každou variantu se počítá vlastní výška středu tak, aby NEJNIŽŠÍ
+// neprůhledný pixel seděl přesně na desce (y = 0).
+const KACH_PRAZDNO_DOLE = [0.1602, 0.1152, 0.2422, 0.2441];
+const KACH_VYSKA = KACH_R*2*BANDIT_ZOOM;
+const KACH_POSAZENI = KACH_PRAZDNO_DOLE.map(p => KACH_VYSKA*(0.5 - p));
 const geoPlane = new THREE.PlaneGeometry(1, 1);
 // podklad terče musí být KRUH jako ve 2D (drawDuckBadge kreslí arc);
 // čtvercový plane pod kachničkou vypadal jako přilepená cedulka
@@ -1738,7 +1747,8 @@ for(let i=0;i<KACHEN_MAX;i++){
   skup.add(prstenec);
   skup.visible = false;
   scene.add(skup);
-  kachny.push({ skup, telo, vrstvy, matPrst, stav:'volna', t:0, ttl:0,
+  kachny.push({ skup, telo, vrstvy, tercik, prstenec, matPrst, stred: KACH_STRED,
+                stav:'volna', t:0, ttl:0,
                 naplneno:0, potreba:1, hodnota:10, patro:0, odZasahu:9, vytoceni:0 });
 }
 
@@ -1942,8 +1952,13 @@ function pustKachnu(){
   k.odZasahu = 9;
   k.stav = 'najizdi'; k.t = 0; k.ttl = ZIVOT_KACHNY[patroK] * rand(0.9, 1.15);
   // jeden ze čtyř banditů — všechny vrstvy musí dostat tutéž variantu
-  const geo = GEO_BANDITA[(Math.random()*BANDITU)|0];
-  for(const v of k.vrstvy){ v.geometry = geo; v.material.opacity = 1; }
+  const vi = (Math.random()*BANDITU)|0;
+  const geo = GEO_BANDITA[vi];
+  // …a spolu s ní i vlastní výšku, aby kachnička stála na desce a nelevitovala
+  k.stred = KACH_POSAZENI[vi];
+  for(const v of k.vrstvy){ v.geometry = geo; v.material.opacity = 1; v.position.y = k.stred; }
+  k.tercik.position.y = k.stred + TERC_Y;
+  k.prstenec.position.y = k.stred + TERC_Y;
   // vytočení na náhodnou stranu: teprve tím je vrstvení vidět
   k.vytoceni = (Math.random() < 0.5 ? -1 : 1) * KACH_VYTOCENI * rand(0.55, 1);
   k.matPrst.uniforms.postup.value = 0;
@@ -2025,7 +2040,7 @@ function krokKachen(dt){
 function zasahKachny(k, u){
   // vytočená kachnička má terč blíž ke středu — o kosinus natočení
   const dx = u.p.x - (k.skup.position.x + TERC_X*Math.cos(k.vytoceni));
-  const dy = u.p.y - (k.skup.position.y + KACH_STRED + TERC_Y);
+  const dy = u.p.y - (k.skup.position.y + k.stred + TERC_Y);
   const stred = Math.hypot(dx, dy) < KACH_R*KACH_TERC;
   k.naplneno += stred ? 2.5 : 1;
   k.odZasahu = 0;                  // dokud teče, odpočet do odchodu stojí
@@ -2040,8 +2055,8 @@ function zasahKachny(k, u){
     k.stav = 'umira'; k.t = 0;
     k.matPrst.uniforms.postup.value = 1;
     pripisSkore(k.hodnota);
-    pustPeri(k.skup.position.x, k.skup.position.y + KACH_STRED, k.skup.position.z, 18);
-    pustPopup(k.skup.position.x, k.skup.position.y + KACH_STRED + KACH_R*0.9,
+    pustPeri(k.skup.position.x, k.skup.position.y + k.stred, k.skup.position.z, 18);
+    pustPopup(k.skup.position.x, k.skup.position.y + k.stred + KACH_R*0.9,
               k.skup.position.z, k.hodnota);
     // `zbyva` klesá JEN sestřelem; zasunutá kachnička se vrátí jinde
     zbyva = Math.max(0, zbyva - 1);
@@ -2055,7 +2070,7 @@ function narazDoKachny(p){
     if(k.stav !== 'zije' && k.stav !== 'najizdi') continue;
     if(Math.abs(p.z - k.skup.position.z) > 40) continue;
     const dx = p.x - k.skup.position.x;
-    const dy = p.y - (k.skup.position.y + KACH_STRED);   // počátek je u paty
+    const dy = p.y - (k.skup.position.y + k.stred);      // počátek je u paty
     if(dx*dx + dy*dy < KACH_R*KACH_R*0.62) return k;
   }
   return null;
