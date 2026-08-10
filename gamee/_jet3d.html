@@ -154,6 +154,14 @@
   <input type="range" id="syt" min="100" max="200" step="5" value="135">
   <label>hran po obvodu <span id="vRad"></span></label>
   <input type="range" id="rad" min="3" max="16" step="1" value="8">
+  <label>barva vody</label>
+  <input type="color" id="vodaB" value="#4aa9dd" style="width:100%;height:26px;padding:0;border:0;background:none">
+  <label>průhlednost vody <span id="vVodaA"></span></label>
+  <input type="range" id="vodaA" min="30" max="100" step="2" value="94">
+  <label>svítivost vody <span id="vVodaS"></span></label>
+  <input type="range" id="vodaS" min="0" max="160" step="5" value="75">
+  <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
+    <input type="checkbox" id="autoStrik"> automatické stříkání (na ladění)</label>
   <label>poloměr proudu <span id="vTl"></span></label>
   <input type="range" id="tl" min="2" max="26" step="1" value="9">
   <label>rychlost toku <span id="vSp"></span></label>
@@ -739,15 +747,20 @@ function _stary(dt){
 // Textura dělá čitelnost toku. Musí mít OSTRÉ světlé pruhy — měkký gradient
 // se při pohybu ztratí a proud pak vypadá staticky. Pruhy jsou různě široké
 // a nepravidelně rozmístěné, aby se vzor při opakování nepráskal do očí.
-function texturaVody(){
+// Plátno textury vody je JEDNO a jen se překresluje. Barva vody je
+// v nastavení, takže se mění za běhu — vyrobit při každé změně novou texturu
+// by znamenalo nahrávat ji znovu na GPU a starou uklízet.
+const _cVoda = document.createElement('canvas');
+_cVoda.width = 128; _cVoda.height = 8;
+
+function kresliVodu(barva){
   // Textura je ŠIROKÁ a nízká: u TubeGeometry jde 'u' (osa X textury) podél
   // trubice, takže pruh musí být SVISLÝ — pak se na trubici namapuje jako
   // prstenec kolmý na tok. S vodorovnými pruhy to vypadalo jako pruhovaná
   // hadice, protože každý pruh běžel po délce.
-  const c = document.createElement('canvas');
-  c.width = 128; c.height = 8;
+  const c = _cVoda;
   const g = c.getContext('2d');
-  g.fillStyle = '#4aa9dd';
+  g.fillStyle = barva;
   g.fillRect(0, 0, 128, 8);
   // ŠIROKÉ BÍLÉ SHLUKY — to, čím se voda kreslí v anime a kresleném filmu:
   // kromě tenkých linek po ní občas putuje výrazná bílá část, která proud
@@ -777,17 +790,16 @@ function texturaVody(){
     g.fillStyle = grd;
     g.fillRect(x-w, 0, w*2, 8);
   }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  // Bez tohohle GPU texturu při zmenšení rozmaže mipmapami a ostré hrany,
-  // které jsme právě nakreslili, se ztratí.
-  t.magFilter = THREE.LinearFilter;
-  t.minFilter = THREE.LinearFilter;
-  t.generateMipmaps = false;
-  t.anisotropy = 4;
-  return t;
 }
-const texVoda = texturaVody();
+kresliVodu('#4aa9dd');
+const texVoda = new THREE.CanvasTexture(_cVoda);
+texVoda.wrapS = texVoda.wrapT = THREE.RepeatWrapping;
+// Bez tohohle GPU texturu při zmenšení rozmaže mipmapami a ostré hrany,
+// které jsme právě nakreslili, se ztratí.
+texVoda.magFilter = THREE.LinearFilter;
+texVoda.minFilter = THREE.LinearFilter;
+texVoda.generateMipmaps = false;
+texVoda.anisotropy = 4;
 
 const matVoda = new THREE.MeshLambertMaterial({
   map: texVoda, transparent: true, opacity: 0.94,
@@ -1550,12 +1562,13 @@ addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 // Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
 // přežijí reload, aby se doladěné nastavení neztrácelo.
 const ULOZ_KLIC = 'ws_jet3d_tune';
-const POSUVNIKY = ['fov','syt','svx','svy','stinS','rad','tl','sp','sila','ramp','imp'];
+const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','rad','tl','sp','sila','ramp','imp'];
 
 function uloz(){
   const o = {};
   for(const id of POSUVNIKY) o[id] = document.getElementById(id).value;
   o._stiny = document.getElementById('stiny').checked;
+  o._auto = document.getElementById('autoStrik').checked;
   o._panel = !document.getElementById('hud').hidden;
   try{ localStorage.setItem(ULOZ_KLIC, JSON.stringify(o)); }catch(e){}
 }
@@ -1565,6 +1578,7 @@ function nacti(){
     if(!o) return false;
     for(const id of POSUVNIKY) if(o[id] !== undefined) document.getElementById(id).value = o[id];
     if(o._stiny !== undefined) document.getElementById('stiny').checked = o._stiny;
+    if(o._auto !== undefined) document.getElementById('autoStrik').checked = o._auto;
     document.getElementById('hud').hidden = !o._panel;
     return true;
   }catch(e){ return false; }
@@ -1588,9 +1602,15 @@ function nastavStiny(){
     .forEach(m => m.needsUpdate = true); });
 }
 cbStiny.addEventListener('change', ()=>{ nastavStiny(); uloz(); });
+// Automatické stříkání je JEN NA LADĚNÍ: proud teče pořád, takže se dá
+// hýbat posuvníky a hned vidět, co to udělalo, aniž by člověk musel držet
+// tlačítko a mířit zároveň.
+const cbAuto = document.getElementById('autoStrik');
+cbAuto.addEventListener('change', uloz);
 
 document.getElementById('reset').addEventListener('click', ()=>{
-  const vych = { fov:48, syt:135, svx:-70, svy:110, stinS:75, rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34 };
+  const vych = { fov:48, syt:135, svx:-70, svy:110, stinS:75,
+                 vodaB:'#4aa9dd', vodaA:94, vodaS:75, rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34 };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -1616,6 +1636,17 @@ function obnovPopisky(){
   // i všechno ostatní.
   vStin.textContent = stinS.value + ' %';
   if('intensity' in slunce.shadow) slunce.shadow.intensity = +stinS.value/100;
+  // VODA. Barva se překresluje do textury, ne přebarvuje materiálem:
+  // materiál barvu s texturou NÁSOBÍ, takže by z modré nikdy nešla světlejší
+  // ani jiný odstín — jen tmavší. Emisní barva se odvodí z téže barvy, aby
+  // světlé pruhy svítily v tónu vody a ne natvrdo domodra.
+  vVodaA.textContent = vodaA.value + ' %';
+  vVodaS.textContent = vodaS.value + ' %';
+  kresliVodu(vodaB.value);
+  texVoda.needsUpdate = true;
+  matVoda.opacity = +vodaA.value/100;
+  matVoda.emissiveIntensity = +vodaS.value/100;
+  matVoda.emissive.set(vodaB.value).multiplyScalar(0.55);
   vRad.textContent = rad.value;
   vTl.textContent = tl.value;  vSp.textContent = sp.value;
   vSila.textContent = sila.value; vRamp.textContent = (+ramp.value).toFixed(2);
@@ -2290,7 +2321,7 @@ function smycka(now){
   krokPostupu(dt);
   krokRozmazani(dt);
   krokKachen(dt);
-  krokProudu(dt, cil, strika);
+  krokProudu(dt, cil, strika || cbAuto.checked);
   const kapekZivych = krokKapek(dt) + krokDrobnych(dt);
   krokPeri(dt, now/1000);
   krokPopupu(dt);
