@@ -67,18 +67,38 @@
       calc(var(--o))   calc(-1*var(--o)) 0 var(--obrys),
       calc(-1*var(--o)) calc(-1*var(--o)) 0 var(--obrys),
       var(--o) 0 0 var(--obrys), calc(-1*var(--o)) 0 0 var(--obrys),
-      0 var(--o) 0 var(--obrys), 0 calc(-1*var(--o)) 0 var(--obrys),
-      0 0.45vh 0.5vh rgba(0,0,0,.45); }
+      0 var(--o) 0 var(--obrys), 0 calc(-1*var(--o)) 0 var(--obrys); }
+  /* HLOUBKA: pod textem leží JEHO KOPIE, celá tmavá a s vlastním, o kus
+     tlustším obrysem, posunutá o pár pixelů dolů. Přední text pak neplave na
+     ploše, ale sedí na vlastním těle — to je ten dojem plnosti.
+     Proč kopie a ne jen řada stínů pod sebou: stín má tvar GLYFU, kdežto
+     kopie má i svůj obrys, takže tělo je o kousek širší než přední písmo
+     a kolem vznikne tmavý lem. Se samotnými stíny tělo lícuje s písmem
+     a vypadá to ploše.
+     Text kopie bere z data-text, takže se musí při každé změně přepsat —
+     dělá to `nastavTitulek()`. */
+  .titulek::after{
+    content:attr(data-text);
+    position:absolute; left:0; right:0; top:var(--hloubka); z-index:-1;
+    color:var(--obrys);
+    text-shadow:
+      calc(var(--o2))   calc(var(--o2))   0 var(--obrys),
+      calc(-1*var(--o2)) calc(var(--o2))  0 var(--obrys),
+      calc(var(--o2))   calc(-1*var(--o2)) 0 var(--obrys),
+      calc(-1*var(--o2)) calc(-1*var(--o2)) 0 var(--obrys),
+      var(--o2) 0 0 var(--obrys), calc(-1*var(--o2)) 0 0 var(--obrys),
+      0 var(--o2) 0 var(--obrys), 0 calc(-1*var(--o2)) 0 var(--obrys),
+      0 0.5vh 0.55vh rgba(0,0,0,.4); }
   #skoreRoh{position:fixed;left:50%;top:calc(21.5vh - 50px);transform:translate(-50%,-50%);z-index:4;
-    pointer-events:none;font-size:6.2vh;line-height:1;--o:0.42vh}
+    pointer-events:none;font-size:6.2vh;line-height:1;--o:0.20vh;--o2:0.30vh;--hloubka:0.62vh}
   /* patro a postup ke kvótě — pod skóre, drobněji, ať to nekřičí */
   #patroRoh{position:fixed;left:50%;top:calc(27.4vh - 50px);transform:translate(-50%,-50%);z-index:4;
-    pointer-events:none;font-size:2.4vh;line-height:1;--o:0.22vh;
+    pointer-events:none;font-size:2.4vh;line-height:1;--o:0.11vh;--o2:0.17vh;--hloubka:0.26vh;
     letter-spacing:.02em}
   /* „Floor cleared!" — přes celou šířku, uprostřed výšky terčů. Naskočí
      s krátkým přiblížením, ať to má úder; bez animace by to jen bliklo. */
   #hlaska{position:fixed;left:0;right:0;top:45vh;z-index:5;text-align:center;
-    pointer-events:none;font-size:3.4vh;line-height:1;--o:0.3vh;
+    pointer-events:none;font-size:3.4vh;line-height:1;--o:0.15vh;--o2:0.23vh;--hloubka:0.38vh;
     letter-spacing:.04em;
     opacity:0;transform:scale(.75);transition:opacity .16s ease, transform .16s ease}
   #hlaska.vidno{opacity:1;transform:scale(1)}
@@ -100,8 +120,8 @@
   </filter>
 </svg>
 <div id="fpsRoh">– FPS</div>
-<div id="skoreRoh" class="titulek">0</div>
-<div id="patroRoh" class="titulek">floor 1 · 4 left</div>
+<div id="skoreRoh" class="titulek" data-text="0">0</div>
+<div id="patroRoh" class="titulek" data-text="floor 1 · 4 left">floor 1 · 4 left</div>
 <div id="hlaska" class="titulek"></div>
 <!-- Zaměřovač podle předlohy: silnější a v týchž barvách jako text, tedy
      krémová na tmavém obrysu. Ryska PROCHÁZÍ prstencem místo aby končila
@@ -503,9 +523,13 @@ let skore = 0;
 // se obnovuje statistika. Číslo nahoře musí naskočit ve stejném snímku jako
 // „+N" nad kachničkou, jinak to čte jako zpoždění hry.
 const skoreEl = document.getElementById('skoreRoh');
+// Text se musí zapsat DVAKRÁT: jednou jako obsah a jednou do data-text, ze
+// kterého kreslí ::after tmavou kopii pod ním. Kdyby se zapomnělo, zůstane
+// pod novým textem viset stará hloubka.
+function nastavTitulek(el, text){ el.textContent = text; el.dataset.text = text; }
 function pripisSkore(n){
   skore += n;
-  skoreEl.textContent = skore;
+  nastavTitulek(skoreEl, skore);
 }
 
 const _q = new THREE.Quaternion(), _v = new THREE.Vector3();
@@ -1713,7 +1737,7 @@ function hraciSekce(){ return sekce[0].slot === 0 ? sekce[0] : sekce[1]; }
 function kvota(){ return KVOTA_ZAKLAD + Math.min(4, patro - 1); }
 function ukazPatro(){
   // anglicky, ať to ladí s „Floor cleared!"
-  if(patroEl) patroEl.textContent = 'floor ' + patro + ' · ' + zbyva + ' left';
+  if(patroEl) nastavTitulek(patroEl, 'floor ' + patro + ' · ' + zbyva + ' left');
 }
 zbyva = kvota(); ukazPatro(); nastavPodlahu();
 
@@ -1722,7 +1746,7 @@ zbyva = kvota(); ukazPatro(); nastavPodlahu();
 // zaregistrovat, že něco dokázal.
 function patroVycisteno(){
   hlaska = HLASKA_T;
-  if(hlaskaEl){ hlaskaEl.textContent = 'Floor cleared!'; hlaskaEl.classList.add('vidno'); }
+  if(hlaskaEl){ nastavTitulek(hlaskaEl, 'Floor cleared!'); hlaskaEl.classList.add('vidno'); }
 }
 
 function spustPrechod(){
