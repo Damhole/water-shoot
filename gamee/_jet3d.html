@@ -90,6 +90,8 @@
   <div class="row"><span>SKÓRE</span><b id="skore">0</b></div>
   <label>zorný úhel (nižší = blíž) <span id="vFov"></span></label>
   <input type="range" id="fov" min="30" max="60" step="1" value="48">
+  <label>sytost barev <span id="vSyt"></span></label>
+  <input type="range" id="syt" min="100" max="200" step="5" value="135">
   <label>hran po obvodu <span id="vRad"></span></label>
   <input type="range" id="rad" min="3" max="16" step="1" value="8">
   <label>poloměr proudu <span id="vTl"></span></label>
@@ -172,21 +174,51 @@ const PARALAX_TUHOST = 5.5;             // jak rychle kamera dojíždí (1/s)
 const paralax = new THREE.Vector3();    // aktuální posun
 const paralaxCil = new THREE.Vector3(); // kam se dojíždí
 
-scene.add(new THREE.AmbientLight(0x7f9fc0, 0.9));
-const slunce = new THREE.DirectionalLight(0xffffff, 1.15);
+// Součet obou světel byl 0,9 + 1,15 = 2,05. Osvětlená plocha se tím dostala
+// vysoko nad 1 a v lineárním prostoru to znamená, že se barva táhne k bílé —
+// tedy přesně to vyblednutí. Součet je nově 1,76: dost na to, aby scéna
+// nebyla tmavá (zkoušel jsem 1,45 a bylo to potemnělé), ale o 14 % míň tlaku
+// k bílé. K tomu je ambient méně modrý, aby scéně nešedivěl hnědou.
+scene.add(new THREE.AmbientLight(0x8fa8c4, 0.74));
+const slunce = new THREE.DirectionalLight(0xffffff, 1.02);
 slunce.position.set(-300, 600, 400);
 scene.add(slunce);
+
+// ---- barvy ----------------------------------------------------------------
+// Three od r152 barvy spravuje: hex se bere jako sRGB, převede se do lineárního
+// prostoru, tam se svítí a na výstupu se vrací zpátky do sRGB. Ověřeno, co tu
+// běží: r170, ColorManagement zapnutý, výstup „srgb", tone mapping žádný.
+//
+// Je to fyzikálně správně, ale u kreslené scény to vede k vypraným barvám ze
+// dvou důvodů: součet dvou světel (0,9 + 1,15 = až 2,05) tlačí střední tóny
+// k bílé, a MeshToonMaterial to pak zaokrouhlí na tři pásma.
+//
+// Správu barev NERUŠÍM — rozhodila by textury (sprite banditů, textura vody).
+// Místo toho zvedám každé barvě SYTOST v HSL na jednom místě. Materiály se
+// registrují i s původní barvou, takže jde sytost přepočítat kdykoli — a je
+// proto na posuvníku v ⚙ panelu.
+const barevne = [];
+const _hsl = { h:0, s:0, l:0 };
+function barevny(mat, hex){ barevne.push({ mat, zaklad: new THREE.Color(hex) }); return mat; }
+function nastavSytost(k){
+  for(const b of barevne){
+    // HSL se čte i zapisuje v sRGB — v lineárním prostoru „sytost" neodpovídá
+    // tomu, co člověk vidí
+    b.zaklad.getHSL(_hsl, THREE.SRGBColorSpace);
+    b.mat.color.setHSL(_hsl.h, Math.min(1, _hsl.s*k), _hsl.l, THREE.SRGBColorSpace);
+  }
+}
 
 // podlaha a zadní stěna, ať je vidět hloubka a kam proud dopadá
 const podlaha = new THREE.Mesh(
   new THREE.PlaneGeometry(3000, 3000),
-  new THREE.MeshLambertMaterial({ color:0x1b2f45 }));
+  barevny(new THREE.MeshLambertMaterial({ color:0x1b2f45 }), 0x1b2f45));
 podlaha.rotation.x = -Math.PI/2;
 scene.add(podlaha);
 
 const stena = new THREE.Mesh(
   new THREE.PlaneGeometry(3000, 1200),
-  new THREE.MeshLambertMaterial({ color:0x24405c }));
+  barevny(new THREE.MeshLambertMaterial({ color:0x24405c }), 0x24405c));
 stena.position.set(0, 600, -1200);
 scene.add(stena);
 
@@ -242,8 +274,8 @@ const SKLA = [
 ];
 
 // dřevo polic a zadní stěna baru
-const matDrevo = new THREE.MeshToonMaterial({ color: 0x7b5330, gradientMap: toonGrad });
-const matStena = new THREE.MeshToonMaterial({ color: 0x8a5c33, gradientMap: toonGrad });
+const matDrevo = barevny(new THREE.MeshToonMaterial({ color: 0x7b5330, gradientMap: toonGrad }), 0x7b5330);
+const matStena = barevny(new THREE.MeshToonMaterial({ color: 0x8a5c33, gradientMap: toonGrad }), 0x8a5c33);
 const matObrysTelo = new THREE.MeshBasicMaterial({ color: 0x14161c, side: THREE.BackSide, fog: false });
 
 // Dřevo je pro vodu pevné. Kvádry se registrují PŘÍMO při stavbě baru, aby
@@ -310,8 +342,8 @@ const SILA_ZASAHU = () => +document.getElementById('imp').value;
 
 function novaLahev(sek, police, i){
   const typ = SKLA[(Math.random()*SKLA.length)|0];
-  const m = new THREE.Mesh(typ.geo, new THREE.MeshToonMaterial({
-    color: typ.barva, gradientMap: toonGrad }));
+  const m = new THREE.Mesh(typ.geo, barevny(new THREE.MeshToonMaterial({
+    color: typ.barva, gradientMap: toonGrad }), typ.barva));
   // model má počátek ve SPODKU (profil 0..1), fyzikální válec ve STŘEDU —
   // proto se mesh posouvá o půl výšky dolů proti tělesu
   m.scale.set(typ.w, typ.h, typ.w);
@@ -1361,7 +1393,7 @@ addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 // Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
 // přežijí reload, aby se doladěné nastavení neztrácelo.
 const ULOZ_KLIC = 'ws_jet3d_tune';
-const POSUVNIKY = ['fov','rad','tl','sp','sila','ramp','imp'];
+const POSUVNIKY = ['fov','syt','rad','tl','sp','sila','ramp','imp'];
 
 function uloz(){
   const o = {};
@@ -1387,7 +1419,7 @@ hud.addEventListener('pointerdown', e => e.stopPropagation());
 hud.addEventListener('pointermove', e => e.stopPropagation());
 
 document.getElementById('reset').addEventListener('click', ()=>{
-  const vych = { fov:48, rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34 };
+  const vych = { fov:48, syt:135, rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34 };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -1401,6 +1433,8 @@ function obnovPopisky(){
   // čtou z camera.fov, takže se přizpůsobí samy
   vFov.textContent = fov.value + '°';
   camera.fov = +fov.value; camera.updateProjectionMatrix();
+  vSyt.textContent = syt.value + ' %';
+  nastavSytost(+syt.value/100);
   vRad.textContent = rad.value;
   vTl.textContent = tl.value;  vSp.textContent = sp.value;
   vSila.textContent = sila.value; vRamp.textContent = (+ramp.value).toFixed(2);
