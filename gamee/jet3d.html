@@ -222,10 +222,8 @@
      přeletí do pruhu. Je to HUD, ne scéna: kdyby letěly ve 3D, musely by se
      promítat do rohu obrazovky a v perspektivě by se u cíle scvrkly na nic.
      Let dělá jedna transformace, aby se to na mobilu zvládlo na GPU. */
-  .letMince{position:fixed;z-index:6;pointer-events:none;
-    width:3.6vh;height:3.6vh;opacity:0;
-    transform:translate(-50%,-50%) scale(.25);
-    transition:transform .34s cubic-bezier(.32,.85,.4,1), opacity .18s ease;
+  .letMince{position:fixed;left:0;top:0;z-index:6;pointer-events:none;
+    width:3.6vh;height:3.6vh;
     filter:drop-shadow(0 .3vh .4vh rgba(0,0,0,.45))}
   /* „Floor cleared!" — přes celou šířku, uprostřed výšky terčů. Naskočí
      s krátkým přiblížením, ať to má úder; bez animace by to jen bliklo. */
@@ -295,15 +293,16 @@
     </linearGradient></defs>
     <circle cx="32" cy="32" r="26" fill="url(#gMince)" stroke="#000" stroke-width="5"/>
     <circle cx="32" cy="32" r="19.5" fill="none" stroke="#a86a12" stroke-width="2.6" opacity=".6"/>
-    <!-- Ražba: kachnička z profilu. Ne obrys, ale plná silueta v tmavém zlatě —
-         na velikosti 37 px by z linek zbyla šedá skvrna. -->
-    <g fill="#9c6210" opacity=".92">
-      <ellipse cx="30" cy="38" rx="13" ry="8.6"/>
-      <path d="M17 34.5l8 2.2-7.4 4.4z"/>
-      <circle cx="38.5" cy="27.5" r="7"/>
-      <path d="M44 25.6l7.5 2.2-7.5 3.2z"/>
+    <!-- Ražba: KORUNKA. Kachnička z profilu se v malém četla jako hrouda —
+         má moc detailů (zobák, ocas, oko), které na 37 px splynou. Korunka
+         drží tvar i v malém, protože je to pár rovných hran a tři špičky.
+         Plná silueta v tmavém zlatě, ne obrys: z linek by zbyla šedá kaše. -->
+    <g fill="#9c6210" opacity=".95">
+      <path d="M20 41.5 17.4 24l7.1 6.2L32 19.6l7.5 10.6 7.1-6.2L44 41.5z"/>
+      <rect x="19" y="41.5" width="26" height="4.6" rx="2"/>
+      <circle cx="17.4" cy="22" r="2.5"/><circle cx="32" cy="17.6" r="2.7"/>
+      <circle cx="46.6" cy="22" r="2.5"/>
     </g>
-    <circle cx="36.6" cy="26" r="1.6" fill="#ffe9a8"/>
     <ellipse cx="21" cy="21" rx="5.4" ry="3.2" fill="#fff6d0" opacity=".7"
              transform="rotate(-38 21 21)"/>
   </svg>
@@ -959,41 +958,60 @@ function pripisMinci(n){
   minceEl.textContent = mince;
 }
 
-// LET MINCÍ ze sestřelené kachničky. Nejdřív se poskládají do řady pod skóre
-// a údaj o patře, chvíli tam počkají a teprve pak letí do pruhu s penězi.
-// Ta pauza je podstatná: bez ní letí mince dřív, než si hráč všimne, že
-// nějaké byly, a z celého efektu zbude bliknutí u pruhu.
+// LET MINCÍ z mrtvé kachničky rovnou do pruhu s penězi.
+//
+// Po přímce a v jedné velikosti to vypadalo placatě, jako by se ikonka
+// posouvala po skle. Prostorový dojem dělají dvě věci: OBLOUK (mince
+// vyskočí a spadne do cíle) a MĚŘÍTKO, které nejdřív povyroste a u cíle se
+// zase scvrkne — tak se chová věc, co letí k divákovi a pak od něj pryč.
+//
+// Animuje se po snímcích, ne CSS přechodem: přechod umí jen úsečku mezi
+// dvěma stavy, kdežto oblouk potřebuje hodnotu v každém snímku.
 // Připisují se AŽ PŘI DOLETU, po jedné — číslo v pruhu tak naskakuje
 // v rytmu přilétajících mincí, ne skokem dopředu.
-const MINCE_PAUZA = 300, MINCE_LET = 340, MINCE_ODSTUP = 70;
-function letMinci(pocet){
+const MINCE_DOBA = 0.62, MINCE_ODSTUP = 0.075;
+const letici = [];
+const _promitnuto = new THREE.Vector3();
+const _odkud = { x: 0, y: 0 };
+function naObrazovku(x, y, z, out){
+  _promitnuto.set(x, y, z).project(camera);
+  out.x = ( _promitnuto.x*0.5 + 0.5)*innerWidth;
+  out.y = (-_promitnuto.y*0.5 + 0.5)*innerHeight;
+}
+
+function letMinci(pocet, wx, wy, wz){
   if(pocet <= 0) return;
   const sablona = document.querySelector('#minceRoh .mince');
-  const patro = document.getElementById('patroRoh').getBoundingClientRect();
   const cil = sablona.getBoundingClientRect();
-  const cx = (cil.left + cil.right)/2, cy = (cil.top + cil.bottom)/2;
-  const vel = innerHeight*0.036, rozestup = vel*1.2;
-  const y0 = patro.bottom + vel*0.95;
-  const x0 = (patro.left + patro.right)/2 - rozestup*(pocet-1)/2;
+  naObrazovku(wx, wy, wz, _odkud);
   for(let i=0;i<pocet;i++){
     const el = sablona.cloneNode(true);
     el.removeAttribute('class');
     el.classList.add('letMince');
-    const sx = x0 + i*rozestup;
-    el.style.left = sx + 'px';
-    el.style.top = y0 + 'px';
     document.body.appendChild(el);
-    // naskočení musí přijít až v dalším snímku, jinak prohlížeč obě
-    // hodnoty transformace slije do jedné a přechod se neodehraje
-    requestAnimationFrame(()=>{
-      el.style.opacity = '1';
-      el.style.transform = 'translate(-50%,-50%) scale(1)';
-    });
-    setTimeout(()=>{
-      el.style.transform = `translate(-50%,-50%) translate(${cx - sx}px, ${cy - y0}px) scale(.5)`;
-    }, MINCE_PAUZA + i*MINCE_ODSTUP);
-    setTimeout(()=>{ el.remove(); pripisMinci(1); },
-               MINCE_PAUZA + i*MINCE_ODSTUP + MINCE_LET);
+    // Záporný čas = zpoždění. Mince nesmí vyletět naráz, jinak se překryjí
+    // v jednu a nepozná se, kolik jich bylo.
+    letici.push({ el, t: -i*MINCE_ODSTUP,
+      x0: _odkud.x + rand(-16, 16), y0: _odkud.y + rand(-12, 12),
+      x1: (cil.left + cil.right)/2, y1: (cil.top + cil.bottom)/2,
+      vyska: rand(60, 120) });
+  }
+}
+
+function krokLetMinci(dt){
+  for(let i=letici.length-1; i>=0; i--){
+    const m = letici[i];
+    m.t += dt;
+    if(m.t < 0) continue;
+    const u = Math.min(1, m.t/MINCE_DOBA);
+    const e = u*u*(3 - 2*u);                       // klidný rozjezd i dojezd
+    const x = m.x0 + (m.x1 - m.x0)*e;
+    const y = m.y0 + (m.y1 - m.y0)*e - Math.sin(Math.PI*e)*m.vyska;
+    const s = (0.7 + Math.sin(Math.PI*u)*0.55) * (1 - 0.32*u);
+    m.el.style.transform =
+      `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%,-50%) scale(${s.toFixed(3)})`;
+    if(u > 0.88) m.el.style.opacity = ((1 - u)/0.12).toFixed(2);
+    if(u >= 1){ m.el.remove(); letici.splice(i, 1); pripisMinci(1); }
   }
 }
 
@@ -2769,7 +2787,7 @@ function zasahKachny(k, u){
     k.stav = 'umira'; k.t = 0;
     k.matPrst.uniforms.postup.value = 1;
     pripisSkore(k.hodnota);
-    letMinci(k.mince);
+    letMinci(k.mince, k.skup.position.x, k.skup.position.y + k.stred, k.skup.position.z);
     pustPeri(k.skup.position.x, k.skup.position.y + k.stred, k.skup.position.z, 18);
     pustPopup(k.skup.position.x, k.skup.position.y + k.stred + KACH_R*0.9,
               k.skup.position.z, k.hodnota);
@@ -3035,6 +3053,7 @@ function smycka(now){
   krokPopupu(dt);
   krokKrouzku(dt);
   krokKorunek(dt);
+  krokLetMinci(dt);
   postavJet(now/1000);
   // Tok = posouvání textury po délce. Tohle je celý „pohyb vody".
   // U TubeGeometry jde 'u' PODÉL trubice a 'v' po obvodu. Vzor musí být tedy
