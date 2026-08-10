@@ -802,7 +802,7 @@ function novaLahev(sek, police, i, xPozice, typVynuceny){
   telo.quaternion.setFromEuler(0, Math.random()*Math.PI*2, 0);
   world.addBody(telo);
 
-  const L = { m, telo, typ, police, i, sek, hp: HP_LAHVE, mrtva: 0, zaklX: x };
+  const L = { m, telo, typ, police, i, sek, hp: HP_LAHVE, mrtva: 0, trefena: false, zaklX: x };
   sek.lahve.push(L);
   return L;
 }
@@ -881,7 +881,7 @@ function prestavLahve(sek){
   // stejné patro, jaké hráč právě vyčistil.
   const xsPodle = POLICE_Y.map(()=> rozlozPolici(LAHVI_NA_POLICI));
   for(const L of sek.lahve){
-    L.hp = HP_LAHVE; L.mrtva = 0; L.pada = false; L.m.visible = true;
+    L.hp = HP_LAHVE; L.mrtva = 0; L.pada = false; L.trefena = false; L.m.visible = true;
     L.zaklX = xsPodle[L.police][L.i];
     L.telo.position.set(L.zaklX, sek.zaklY + POLICE_Y[L.police] + L.typ.h/2, POLICE_Z + rand(-16, 16));
     L.telo.quaternion.setFromEuler(0, Math.random()*Math.PI*2, 0);
@@ -1057,7 +1057,7 @@ function zasahyLahvi(dt){
     if(L.mrtva > 0){
       L.mrtva -= dt;
       if(L.mrtva <= 0){                       // postavit zpět na polici
-        L.hp = HP_LAHVE;
+        L.hp = HP_LAHVE; L.trefena = false;   // nová lahev = zase se dá „poprvé" trefit
         // police je tam, kde právě stojí SEKCE — ta jezdí, tak se musí přičíst
         L.telo.position.set(L.zaklX, L.sek.zaklY + POLICE_Y[L.police] + L.typ.h/2,
                             POLICE_Z + rand(-16, 16));
@@ -1100,6 +1100,16 @@ function zasahyLahvi(dt){
       const bod = new CANNON.Vec3(u.p.x, u.p.y, u.p.z);
       L.telo.wakeUp();
       L.telo.applyImpulse(smer.scale(SILA_ZASAHU()), bod);
+      // PRVNÍ ZÁSAH LAHVE = +1 bod. Odměna za to, že hráč vůbec trefil sklo,
+      // ne za to, jak dlouho ho poléval — proto jen jednou za život lahve.
+      // „+1" vyskočí nad lahví, tedy tam, kde se to stalo; těleso má počátek
+      // ve STŘEDU, takže se přičítá půlka výšky a kousek navrch.
+      if(!L.trefena){
+        L.trefena = true;
+        pripisSkore(1);
+        pustPopup(L.telo.position.x, L.telo.position.y + L.typ.h*0.5 + 18,
+                  L.telo.position.z, 1);
+      }
       if(Math.random() < 0.4){
         const n = new THREE.Vector3(dx, 0, dz).normalize();
         rozprsk(u.p, n, u.v, 3 + (Math.random()*3|0));
@@ -2346,6 +2356,10 @@ const TERC_X = KACH_R*0.26, TERC_Y = -KACH_R*0.16;
 const KACH_STRED = KACH_R*0.92;
 // tloušťka „překližky": pět vrstev po 3,5 jednotky = 14 hloubky
 const KACH_VRSTEV = 5, KACH_VRSTVA = 3.5;
+// Tloušťka terče. Tři vrstvy stačí — je menší než tělo a pátá by se ztratila.
+const TERC_VRSTEV = 3, TERC_VRSTVA = 2.6;
+// Jak velký kus zhynutí zabere smrsknutí terče, než se pustí kachnička.
+const TERC_MIZI = 0.34;
 // o kolik je kachnička vytočená kolem svislé osy (radiány, náhodně na obě strany)
 const KACH_VYTOCENI = 0.30;
 // CHVĚNÍ POD PROUDEM. Drobné, ale rychlé — 44 rad/s je sedm kmitů za vteřinu,
@@ -2356,6 +2370,10 @@ const ZASAH_CHVENI_W = 44, ZASAH_UTLUM = 14;   // útlum: po odtržení proudu u
 // Zhynutí: kolik z animace zabere natažení vzhůru, než kachnička plácne
 // do široka. Tohle je to pravé squash and stretch — u zásahu nemá co dělat.
 const UMIRANI_NATAH = 0.30, UMIRANI_VYSKA = 22;
+// Zhynutí je nově dvoufázové (terč, pak kachnička), takže celek musí být delší
+// než původních 0,34 s — jinak by na kachničku zbylo 0,22 s a squash by se
+// stihl jen mihnout.
+const UMIRANI_CELEK = 0.52;
 // POSAZENÍ NA POLICI. Kachnička nevyplňuje svou buňku ve spritu celou a každá
 // varianta jinak — naměřeno z alfa kanálu bandit_ducks.png, kolik prázdna
 // zbývá pod ní: 16,0 / 11,5 / 24,2 / 24,4 %. Se společnou výškou proto dvě
@@ -2395,24 +2413,41 @@ for(let i=0;i<KACHEN_MAX;i++){
   const telo = vrstvy[0];
   // terč sedí na TĚLE, ne na hlavě — bandita se dívá doleva, tělo je vpravo dole
   const TX = TERC_X, TY = KACH_STRED + TERC_Y;
-  const tercik = new THREE.Mesh(geoDisk, new THREE.MeshBasicMaterial({
-    map: texTercik, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
+  // TERČ JE SAMOSTATNÝ OBJEKT NALEPENÝ NA KACHNIČCE, ne kresba na těle —
+  // proto má vlastní skupinu. Ta se dá zmenšovat nezávisle na kachničce, což
+  // je potřeba při zhynutí (nejdřív se smrskne terč, teprve pak kachnička).
+  //
   // Odstup terčíku od těla musí přebít VYTOČENÍ. Terčík sedí 16 jednotek od
   // osy, takže ho natočení o 17° posune v hloubce o 16·sin17° ≈ 4,7 — se
   // starými 3 jednotkami se u vytočených kachniček zanořil za tělo a zmizel.
   // 14 je s rezervou nad tím a zároveň to čte jako terč přišroubovaný na tělo.
-  tercik.scale.set(KACH_R*0.80, KACH_R*0.80, 1);
-  tercik.position.set(TX, TY, 14);
-  skup.add(tercik);
+  const tercSkup = new THREE.Group();
+  tercSkup.position.set(TX, TY, 0);
+  // Vlastní tloušťka, stejným receptem jako tělo kachničky: kopie za sebou,
+  // dozadu tmavší. Bez ní byl terč papírový, zatímco kachnička pod ním měla
+  // pět vrstev — a to je právě vidět, když se kachnička natočí.
+  const tercVrstvy = [];
+  for(let v=0; v<TERC_VRSTEV; v++){
+    const jas = 1 - v*(0.55/(TERC_VRSTEV - 1));
+    const m = new THREE.Mesh(geoDisk, new THREE.MeshBasicMaterial({
+      map: texTercik, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      color: new THREE.Color(jas, jas, jas) }));
+    m.scale.set(KACH_R*0.80, KACH_R*0.80, 1);
+    m.position.z = 14 - v*TERC_VRSTVA;
+    tercSkup.add(m);
+    tercVrstvy.push(m);
+  }
+  const tercik = tercVrstvy[0];
   // prstenec plnění obíhá TĚSNĚ KOLEM terčíku, ať mu nepřekrývá kruhy
   const matPrst = novyPrstenec();
   const prstenec = new THREE.Mesh(geoPlane, matPrst);
   prstenec.scale.set(KACH_R*1.04, KACH_R*1.04, 1);
-  prstenec.position.set(TX, TY, 15.5);
-  skup.add(prstenec);
+  prstenec.position.set(0, 0, 15.5);
+  tercSkup.add(prstenec);
+  skup.add(tercSkup);
   skup.visible = false;
   scene.add(skup);
-  kachny.push({ skup, telo, vrstvy, tercik, prstenec, matPrst, stred: KACH_STRED,
+  kachny.push({ skup, telo, vrstvy, tercik, tercSkup, tercVrstvy, prstenec, matPrst, stred: KACH_STRED,
                 stav:'volna', t:0, ttl:0,
                 naplneno:0, potreba:1, hodnota:10, patro:0, odZasahu:9, vytoceni:0,
                 zaklX:0, zaklY:0, mince:0 });
@@ -2717,8 +2752,9 @@ function pustKachnu(){
   // …a spolu s ní i vlastní výšku, aby kachnička stála na desce a nelevitovala
   k.stred = KACH_POSAZENI[vi];
   for(const v of k.vrstvy){ v.geometry = geo; v.material.opacity = 1; v.position.y = k.stred; }
-  k.tercik.position.y = k.stred + TERC_Y;
-  k.prstenec.position.y = k.stred + TERC_Y;
+  // terč sedí na těle, takže se veze s výškou posazení dané varianty
+  k.tercSkup.position.y = k.stred + TERC_Y;
+  k.tercSkup.scale.setScalar(1);
   // vytočení na náhodnou stranu: teprve tím je vrstvení vidět
   k.vytoceni = (Math.random() < 0.5 ? -1 : 1) * KACH_VYTOCENI * rand(0.55, 1);
   k.matPrst.uniforms.postup.value = 0;
@@ -2830,7 +2866,16 @@ function krokKachen(dt){
       // plácnutí bylo jen půlka pohybu a působilo, že splaskla — nádech
       // před ním je to, co z toho dělá ránu.
       k.skup.position.x = k.zaklX;      // srovnat po chvění pod proudem
-      const u = Math.min(1, k.t/UMIRANI);
+      // NEJDŘÍV SE SMRSKNE TERČ, teprve pak kachnička. Terč je samostatný
+      // objekt nalepený na kachničce, takže má vlastní měřítko a může zmizet
+      // dřív — čte se to jako „sestřelen terč, a proto padá kachnička",
+      // kdežto když mizelo obojí naráz, byla to jedna beztvará šmouha.
+      const uc = Math.min(1, k.t/UMIRANI_CELEK);
+      const tc = Math.min(1, uc/TERC_MIZI);
+      k.tercSkup.scale.setScalar(Math.max(0.001, 1 - tc*tc));
+      // dokud mizí terč, kachnička jen stojí a čeká
+      if(uc < TERC_MIZI){ k.skup.position.y = k.zaklY; continue; }
+      const u = (uc - TERC_MIZI)/(1 - TERC_MIZI);
       const SY = 1.42, SX = 1/SY;       // vrchol natažení
       if(u < UMIRANI_NATAH){
         const a = Math.sin((u/UMIRANI_NATAH)*Math.PI*0.5);   // rychle nahoru, měkce doraz
@@ -2844,9 +2889,10 @@ function krokKachen(dt){
         k.skup.position.y = k.zaklY + UMIRANI_VYSKA*(1 - a)*(1 - a);
       }
       for(const v of k.vrstvy) v.material.opacity = 1 - u;   // mizí celá tloušťka
-      if(u >= 1){
+      if(uc >= 1){
         k.stav = 'volna'; k.skup.visible = false;
         for(const v of k.vrstvy) v.material.opacity = 1;
+        k.tercSkup.scale.setScalar(1);      // připravit pro další nasazení
       }
     }
   }
