@@ -1108,7 +1108,7 @@ function zasahyLahvi(dt){
         L.trefena = true;
         pripisSkore(1);
         pustPopup(L.telo.position.x, L.telo.position.y + L.typ.h*0.5 + 18,
-                  L.telo.position.z, 1);
+                  L.telo.position.z, 1, 'skoreMale');
       }
       if(Math.random() < 0.4){
         const n = new THREE.Vector3(dx, 0, dz).normalize();
@@ -3077,6 +3077,14 @@ if(document.fonts && document.fonts.load) document.fonts.load(POPUP_FONT.replace
 const STYLY = {
   skore:  { px:76, barva:'#fbf1dc', obrys:'#2c1a0d', obrysSir:9,  hloubka:6, mer:[130,65],
             stoupa:90, doba:1.1, kriv:0 },
+  // Poloviční „+1" za trefenou lahev. Zmenšuje se MĚŘÍTKO SPRITU, ne písmo na
+  // plátně: text se dál kreslí v 76 px a jen se zobrazí na polovině, takže je
+  // po zmenšení ostřejší. Kdyby se místo toho zmenšilo písmo, plátno by
+  // zůstalo velké a text by se na něm vykreslil hrubší.
+  // Kratší let a menší stoupání k tomu patří — drobná odměna nemá plout přes
+  // půlku obrazovky jako sestřel kachničky.
+  skoreMale: { px:76, barva:'#fbf1dc', obrys:'#2c1a0d', obrysSir:9, hloubka:6, mer:[65,33],
+            stoupa:45, doba:0.85, kriv:0 },
   komiks: { px:60, barva:'#000000', obrys:'#ffffff', obrysSir:9, hloubka:0, mer:[168,84],
             stoupa:52, doba:0.80, kriv:0.20 },
 };
@@ -3132,7 +3140,7 @@ function pustNapis(x, y, z, text, stylJm){
     return;
   }
 }
-function pustPopup(x, y, z, body){ pustNapis(x, y, z, '+' + body, 'skore'); }
+function pustPopup(x, y, z, body, styl){ pustNapis(x, y, z, '+' + body, styl || 'skore'); }
 
 function krokPopupu(dt){
   for(const p of popupy){
