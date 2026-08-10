@@ -3,17 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Water Shoot</title>
-  <!-- GitHub Pages entry — přesměruje na dev build hry (stub SDK = hra běží
-       samostatně mimo Gamee iframe). Cache-bust ?t= zajistí čerstvý game.js. -->
-  <script>location.replace('./gamee/index_local.html?t=' + Date.now());</script>
+  <title>Golden Ducks</title>
+  <!-- GitHub Pages entry.
+       Otevírá 3D prototyp, protože na něm se právě pracuje. Soubor je
+       `jet3d.html` BEZ podtržítka schválně: Pages ženou všechno přes Jekyll
+       a ten soubory začínající podtržítkem ignoruje, takže `_jet3d.html`
+       by tu vracel 404. Cache-bust ?t= vynutí čerstvou verzi.
+       Stará 2D hra zůstává dostupná odkazem níž. -->
+  <script>location.replace('./gamee/jet3d.html?t=' + Date.now());</script>
   <style>
     body { margin:0; background:#0c1226; color:#dfe8ff; font-family:Arial, sans-serif;
-           display:flex; align-items:center; justify-content:center; height:100vh; }
+           display:flex; flex-direction:column; gap:14px;
+           align-items:center; justify-content:center; height:100vh; }
     a { color:#7fd4ff; }
   </style>
 </head>
 <body>
-  <p>Načítám <a href="./gamee/index_local.html">Water Shoot</a>…</p>
+  <p>Načítám <a href="./gamee/jet3d.html">Golden Ducks — 3D prototyp</a>…</p>
+  <p style="font-size:13px;opacity:.7">
+    Stará 2D verze: <a href="./gamee/index_local.html">střelnice, puzzle, western</a>
+  </p>
 </body>
 </html>
