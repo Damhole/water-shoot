@@ -5,10 +5,15 @@
 <title>Golden Ducks — prototyp 3D trysky</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <style>
+  /* touch-action NEPATŘÍ na body. Prohlížeč ho skládá z prvku i ze všech
+     jeho předků, takže `none` na body zabije posouvání i uvnitř nastavení —
+     panel pak na mobilu nešlo rolovat. Zákaz gest patří jen na plátno, kde
+     se míří; body si nechá `manipulation`, což vypne jen dvojklik-zoom. */
   html,body{margin:0;height:100%;background:#0d1520;overflow:hidden;
     font:13px/1.4 -apple-system,system-ui,Arial,sans-serif;color:#cfe0f5;
-    -webkit-user-select:none;user-select:none;touch-action:none}
-  canvas{display:block;width:100%;height:100%}
+    -webkit-user-select:none;user-select:none;
+    touch-action:manipulation;overscroll-behavior:none}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
   #cog{position:fixed;left:10px;top:10px;width:38px;height:38px;border:0;
     border-radius:50%;background:rgba(8,14,24,.8);color:#cfe0f5;font-size:19px;
     cursor:pointer;z-index:3;-webkit-tap-highlight-color:transparent}
@@ -16,14 +21,19 @@
   #hud{position:fixed;left:10px;top:56px;background:rgba(8,14,24,.86);
     padding:10px 12px;border-radius:9px;min-width:210px;
     /* nad VŠÍM — skóre má 4, hláška 5; dřív panel s 2 mizel pod nimi */
-    z-index:50;max-height:calc(100vh - 70px);overflow-y:auto}
+    z-index:50;max-height:calc(100vh - 70px);overflow-y:auto;
+    /* svislé posouvání uvnitř panelu povolené, vodorovné ne — jinak by tah
+       do strany po posuvníku ujel celým panelem */
+    touch-action:pan-y;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
   #hud[hidden]{display:none}
   #hud .btn{margin-top:9px;width:100%;padding:7px;border-radius:7px;
     background:rgba(255,255,255,.12);color:#cfe0f5;border:1px solid rgba(207,224,255,.3);
     font:inherit;font-size:12px;cursor:pointer}
   #hud b{color:#8fd0ff}
   #hud label{display:block;margin:7px 0 2px;color:#9fb4cc;font-size:11px}
-  #hud input[type=range]{width:100%}
+  /* posuvník si bere gesta sám: bez tohohle by prohlížeč šikmý tah po
+     posuvníku v půlce překlopil do rolování panelu */
+  #hud input[type=range]{width:100%;touch-action:none}
   .row{display:flex;gap:10px;justify-content:space-between}
   #note{position:fixed;left:10px;bottom:10px;right:10px;color:#7f93aa;font-size:11px}
   #fpsRoh{position:fixed;right:8px;top:6px;font-size:11px;color:#8fd0ff;
