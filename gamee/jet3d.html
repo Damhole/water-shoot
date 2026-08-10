@@ -973,7 +973,13 @@ function pripisMinci(n){
 // dvěma stavy, kdežto oblouk potřebuje hodnotu v každém snímku.
 // Připisují se AŽ PŘI DOLETU, po jedné — číslo v pruhu tak naskakuje
 // v rytmu přilétajících mincí, ne skokem dopředu.
-const MINCE_DOBA = 0.62, MINCE_ODSTUP = 0.075;
+// CEKANI = jak dlouho mince levituje nad mrtvou kachničkou, než odletí.
+// Bez téhle pauzy vyletěla ve stejném snímku, ve kterém kachnička padla, a
+// splynula s peřím a korunkou — hráč viděl jen „něco cvrnklo do rohu".
+// Půl vteřiny stačí, aby si jich všiml a spočítal je.
+const MINCE_DOBA = 0.62, MINCE_ODSTUP = 0.075, MINCE_CEKANI = 0.55;
+const MINCE_NASKOK = 0.13;           // jak rychle se mince vynoří
+const MINCE_HOUP_A = 5, MINCE_HOUP_W = 5.2;   // houpání při levitaci
 const letici = [];
 const _promitnuto = new THREE.Vector3();
 const _odkud = { x: 0, y: 0 };
@@ -993,9 +999,12 @@ function letMinci(pocet, wx, wy, wz){
     el.removeAttribute('class');
     el.classList.add('letMince');
     document.body.appendChild(el);
-    // Záporný čas = zpoždění. Mince nesmí vyletět naráz, jinak se překryjí
-    // v jednu a nepozná se, kolik jich bylo.
-    letici.push({ el, t: -i*MINCE_ODSTUP,
+    // Všechny mince NASKOČÍ NARÁZ nad mrtvou kachničkou a chvíli tam levitují;
+    // teprve odlet je rozestupem rozstřídaný, aby nesplynuly v jednu. Kdyby se
+    // rozestup dal už na naskočení, hráč by nevěděl, kolik jich vlastně padlo —
+    // viděl by jen mince odlétat po jedné.
+    letici.push({ el, t: 0, odlet: MINCE_CEKANI + i*MINCE_ODSTUP,
+      faze: rand(0, Math.PI*2),
       x0: _odkud.x + rand(-16, 16), y0: _odkud.y + rand(-12, 12),
       x1: (cil.left + cil.right)/2, y1: (cil.top + cil.bottom)/2,
       vyska: rand(60, 120) });
@@ -1006,11 +1015,25 @@ function krokLetMinci(dt){
   for(let i=letici.length-1; i>=0; i--){
     const m = letici[i];
     m.t += dt;
-    if(m.t < 0) continue;
-    const u = Math.min(1, m.t/MINCE_DOBA);
+    const naskok = Math.min(1, m.t/MINCE_NASKOK);
+    // Houpání běží pořád ze stejné fáze, takže při odletu nepřeskočí; během
+    // letu se jen utlumí k nule podle `e`.
+    const houp = Math.sin(m.t*MINCE_HOUP_W + m.faze)*MINCE_HOUP_A - 10*naskok;
+
+    // 1) LEVITACE nad mrtvou kachničkou
+    if(m.t < m.odlet){
+      const s = (0.25 + 0.75*naskok)*(1 + 0.05*Math.sin(m.t*MINCE_HOUP_W + m.faze));
+      m.el.style.transform =
+        `translate(${m.x0.toFixed(1)}px, ${(m.y0 + houp).toFixed(1)}px) ` +
+        `translate(-50%,-50%) scale(${s.toFixed(3)})`;
+      continue;
+    }
+
+    // 2) LET do pruhu s penězi
+    const u = Math.min(1, (m.t - m.odlet)/MINCE_DOBA);
     const e = u*u*(3 - 2*u);                       // klidný rozjezd i dojezd
     const x = m.x0 + (m.x1 - m.x0)*e;
-    const y = m.y0 + (m.y1 - m.y0)*e - Math.sin(Math.PI*e)*m.vyska;
+    const y = m.y0 + (m.y1 - m.y0)*e - Math.sin(Math.PI*e)*m.vyska + (1 - e)*houp;
     const s = (0.7 + Math.sin(Math.PI*u)*0.55) * (1 - 0.32*u);
     m.el.style.transform =
       `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%,-50%) scale(${s.toFixed(3)})`;
