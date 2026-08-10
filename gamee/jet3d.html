@@ -2075,9 +2075,21 @@ function krokPeri(dt, cas){
 // ---- „+N" nad sestřelenou kachničkou --------------------------------------
 const POPUPU = 5;
 const popupy = [];
+// Plátno 256×128 na sprite 150×75 světových jednotek: na telefonu vyjde
+// popupek kolem 150 px, takže menší plátno by text změkčilo.
+const POPUP_W = 256, POPUP_H = 128;
+// Odměna má TOTÉŽ písmo i tutéž hloubku jako skóre — jinak by to byly dva
+// různé fonty na jedné obrazovce. Canvas ale nezná CSS proměnné, takže se
+// hodnoty opakují tady.
+const POPUP_FONT = '400 76px "Lilita One", "Arial Rounded MT Bold", Arial, sans-serif';
+const POPUP_HLOUBKA = 9;
+// Font se musí načíst DŘÍV, než se první popupek nakreslí — canvas na
+// document.fonts nečeká a tiše by vzal náhradní písmo.
+if(document.fonts && document.fonts.load) document.fonts.load(POPUP_FONT.replace('400 ',''));
+
 for(let i=0;i<POPUPU;i++){
   const c = document.createElement('canvas');
-  c.width = 128; c.height = 64;
+  c.width = POPUP_W; c.height = POPUP_H;
   const tex = new THREE.CanvasTexture(c);
   tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
@@ -2089,13 +2101,21 @@ function pustPopup(x, y, z, body){
   for(const p of popupy){
     if(p.ziva) continue;
     const g = p.c.getContext('2d');
-    g.clearRect(0, 0, 128, 64);
-    g.font = '700 42px Arial, sans-serif';
+    const t = '+' + body, sx = POPUP_W/2, sy = POPUP_H/2 - 6;
+    g.clearRect(0, 0, POPUP_W, POPUP_H);
+    g.font = POPUP_FONT;
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.lineWidth = 6; g.strokeStyle = 'rgba(10,16,30,0.85)';
-    g.strokeText('+'+body, 64, 34);
-    g.fillStyle = '#ffd54a';
-    g.fillText('+'+body, 64, 34);
+    g.lineJoin = 'round';                       // bez toho trčí z rohů písmen ostny
+    // tělo: tmavé a o kus tlustší, posunuté dolů — stejný recept jako v HUD
+    g.lineWidth = 16; g.strokeStyle = '#2c1a0d';
+    g.strokeText(t, sx, sy + POPUP_HLOUBKA);
+    g.fillStyle = '#2c1a0d';
+    g.fillText(t, sx, sy + POPUP_HLOUBKA);
+    // přední text: krémový s tenkým obrysem
+    g.lineWidth = 9; g.strokeStyle = '#2c1a0d';
+    g.strokeText(t, sx, sy);
+    g.fillStyle = '#fbf1dc';
+    g.fillText(t, sx, sy);
     p.tex.needsUpdate = true;
     p.sp.position.set(x, y, z); p.y0 = y;
     p.sp.visible = true; p.ziva = true; p.t = 0;
