@@ -392,7 +392,7 @@ const matObrysDrevo = new THREE.MeshBasicMaterial({ color: 0x080a0e, side: THREE
 // takže 2 % dají 12 jednotek do stran, ale jen 0,18 nahoru — a nahoru a dolů
 // je právě to, kde je obrys vidět. Proto se ke KAŽDÉ ose přičítá stejný lem
 // a měřítko se z toho dopočítá.
-const LEM_POLICE = 3.4;
+const LEM_POLICE = 1.7;
 function lemDesky(w, h, d){
   return [ (w + LEM_POLICE*2)/w, (h + LEM_POLICE*2)/h, (d + LEM_POLICE*2)/d ];
 }
