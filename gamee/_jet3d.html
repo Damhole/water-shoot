@@ -1054,20 +1054,14 @@ function zasahyLahvi(dt){
   world.step(1/60, dt, 3);
 
   for(const L of lahve){
-    if(L.mrtva > 0){
-      L.mrtva -= dt;
-      if(L.mrtva <= 0){                       // postavit zpět na polici
-        L.hp = HP_LAHVE; L.trefena = false;   // nová lahev = zase se dá „poprvé" trefit
-        // police je tam, kde právě stojí SEKCE — ta jezdí, tak se musí přičíst
-        L.telo.position.set(L.zaklX, L.sek.zaklY + POLICE_Y[L.police] + L.typ.h/2,
-                            POLICE_Z + rand(-16, 16));
-        L.telo.quaternion.setFromEuler(0, Math.random()*Math.PI*2, 0);
-        L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
-        L.telo.wakeUp();
-        L.m.visible = true;
-      }
-      continue;
-    }
+    // ROZBITÁ LAHEV SE UŽ NEVRACÍ. Dřív se po 2,2 s postavila zpátky na
+    // původní místo, což znamenalo, že hráči doprostřed rozstřílené police
+    // z ničeho nic naskočila nová lahev — přesně ten druh „objevilo se to
+    // odnikud", který ve hře nemá co dělat. Nové sklo přijíždí jen s novým
+    // patrem: `prestavLahve` při přejezdu sekce vrátí `mrtva` na nulu
+    // a rozestaví police znovu.
+    // `mrtva` je od téhle chvíle jen příznak, ne odpočet.
+    if(L.mrtva > 0) continue;
     // mesh následuje těleso; posun o půl výšky kvůli počátku modelu ve spodku
     _q.set(L.telo.quaternion.x, L.telo.quaternion.y, L.telo.quaternion.z, L.telo.quaternion.w);
     L.m.quaternion.copy(_q);
@@ -1081,7 +1075,7 @@ function zasahyLahvi(dt){
         rozprsk(L.m.position, new THREE.Vector3(0,1,0), new THREE.Vector3(0, 420, 0), 16);
         krouzek(L.m.position.x, 1.5, L.m.position.z, 'up', 40);
       }
-      L.m.visible = false; L.mrtva = 2.2; pripisSkore(100);
+      L.m.visible = false; L.mrtva = 1; pripisSkore(100);   // 1 = příznak „je pryč"
       L.telo.position.set(0, -4000, 0);       // uklidit mimo scénu
       L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
       continue;
@@ -1119,55 +1113,7 @@ function zasahyLahvi(dt){
   }
 }
 
-function _stary(dt){
-  for(const L of lahve){
-    if(L.mrtva > 0){                       // rozbitá — po chvíli se vrátí
-      L.mrtva -= dt;
-      if(L.mrtva <= 0){
-        L.hp = HP_LAHVE; L.pada = false;
-        L.m.visible = true; L.m.rotation.set(0, Math.random()*6.28, 0);
-        L.m.position.y = POLICE_Y[L.police];
-      }
-      continue;
-    }
-    if(L.pada){
-      L.vy -= G*dt;
-      L.m.position.x += L.vx*dt; L.m.position.y += L.vy*dt; L.m.position.z += L.vz*dt;
-      L.m.rotation.z += L.va*dt;
-      if(L.m.position.y <= 6){             // dopad na zem — střepy a sprška
-        rozprsk(L.m.position, new THREE.Vector3(0,1,0), new THREE.Vector3(0, 420, 0), 16);
-        krouzek(L.m.position.x, 1.5, L.m.position.z, 'up', 40);
-        L.m.visible = false; L.mrtva = 2.2; L.pada = false;
-        pripisSkore(100);
-      }
-      continue;
-    }
-    // zásah proudem — stejný princip jako u terčů
-    for(const u of uzly){
-      const dx = u.p.x - L.m.position.x;
-      const dy = u.p.y - (L.m.position.y + L.typ.h*0.5);
-      const dz = u.p.z - L.m.position.z;
-      if(dx*dx + dz*dz > 40*40 || Math.abs(dy) > L.typ.h*0.6) continue;
-      L.hp -= 1;
-      // proud lahví viditelně kýve, než ji shodí
-      L.m.rotation.z += (u.v.x > 0 ? 1 : -1) * 0.012;
-      if(Math.random() < 0.4){
-        const n = new THREE.Vector3(dx, 0, dz).normalize();
-        rozprsk(u.p, n, u.v, 3 + (Math.random()*3|0));
-      }
-      if(L.hp <= 0){
-        L.pada = true;
-        L.vx = (u.v.x > 0 ? 1 : -1) * (60 + Math.random()*120);
-        L.vy = 40 + Math.random()*60;
-        L.vz = 90 + Math.random()*120;     // spadne dopředu z pultu
-        L.va = (Math.random()-0.5)*9;
-      }
-      break;
-    }
-  }
-}
-
-// ---- textura vody:// ---- textura vody: pruhy, které se posouvají po délce trubice -------------
+// ---- textura vody: pruhy, které se posouvají po délce trubice -------------
 // Levnější než cokoli jiného: 8×64 px, opakuje se a jen se jí hýbe offsetem.
 // Textura dělá čitelnost toku. Musí mít OSTRÉ světlé pruhy — měkký gradient
 // se při pohybu ztratí a proud pak vypadá staticky. Pruhy jsou různě široké
