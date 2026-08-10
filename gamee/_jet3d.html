@@ -343,6 +343,12 @@ const POLIC = 3;
 const POLICE_Y = [50, 235, 420];
 const POLICE_Z = -560;
 const POLICE_HW = 620;
+// Hloubka desky. Musí ZAJET DO STĚNY, ne k ní jen dosáhnout: se 150 končila
+// deska v z −635, kdežto čelo stěny je v −620, takže mezi nimi zůstávalo
+// 15 jednotek díry. Tou prosvítalo světlo (světlý proužek pod policí, police
+// vypadala, že na stěnu nedoléhá) a procházel jí i stín lahve pod polici.
+// 180 zajede 30 jednotek do stěny a díra zmizí.
+const POLICE_HL = 180, POLICE_HL2 = POLICE_HL/2;
 // Rovina, ve které stojí kachničky: O VRSTVU ZA LAHVEMI. Lahve stojí v
 // POLICE_Z ±16, zadní stěna je v −620, takže −600 je mezi nimi — kachnička
 // je za lahvemi a před stěnou. Stojí na desce police (její horní plocha je
@@ -506,17 +512,17 @@ function novaSekce(zaklY){
     position: new CANNON.Vec3(0, SEKCE_V/2, POLICE_Z - 95) }), lokY: SEKCE_V/2 });
 
   for(const y of POLICE_Y){
-    const deska = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matDrevo);
+    const deska = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, POLICE_HL), matDrevo);
     deska.position.set(0, y - 9, POLICE_Z);
     deska.receiveShadow = true;
     deska.castShadow = true;      // bez toho stín lahve prosvítá pod polici
     sek.skupina.add(deska);
-    const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matObrysDrevo);
-    o.scale.set(...lemDesky(POLICE_HW*2, 18, 150)); o.position.copy(deska.position);
+    const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, POLICE_HL), matObrysDrevo);
+    o.scale.set(...lemDesky(POLICE_HW*2, 18, POLICE_HL)); o.position.copy(deska.position);
     sek.skupina.add(o);
-    sek.drevo.push(pridejDrevo(0, y - 9, POLICE_Z, POLICE_HW, 9, 75));
+    sek.drevo.push(pridejDrevo(0, y - 9, POLICE_Z, POLICE_HW, 9, POLICE_HL2));
     sek.telesa.push({ telo: new CANNON.Body({ type: CANNON.Body.STATIC,
-      shape: new CANNON.Box(new CANNON.Vec3(POLICE_HW, 9, 75)),
+      shape: new CANNON.Box(new CANNON.Vec3(POLICE_HW, 9, POLICE_HL2)),
       position: new CANNON.Vec3(0, y - 9, POLICE_Z) }), lokY: y - 9 });
   }
   for(const t of sek.telesa) world.addBody(t.telo);
@@ -567,15 +573,15 @@ sekce[1].slot = 1;
 const podpatri = { zaklY: 0, skupina: new THREE.Group(), telesa: [], drevo: [], lahve: [] };
 scene.add(podpatri.skupina);
 for(const y of [-135, -320]){
-  const deska = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matDrevo);
+  const deska = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, POLICE_HL), matDrevo);
   deska.position.set(0, y - 9, POLICE_Z);
   deska.receiveShadow = true;
   deska.castShadow = true;
   podpatri.skupina.add(deska);
-  const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matObrysDrevo);
-  o.scale.set(...lemDesky(POLICE_HW*2, 18, 150)); o.position.copy(deska.position);
+  const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, POLICE_HL), matObrysDrevo);
+  o.scale.set(...lemDesky(POLICE_HW*2, 18, POLICE_HL)); o.position.copy(deska.position);
   podpatri.skupina.add(o);
-  podpatri.drevo.push(pridejDrevo(0, y - 9, POLICE_Z, POLICE_HW, 9, 75));
+  podpatri.drevo.push(pridejDrevo(0, y - 9, POLICE_Z, POLICE_HW, 9, POLICE_HL2));
 }
 
 let skore = 0;
