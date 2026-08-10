@@ -358,7 +358,10 @@ const POLICE_HL = 180, POLICE_HL2 = POLICE_HL/2;
 // v pořádku, na horní patro se prostě musí střílet plošeji. Míří se do téhle
 // roviny, viz mir().
 const KACH_Z = POLICE_Z - 40;
-const LAHVI_NA_POLICI = 7;
+// Šest místo sedmi: se třetí sekcí by při sedmi bylo 63 lahví a každá stojí
+// dva draw cally (tělo + obrys). Takhle je jich 54, tedy jen o 12 víc než
+// dřív při dvou sekcích.
+const LAHVI_NA_POLICI = 6;
 
 // profil v jednotkách 0..1 (poloměr, výška) — převzatý z js/western.js
 const PROFIL_LAHEV = [
@@ -567,9 +570,16 @@ function prestavLahve(sek){
   }
 }
 
-sekce.push(novaSekce(0));            // ta, ve které se hraje
-sekce.push(novaSekce(SEKCE_V));      // ta, která se odkryje po vyčištění
-sekce[1].slot = 1;
+// TŘI SEKCE, ne dvě. Se dvěma vznikala při přejezdu díra: v hloubce baru je
+// svisle vidět 997 jednotek (y od −139 do 859), jenže po posunu o −620 sahaly
+// obě sekce jen do 620 — nad tím bylo 239 jednotek prázdna, které se zaplnilo
+// až skokem na konci přejezdu. Odtud to „doplní se, až když je kamera nahoře".
+// Se třemi je při posunu pokryto do 1240, tedy s rezervou nad horní hranou.
+for(let i=0;i<3;i++){
+  const s = novaSekce(i*SEKCE_V);
+  s.slot = i;                        // 0 = hraje se v ní, 1 a 2 čekají nad ní
+  sekce.push(s);
+}
 
 // PODPATŘÍ: dvě police pod hrací sekcí. Sokl sám o sobě byl jen hnědá plocha
 // a působil prázdně — tohle je vizuálně to patro, které hráč právě vyčistil.
@@ -1841,7 +1851,7 @@ function krokRozmazani(dt){
 let patro = 1, zbyva = 0, prechod = 0, posun = 0, posunMinuly = 0, hlaska = 0;
 const patroEl = document.getElementById('patroRoh');
 const hlaskaEl = document.getElementById('hlaska');
-function hraciSekce(){ return sekce[0].slot === 0 ? sekce[0] : sekce[1]; }
+function hraciSekce(){ return sekce.find(s => s.slot === 0); }
 function kvota(){ return KVOTA_ZAKLAD + Math.min(4, patro - 1); }
 function ukazPatro(){
   // anglicky, ať to ladí s „Floor cleared!"
@@ -1893,13 +1903,13 @@ function krokPostupu(dt){
     // přeřadily. Bez tohohle vidí výpočet rychlosti skok o celou sekci
     // a na jeden snímek vystřelí rozmazání na maximum (naměřeno 25 726/s).
     vertMinuly = posun - otresY;
-    const dole = sekce[0].slot === 0 ? sekce[0] : sekce[1];
-    const nahore = dole === sekce[0] ? sekce[1] : sekce[0];
-    dole.slot = 1; nahore.slot = 0;
-    nastavSekci(nahore, 0);
-    nastavSekci(dole, SEKCE_V);
+    // Sekce se posunou o jeden slot dolů a ta, co byla dole, obchází nahoru
+    // na konec fronty. Se třemi sekcemi to musí být cyklus, ne prohození.
+    const dole = hraciSekce();
+    for(const s of sekce) s.slot = (s.slot + sekce.length - 1) % sekce.length;
+    for(const s of sekce) nastavSekci(s, s.slot*SEKCE_V);
     nastavSekci(podpatri, 0);            // podpatří zpátky pod novou hrací sekci
-    prestavLahve(dole);                    // odjetá sekce se přestaví a čeká nahoře
+    prestavLahve(dole);                  // odjetá sekce se přestaví a čeká nahoře
     patro++; zbyva = kvota(); ukazPatro();
     otresT = 0;                                  // kamera teď dobrzdí
     nastavPodlahu();                             // nad přízemím už podlaha není
