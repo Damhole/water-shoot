@@ -90,15 +90,15 @@
       0 var(--o2) 0 var(--obrys), 0 calc(-1*var(--o2)) 0 var(--obrys),
       0 0.5vh 0.55vh rgba(0,0,0,.4); }
   #skoreRoh{position:fixed;left:50%;top:calc(21.5vh - 50px);transform:translate(-50%,-50%);z-index:4;
-    pointer-events:none;font-size:6.2vh;line-height:1;--o:0.20vh;--o2:0.30vh;--hloubka:0.62vh}
+    pointer-events:none;font-size:6.2vh;line-height:1;--o:0.20vh;--o2:0.28vh;--hloubka:0.40vh}
   /* patro a postup ke kvótě — pod skóre, drobněji, ať to nekřičí */
   #patroRoh{position:fixed;left:50%;top:calc(27.4vh - 50px);transform:translate(-50%,-50%);z-index:4;
-    pointer-events:none;font-size:2.4vh;line-height:1;--o:0.11vh;--o2:0.17vh;--hloubka:0.26vh;
+    pointer-events:none;font-size:2.4vh;line-height:1;--o:0.11vh;--o2:0.16vh;--hloubka:0.17vh;
     letter-spacing:.02em}
   /* „Floor cleared!" — přes celou šířku, uprostřed výšky terčů. Naskočí
      s krátkým přiblížením, ať to má úder; bez animace by to jen bliklo. */
   #hlaska{position:fixed;left:0;right:0;top:45vh;z-index:5;text-align:center;
-    pointer-events:none;font-size:3.4vh;line-height:1;--o:0.15vh;--o2:0.23vh;--hloubka:0.38vh;
+    pointer-events:none;font-size:3.4vh;line-height:1;--o:0.15vh;--o2:0.21vh;--hloubka:0.25vh;
     letter-spacing:.04em;
     opacity:0;transform:scale(.75);transition:opacity .16s ease, transform .16s ease}
   #hlaska.vidno{opacity:1;transform:scale(1)}
@@ -2082,7 +2082,7 @@ const POPUP_W = 256, POPUP_H = 128;
 // různé fonty na jedné obrazovce. Canvas ale nezná CSS proměnné, takže se
 // hodnoty opakují tady.
 const POPUP_FONT = '400 76px "Lilita One", "Arial Rounded MT Bold", Arial, sans-serif';
-const POPUP_HLOUBKA = 9;
+const POPUP_HLOUBKA = 6;
 // Font se musí načíst DŘÍV, než se první popupek nakreslí — canvas na
 // document.fonts nečeká a tiše by vzal náhradní písmo.
 if(document.fonts && document.fonts.load) document.fonts.load(POPUP_FONT.replace('400 ',''));
@@ -2093,7 +2093,7 @@ for(let i=0;i<POPUPU;i++){
   const tex = new THREE.CanvasTexture(c);
   tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
-  sp.scale.set(150, 75, 1); sp.visible = false;
+  sp.scale.set(130, 65, 1); sp.visible = false;
   scene.add(sp);
   popupy.push({ sp, c, tex, t: 0, ziva: false, y0: 0 });
 }
