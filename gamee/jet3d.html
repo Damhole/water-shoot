@@ -164,6 +164,8 @@
   <input type="range" id="ramp" min="0" max="1.2" step="0.05" value="0.45">
   <label>síla zásahu do lahví <span id="vImp"></span></label>
   <input type="range" id="imp" min="1" max="120" step="1" value="34">
+  <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
+    <input type="checkbox" id="stiny" checked> stíny</label>
   <button class="btn" id="reset">↺ výchozí hodnoty</button>
 </div>
 <div id="note">Táhni prstem/myší = miř. Proud je JEDNA trubice podél balistické dráhy,
@@ -241,8 +243,38 @@ const paralaxCil = new THREE.Vector3(); // kam se dojíždí
 // k bílé. K tomu je ambient méně modrý, aby scéně nešedivěl hnědou.
 scene.add(new THREE.AmbientLight(0x8fa8c4, 0.74));
 const slunce = new THREE.DirectionalLight(0xffffff, 1.02);
-slunce.position.set(-300, 600, 400);
+// Světlo je dál, ale VE STEJNÉM SMĚRU (2,5× původní vektor) — směr určuje,
+// jak scéna vypadá, a ten se měnit nesmí. Vzdálenost je jen kvůli stínům:
+// ortografická kamera stínu musí scénu obsáhnout zvenčí.
+slunce.position.set(-750, 1500, 1000);
 scene.add(slunce);
+
+// ---- stíny ----------------------------------------------------------------
+// Kamera se dívá skoro vodorovně, takže stín ležící na desce police by byl
+// vidět z boku a prakticky by zanikl. Užitečný je tu stín na ZADNÍ STĚNĚ:
+// světlo jde zleva shora zepředu, takže lahve i kachničky vrhají stín dozadu
+// doprava — přesně jako v baru s lampou nad pultem.
+//
+// Vrhají jen lahve a kachničky (a u kachniček jen PŘEDNÍ vrstva z pěti),
+// chytají police a stěna. Obrysové meshe vrhat nesmí — jsou o 7 % větší
+// a stín by z nich vyšel jako rozmazaná silueta vedle.
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+slunce.castShadow = true;
+slunce.shadow.mapSize.set(1024, 1024);
+{
+  // Rozsah kamery stínu = ostrost. Mapa 1024 rozprostřená přes 2000×2200
+  // dávala 2 jednotky na texel a stíny byly rozmazané šmouhy; 820×900 je
+  // ~0,85 jednotky na texel, tedy dvakrát ostřejší, a pořád obsáhne celou
+  // hrací sekci i kus nad ní.
+  const sc = slunce.shadow.camera;
+  sc.left = -820; sc.right = 820; sc.top = 900; sc.bottom = -900;
+  sc.near = 200; sc.far = 3600;
+  sc.updateProjectionMatrix();
+}
+// bias proti „shadow acne" — pruhování na vlastním povrchu tělesa
+slunce.shadow.bias = -0.0012;
+slunce.shadow.normalBias = 2.5;
 
 // ---- barvy ----------------------------------------------------------------
 // Three od r152 barvy spravuje: hex se bere jako sRGB, převede se do lineárního
@@ -274,6 +306,7 @@ const podlaha = new THREE.Mesh(
   new THREE.PlaneGeometry(3000, 3000),
   barevny(new THREE.MeshLambertMaterial({ color:0x1b2f45 }), 0x1b2f45));
 podlaha.rotation.x = -Math.PI/2;
+podlaha.receiveShadow = true;
 scene.add(podlaha);
 
 const stena = new THREE.Mesh(
@@ -410,6 +443,7 @@ function novaLahev(sek, police, i){
   const obrys = new THREE.Mesh(typ.geo, matObrysTelo);
   obrys.scale.setScalar(1.07);
   m.add(obrys);
+  m.castShadow = true;          // obrys zůstává bez stínu, je o 7 % větší
   scene.add(m);
 
   const x = -POLICE_HW*0.85 + (i + 0.5)*(POLICE_HW*1.7/LAHVI_NA_POLICI) + rand(-16, 16);
@@ -436,12 +470,14 @@ function novaSekce(zaklY){
 
   const stena = new THREE.Mesh(new THREE.BoxGeometry(1500, SEKCE_V, 40), matStena);
   stena.position.set(0, SEKCE_V/2, POLICE_Z - 80);
+  stena.receiveShadow = true;
   sek.skupina.add(stena);
   // Sokl pod základnou. Nad přízemím není podlaha a bez tohohle by bar končil
   // uprostřed obrazu a visel v prázdnu. Je O KUS HLOUB v ose Z než stěna, aby
   // se s ní v místě, kde se sekce překrývají, nepral o stejnou rovinu.
   const sokl = new THREE.Mesh(new THREE.BoxGeometry(1500, 420, 40), matStena);
   sokl.position.set(0, -210, POLICE_Z - 95);
+  sokl.receiveShadow = true;
   sek.skupina.add(sokl);
   sek.drevo.push(pridejDrevo(0, SEKCE_V/2, POLICE_Z - 80, 750, SEKCE_V/2, 20));
   // zadní zábrana, ať lahve neutečou dozadu
@@ -452,6 +488,7 @@ function novaSekce(zaklY){
   for(const y of POLICE_Y){
     const deska = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matDrevo);
     deska.position.set(0, y - 9, POLICE_Z);
+    deska.receiveShadow = true;
     sek.skupina.add(deska);
     const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matObrysTelo);
     o.scale.setScalar(1.02); o.position.copy(deska.position);
@@ -511,6 +548,7 @@ scene.add(podpatri.skupina);
 for(const y of [-135, -320]){
   const deska = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matDrevo);
   deska.position.set(0, y - 9, POLICE_Z);
+  deska.receiveShadow = true;
   podpatri.skupina.add(deska);
   const o = new THREE.Mesh(new THREE.BoxGeometry(POLICE_HW*2, 18, 150), matObrysTelo);
   o.scale.setScalar(1.02); o.position.copy(deska.position);
@@ -1462,6 +1500,7 @@ const POSUVNIKY = ['fov','syt','rad','tl','sp','sila','ramp','imp'];
 function uloz(){
   const o = {};
   for(const id of POSUVNIKY) o[id] = document.getElementById(id).value;
+  o._stiny = document.getElementById('stiny').checked;
   o._panel = !document.getElementById('hud').hidden;
   try{ localStorage.setItem(ULOZ_KLIC, JSON.stringify(o)); }catch(e){}
 }
@@ -1470,6 +1509,7 @@ function nacti(){
     const o = JSON.parse(localStorage.getItem(ULOZ_KLIC) || 'null');
     if(!o) return false;
     for(const id of POSUVNIKY) if(o[id] !== undefined) document.getElementById(id).value = o[id];
+    if(o._stiny !== undefined) document.getElementById('stiny').checked = o._stiny;
     document.getElementById('hud').hidden = !o._panel;
     return true;
   }catch(e){ return false; }
@@ -1481,6 +1521,18 @@ cog.addEventListener('click', e => { e.stopPropagation(); hud.hidden = !hud.hidd
 // klik do panelu nesmí propadnout do míření pod ním
 hud.addEventListener('pointerdown', e => e.stopPropagation());
 hud.addEventListener('pointermove', e => e.stopPropagation());
+
+// Vypínač stínů. Stín stojí celý průchod navíc, a i když na Macu drží 60 FPS,
+// na mobilní GPU to je první podezřelý — ať jde odstavit bez zásahu do kódu.
+const cbStiny = document.getElementById('stiny');
+function nastavStiny(){
+  renderer.shadowMap.enabled = cbStiny.checked;
+  slunce.castShadow = cbStiny.checked;
+  // materiály se musí přeložit, jinak zůstane starý shader i po vypnutí
+  scene.traverse(o => { if(o.material) (Array.isArray(o.material)?o.material:[o.material])
+    .forEach(m => m.needsUpdate = true); });
+}
+cbStiny.addEventListener('change', ()=>{ nastavStiny(); uloz(); });
 
 document.getElementById('reset').addEventListener('click', ()=>{
   const vych = { fov:48, syt:135, rad:8, tl:9, sp:5, sila:2600, ramp:0.45, imp:34 };
@@ -1505,6 +1557,7 @@ function obnovPopisky(){
   vImp.textContent = imp.value;
 }
 obnovPopisky();
+nastavStiny();
 
 // ---- kachničky ------------------------------------------------------------
 // Automatické terče jako na pouťové střelnici: kachnička se objeví, chvíli
@@ -1617,6 +1670,7 @@ for(let i=0;i<KACHEN_MAX;i++){
       color: new THREE.Color(jas, jas, jas) }));
     m.scale.set(KACH_R*2*BANDIT_ZOOM, KACH_R*2*BANDIT_ZOOM, 1);
     m.position.set(0, KACH_STRED, -v*KACH_VRSTVA); // skupina má počátek u paty
+    if(v === 0) m.castShadow = true;   // stín vrhá jen přední vrstva z pěti
     skup.add(m);
     vrstvy.push(m);
   }
