@@ -1035,6 +1035,13 @@ function pripisSkore(n){
 // Zatím JEN UKAZATEL: nic ho neubírá, protože hráč ještě nemá jak přijít
 // k újmě. Je schválně vedený jako podíl 0..1, ne jako počet srdcí — na počet
 // se dá kdykoli přejít krokováním, obráceně by se plynulý pruh musel předělat.
+// ŽIVOTY JSOU VYPNUTÉ. Hra stojí na vodě a mincích: hráč sbírá vodu, aby
+// vydržel hrát co nejdéle, a mince jsou to, co si z toho odnese. Životy do
+// toho vnášely druhý, nezávislý zdroj smrti a hra tím byla chaotičtější.
+// Kód zůstává celý — přepnutím na true se vrátí i s pruhem v HUD.
+// Deklarace je TADY, ne u projektilů: čte se hned pod ní při schování pruhu,
+// tedy o tisíc řádků výš, než kde leží zbytek střelby.
+const ZIVOTY_ZAP = false;
 let zivot = 1;
 const zivotEl = document.querySelector('#zivotRoh .vypln');
 function nastavZivot(v){
@@ -1043,6 +1050,8 @@ function nastavZivot(v){
 }
 function uberZivot(v){ nastavZivot(zivot - v); }
 nastavZivot(1);
+// Vypnuté životy nemají co ukazovat — pruh se schová celý, ať HUD nelže.
+if(!ZIVOTY_ZAP) document.getElementById('zivotRoh').hidden = true;
 
 // Zásoba vody — druhý ukazatel, zatím taky jen kresba. Vedená stejně jako
 // život (podíl 0..1), aby se oba daly obsluhovat týmž způsobem, až budou mít
@@ -1084,7 +1093,11 @@ const PROJEKTILU_MAX = 6;
 const PROJ_R = 26;                  // poloměr koule ve světě
 const PROJ_LET = 2.3;               // jak dlouho letí k hráči
 const PROJ_POTREBA = 14;            // kolik zásahů proudu ji rozprskne
-const PROJ_UBERE = 0.2;             // kolik života sebere zásah (tedy pět ran)
+const PROJ_UBERE = 0.2;             // kolik života sebere zásah (platí jen se ZIVOTY_ZAP)
+// KOLIK MINCÍ VYSYPE JEDNA RÁNA. Podíl z banku, ne pevné číslo: pevné by na
+// začátku bolelo a po deseti patrech bylo k smíchu. Spodní hranice je tu
+// proto, aby zásah něco stál i s prázdnou kapsou.
+const KRADEZ_PODIL = 0.12, KRADEZ_MIN = 2;
 // MODRÁ A ORANŽOVÁ, ne dva odstíny modré. Dvě protilehlé barvy blikají i
 // koutkem oka, kdežto modrá do světlemodré splynula s vodou i s pozadím.
 // Toon stínování ubere na odvrácené straně, takže barvy musí být SVĚTLEJŠÍ,
@@ -1137,11 +1150,17 @@ function texturaOdlesku(){
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const g = c.getContext('2d');
+  // ODLESK JE OSTRÝ, ne rozmazaný. Na vodě je to zrcadlový obraz světla —
+  // má hranu. Rozmazaná skvrna dělá z koule matný plast.
   const gr = g.createRadialGradient(32, 32, 1, 32, 32, 30);
-  gr.addColorStop(0,   'rgba(255,255,255,0.95)');
-  gr.addColorStop(0.45,'rgba(255,255,255,0.35)');
-  gr.addColorStop(1,   'rgba(255,255,255,0)');
+  gr.addColorStop(0,    'rgba(255,255,255,0.30)');
+  gr.addColorStop(0.62, 'rgba(255,255,255,0.10)');
+  gr.addColorStop(1,    'rgba(255,255,255,0)');
   g.fillStyle = gr; g.beginPath(); g.arc(32, 32, 30, 0, Math.PI*2); g.fill();
+  // plné zrcátko: ostrá kapka s tvrdým okrajem a malý doprovodný bod
+  g.fillStyle = '#ffffff';
+  g.beginPath(); g.ellipse(28, 26, 13, 9, -0.6, 0, Math.PI*2); g.fill();
+  g.beginPath(); g.ellipse(46, 44, 4.5, 3.2, -0.6, 0, Math.PI*2); g.fill();
   const t = new THREE.CanvasTexture(c);
   t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
   return t;
@@ -1162,9 +1181,45 @@ for(let i=0;i<PROJEKTILU_MAX;i++){
   const mapa = texHmota.clone();
   mapa.needsUpdate = true;
   mapa.repeat.set(1.6, 1);
-  const m = new THREE.Mesh(geoProj, new THREE.MeshToonMaterial({
-    color: 0x2ea8ff, emissive: 0x2ea8ff, emissiveIntensity: 0.62,
-    map: mapa, gradientMap: toonGrad }));
+  // VLASTNÍ SHADER MÍSTO TOON MATERIÁLU. Toon dá pásma podle světla, jenže
+  // voda se nechová jako matná kulička: má TMAVŠÍ JÁDRO a SVĚTLEJŠÍ OBVOD,
+  // protože u okraje se dívám skrz víc kapaliny a světlo se tam láme.
+  // To je pohled od kamery, ne od světla — proto fresnel (kolik se normála
+  // odklání od pohledu), který žádný hotový materiál v three neumí.
+  // Do jádra se navíc přimíchá posouvaná textura, takže se hmota uvnitř vlní.
+  const m = new THREE.Mesh(geoProj, new THREE.ShaderMaterial({
+    uniforms: { barva: { value: new THREE.Color(0x2ea8ff) },
+                mapa:  { value: mapa },
+                cas:   { value: 0 } },
+    vertexShader: `
+      varying vec3 vNorm;
+      varying vec3 vPohled;
+      varying vec2 vUv;
+      void main(){
+        vUv = uv;
+        vNorm = normalize(normalMatrix * normal);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vPohled = -mv.xyz;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform vec3 barva;
+      uniform sampler2D mapa;
+      uniform float cas;
+      varying vec3 vNorm;
+      varying vec3 vPohled;
+      varying vec2 vUv;
+      void main(){
+        float f = 1.0 - abs(dot(normalize(vNorm), normalize(vPohled)));
+        float okraj = pow(clamp(f, 0.0, 1.0), 1.5);
+        // hmota uvnitř: textura se posouvá kolem osy a pohupuje nahoru dolů
+        vec2 uv = vUv*vec2(1.6, 1.0) + vec2(cas*0.28, sin(cas*1.7)*0.06);
+        float v = texture2D(mapa, uv).r;
+        vec3 jadro = barva*(0.34 + 0.30*v);          // tmavé jádro, v něm vlny
+        vec3 lem   = mix(barva, vec3(1.0), 0.55);    // světlý obvod
+        gl_FragColor = vec4(mix(jadro, lem, okraj), 1.0);
+      }`,
+  }));
   // obrys stejným trikem jako u lahví: obrácená slupka o kus větší
   const obrys = new THREE.Mesh(geoProj, matObrysTelo);
   obrys.scale.setScalar(1.16);
@@ -1284,19 +1339,13 @@ function krokProjektilu(dt){
     const f = 2 + 7*u*u;
     const b = Math.min(1, Math.max(0, 0.5 + Math.sin(p.t*f*Math.PI*2)*4));
     _projBarva.copy(PROJ_BARVA_A).lerp(PROJ_BARVA_B, b);
-    p.m.material.color.copy(_projBarva);
-    p.m.material.emissive.copy(_projBarva);   // svit jde s barvou, jinak by pulz zešedl
-    // HMOTA SE VLNÍ. Posouvá se TEXTURA, ne koule: rotací meshe by se odnesl
-    // i odlesk, který je jejím dítětem, a přestal by držet polohu vůči světlu.
-    // Dva pohyby proti sobě — obíhání kolem osy a pomalé svislé pohupování —
-    // stačí na to, aby se vzor nikdy neopakoval tak, aby to šlo přehlédnout.
-    const mapa = p.m.material.map;
-    mapa.offset.x -= dt*0.28;
-    mapa.offset.y  = Math.sin(p.t*1.7 + p.faze)*0.06;
-    mapa.rotation  = Math.sin(p.t*0.9 + p.faze)*0.25;
+    // Barva i vlnění jdou do shaderu jako uniformy. Vlastní čas na kouli
+    // (a s ním fáze) je tu proto, aby se dvě koule nevlnily svorně.
+    p.m.material.uniforms.barva.value.copy(_projBarva);
+    p.m.material.uniforms.cas.value = p.t + p.faze;
     if(u >= 1){                                  // doletěla na hráče
       p.ziva = false; p.m.visible = false;
-      uberZivot(PROJ_UBERE);
+      if(ZIVOTY_ZAP) uberZivot(PROJ_UBERE);
       zasahHrace();
     }
   }
@@ -1341,7 +1390,11 @@ function zasahHrace(){
   zasahEl.classList.remove('bliknuti');
   void zasahEl.offsetWidth;             // restart animace i při rychlé druhé ráně
   zasahEl.classList.add('bliknuti');
-  if(zivot <= 0) konecHry('Soaked!');
+  // STŘELA OKRÁDÁ, NEZABÍJÍ. Bandita hráči vysype část banku — hra tím
+  // netrestá smrtí, ale tím, co si hráč na konci koupí.
+  const kolik = Math.min(mince, Math.max(KRADEZ_MIN, Math.round(mince*KRADEZ_PODIL)));
+  if(kolik > 0) vysypMince(kolik);
+  if(ZIVOTY_ZAP && zivot <= 0) konecHry('Soaked!');
 }
 
 function hlidejKonec(){
@@ -1426,7 +1479,7 @@ nastavVodu(1);
 let mince = 0;
 const minceEl = document.getElementById('minceCislo');
 function pripisMinci(n){
-  mince += n;
+  mince = Math.max(0, mince + n);
   minceEl.textContent = mince;
 }
 
@@ -1472,6 +1525,27 @@ const LETY = {
 const VODA_ZA_KAPKU = 0.04;
 
 function letMinci(pocet, wx, wy, wz){ letPredmet('mince', pocet, wx, wy, wz); }
+
+// VYSYPÁNÍ MINCÍ PŘI ZÁSAHU. Opak doletu: mince se odečtou hned (hráč má
+// vidět, že přišel o peníze, ne čekat na animaci) a z pruhu se vysypou ven,
+// kde spadnou z obrazu. Letí po balistice v SOUŘADNICÍCH OBRAZOVKY, ne ve
+// scéně — pruh je HUD a mince z něj mají padat po obrazovce.
+function vysypMince(pocet){
+  pripisMinci(-pocet);
+  const sablona = document.querySelector('#minceRoh .mince');
+  const r = sablona.getBoundingClientRect();
+  const sx = (r.left + r.right)/2, sy = (r.top + r.bottom)/2;
+  for(let i=0;i<Math.min(pocet, 8);i++){        // víc než osm už je jen nepořádek
+    const el = sablona.cloneNode(true);
+    el.removeAttribute('class');
+    el.classList.add('letMince');
+    document.body.appendChild(el);
+    letici.push({ el, typ:'kradez', t:0,
+      x0:sx, y0:sy,
+      vx: rand(-260, 260), vy: rand(-420, -180),
+      otoc: rand(-540, 540) });
+  }
+}
 function letVody(pocet, wx, wy, wz){ letPredmet('voda', pocet, wx, wy, wz); }
 
 function letPredmet(typ, pocet, wx, wy, wz){
@@ -1498,10 +1572,23 @@ function letPredmet(typ, pocet, wx, wy, wz){
   }
 }
 
+const KRADEZ_G = 1500;        // tíže v pixelech za vteřinu na druhou
 function krokLetMinci(dt){
   for(let i=letici.length-1; i>=0; i--){
     const m = letici[i];
     m.t += dt;
+    // VYSYPANÁ MINCE: prostá balistika po obrazovce a rotace, pak zmizí.
+    // Nic se při doletu nepřipisuje — odečetlo se hned při zásahu.
+    if(m.typ === 'kradez'){
+      const x = m.x0 + m.vx*m.t;
+      const y = m.y0 + m.vy*m.t + 0.5*KRADEZ_G*m.t*m.t;
+      m.el.style.transform =
+        `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%,-50%) ` +
+        `rotate(${(m.otoc*m.t).toFixed(1)}deg) scale(0.85)`;
+      m.el.style.opacity = m.t < 0.5 ? '1' : String(Math.max(0, 1 - (m.t - 0.5)/0.35));
+      if(m.t > 0.9 || y > innerHeight + 60){ m.el.remove(); letici.splice(i, 1); }
+      continue;
+    }
     const naskok = Math.min(1, m.t/MINCE_NASKOK);
     // Houpání běží pořád ze stejné fáze, takže při odletu nepřeskočí; během
     // letu se jen utlumí k nule podle `e`.
