@@ -239,8 +239,14 @@
   #konecRoh{position:fixed;left:0;right:0;top:38vh;z-index:7;text-align:center;
     pointer-events:none}
   #konecRoh[hidden]{display:none}
-  #konecNadpis{font-size:5.2vh;line-height:1.1;--o:0.22vh;--o2:0.30vh;--hloubka:0.42vh}
-  #konecVyzva{margin-top:1.6vh;font-size:2.4vh;line-height:1;
+  /* POSITION:RELATIVE JE TU POVINNÉ. Hloubková kopie (.titulek::after) je
+     absolutně polohovaná, takže se řídí nejbližším POLOHOVANÝM předkem —
+     u ostatních nadpisů je to prvek sám (mají position:fixed). Tyhle dva
+     řádky jsou obyčejné divy uvnitř #konecRoh, takže se jim kopie odstěhovala
+     k hornímu okraji kontejneru a překryla nadpis cizím textem. */
+  #konecNadpis{position:relative;font-size:5.2vh;line-height:1.1;
+    --o:0.22vh;--o2:0.30vh;--hloubka:0.42vh}
+  #konecVyzva{position:relative;margin-top:1.6vh;font-size:2.4vh;line-height:1;
     --o:0.11vh;--o2:0.16vh;--hloubka:0.17vh;letter-spacing:.03em;opacity:.9}
   #kriz{position:fixed;left:0;top:0;width:54px;height:54px;margin:-27px 0 0 -27px;
     pointer-events:none;z-index:3}
