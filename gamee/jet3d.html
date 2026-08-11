@@ -3652,13 +3652,25 @@ function krokKachen(dt){
       // Nápřah začíná tak, aby výstřel padl přesně na začátek cukání před
       // odchodem — kachnička se tedy po výstřelu roztřepe a zmizí.
       if(k.strelec && !k.vystrelil && !konec){
+        // KOLT MUSÍ BÝT VIDĚT I V OKAMŽIKU VÝSTŘELU, ne jen při nasazení.
+        // Lahve se hýbou: hráč je porazí, srazí z police nebo posune, takže
+        // kachnička, která se nasazovala s volnou hlavní, může stát za sklem
+        // o pár vteřin později. Kontroluje se proto každý snímek, dokud rána
+        // nepadne — a když se kolt zakryje uprostřed nápřahu, výstřel se
+        // ZRUŠÍ. Radši ať kachnička odejde bez rány, než aby střílela zpoza
+        // lahve.
+        siluetyLahvi(k.patro);
+        const vidi = koltVolny(k.zaklX);
         if(k.napr > 0){
-          k.napr -= dt;
-          const w = 1 - k.napr/NAPRAH_T;
-          const c = 1 + 0.10*w*Math.sin(k.t*40);
-          s.set(s.x/c, s.y*c, 1);
-          if(k.napr <= 0){ vystrel(k); k.vystrelil = true; }
-        } else if(k.ttl <= VAROVANI + NAPRAH_T){
+          if(!vidi){ k.napr = 0; }            // zakryl se během nápřahu → nic
+          else {
+            k.napr -= dt;
+            const w = 1 - k.napr/NAPRAH_T;
+            const c = 1 + 0.10*w*Math.sin(k.t*40);
+            s.set(s.x/c, s.y*c, 1);
+            if(k.napr <= 0){ vystrel(k); k.vystrelil = true; }
+          }
+        } else if(vidi && k.ttl <= VAROVANI + NAPRAH_T){
           k.napr = NAPRAH_T;
         }
       }
