@@ -79,6 +79,13 @@
   #vychRada .btn{margin-top:0;font-size:11px;padding:6px 4px}
   #vychRada #ulozVych{background:rgba(255,214,102,.16);
     border-color:rgba(255,214,102,.4);color:#ffe08a}
+  #publRada{display:flex;gap:6px;margin-top:6px}
+  #heslo{flex:1;min-width:0;box-sizing:border-box;padding:6px 8px;border-radius:7px;
+    border:1px solid rgba(207,224,255,.3);background:rgba(255,255,255,.08);
+    color:#eaf2ff;font:inherit;font-size:11px;-webkit-user-select:text;user-select:text}
+  #publRada .btn{margin-top:0;font-size:11px;padding:6px 8px;white-space:nowrap}
+  #publStav{font-size:10px;line-height:1.4;color:#9fb4cc;min-height:1.4em;margin-top:3px}
+  #publStav.chyba{color:#ff9b8a}
   /* posuvník si bere gesta sám: bez tohohle by prohlížeč šikmý tah po
      posuvníku v půlce překlopil do rolování panelu */
   #hud input[type=range]{width:100%;touch-action:none}
@@ -453,6 +460,12 @@
   #vynulovat{display:block;width:100%;margin-top:8px;font-size:11px;
     background:none;border:0;color:rgba(207,224,255,.38)}
   #vynulovat.varovne{color:#ff9b8a;font-weight:700}
+  /* Záložní pole pro ruční kopii — ukáže se jen tehdy, když schránka selže
+     (na telefonu se to stává, když stránka neběží přes https). */
+  #kopieText{width:100%;box-sizing:border-box;height:74px;margin-top:6px;
+    font:11px/1.35 ui-monospace,Menlo,monospace;color:#cfe0f5;
+    background:rgba(255,255,255,.07);border:1px solid rgba(207,224,255,.25);
+    border-radius:6px;padding:6px;-webkit-user-select:text;user-select:text}
   #zasobnik{display:flex;align-items:center;gap:8px;margin-top:10px}
   #slotyRada{display:flex;gap:5px;flex:1}
   .slot{flex:1;min-width:0;height:38px;border-radius:7px;display:flex;
@@ -632,6 +645,16 @@
     <button class="btn" id="naVych">↺ výchozí nastavení</button>
     <button class="btn" id="ulozVych">uložit jako výchozí</button>
   </div>
+  <!-- PUBLIKOVÁNÍ VŠEM. Nastavení jinak nikam neodchází — patří k prohlížeči
+       a k adrese. Tohle je jediná cesta, jak ho dostat i k hráčům, aniž by se
+       musel měnit kód: uloží se na val vedle žebříčku a hra si ho při startu
+       stáhne. Heslo zná jen autor a leží u něj v prohlížeči, ne v kódu hry. -->
+  <div id="publRada">
+    <input id="heslo" type="password" placeholder="heslo pro publikování"
+           autocomplete="off" spellcheck="false">
+    <button class="btn" id="publikovat">↑ publikovat všem</button>
+  </div>
+  <div id="publStav"></div>
 
   <!-- CO MĚNÍ HRU je nahoře a má každý režim vlastní; co mění jen vzhled,
        je níž a je společné. Dřív bylo obojí promíchané a hledalo se to. -->
@@ -707,6 +730,11 @@
   <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
     <input type="checkbox" id="autoStrik"> automatické stříkání (na ladění)</label>
   <button class="btn" id="reset">↺ tovární hodnoty</button>
+  <!-- Nastavení nikam neodchází samo (localStorage patří k adrese), takže
+       tohle je most: zkopíruje všechna čísla jako text, který se dá poslat
+       a zapsat do kódu jako tovární hodnoty pro všechny. -->
+  <button class="btn" id="kopirovat">⧉ zkopírovat nastavení</button>
+  <textarea id="kopieText" readonly hidden></textarea>
 </div>
 <!-- Popis ovládání odsud zmizel: byl to text pro první seznámení s prototypem
      a v hratelné verzi jen ukrajoval spodní třetinu obrazu. -->
@@ -4377,6 +4405,80 @@ function bliknutiTlacitka(el, text){
   setTimeout(() => { el.textContent = puvodni; }, 1400);
 }
 
+// ZKOPÍROVÁNÍ NASTAVENÍ. Nastavení patří k adrese a nikam se neposílá, takže
+// tohle je jediná cesta, jak ho dostat jinam než do vlastního prohlížeče:
+// vysype se jako text, který jde poslat a přepsat do kódu jako tovární hodnoty.
+// ---- nastavení hry pro všechny --------------------------------------------
+// Nastavení patří k prohlížeči a k adrese, takže se k hráčům nedostane samo.
+// Autor ho proto může PUBLIKOVAT na val vedle žebříčku a hra si ho při startu
+// stáhne. Aby to nezpůsobilo blikání (chvíli tovární, pak stažené), ukládá se
+// stažené do zálohy a POUŽIJE SE AŽ PŘI DALŠÍM SPUŠTĚNÍ — hra se tak během
+// hraní nikdy nemění pod rukama.
+const NAST_KLIC = 'ws_nastaveni_ze_serveru';
+const HESLO_KLIC = 'ws_heslo';
+
+function nastaveniZeSite(){
+  if(!ZEBRICEK_URL) return;
+  fetch(ZEBRICEK_URL + (ZEBRICEK_URL.includes('?') ? '&' : '?') + 'co=nastaveni')
+    .then(o => o.json())
+    .then(d => {
+      if(d && d.nastaveni) localStorage.setItem(NAST_KLIC, JSON.stringify(d.nastaveni));
+    })
+    .catch(() => {});
+}
+
+// Použití stažené sady. Jen pro HRÁČE: kdo ladí, má mít pod rukama to své,
+// jinak by si přepsal vlastní práci tím, co sám kdysi publikoval.
+function pouzijNastaveniZeSite(){
+  if(LADENI) return false;
+  let n = null;
+  try{ n = JSON.parse(localStorage.getItem(NAST_KLIC) || 'null'); }catch(e){}
+  if(!n) return false;
+  const dej = (id, v) => { const e = document.getElementById(id); if(e && v !== undefined) e.value = v; };
+  for(const id of VZHLED_POSUVNIKY) dej(id, n.vzhled && n.vzhled[id]);
+  for(const id of HRA_POSUVNIKY)    dej(id, n.hra && n.hra[id]);
+  if(n.stiny !== undefined) document.getElementById('stiny').checked = !!n.stiny;
+  return true;
+}
+
+const publStavEl = document.getElementById('publStav');
+const hesloEl = document.getElementById('heslo');
+hesloEl.value = localStorage.getItem(HESLO_KLIC) || '';
+document.getElementById('publikovat').addEventListener('click', () => {
+  const heslo = hesloEl.value.trim();
+  if(!heslo){ publStavEl.textContent = 'napiš heslo'; publStavEl.className = 'chyba'; return; }
+  try{ localStorage.setItem(HESLO_KLIC, heslo); }catch(e){}
+  const n = { vzhled: {}, hra: {}, stiny: document.getElementById('stiny').checked };
+  for(const id of VZHLED_POSUVNIKY) n.vzhled[id] = document.getElementById(id).value;
+  for(const id of HRA_POSUVNIKY)    n.hra[id]    = document.getElementById(id).value;
+  publStavEl.className = ''; publStavEl.textContent = 'posílám…';
+  fetch(ZEBRICEK_URL, { method: 'POST', body: JSON.stringify({ nastaveni: n, heslo }) })
+    .then(o => o.json().then(d => ({ ok: o.ok, d })))
+    .then(({ ok, d }) => {
+      publStavEl.className = ok ? '' : 'chyba';
+      publStavEl.textContent = ok ? 'publikováno — hráči to dostanou při příštím spuštění'
+                                  : (d && d.chyba ? 'nepovedlo se: ' + d.chyba : 'nepovedlo se');
+    })
+    .catch(() => { publStavEl.className = 'chyba'; publStavEl.textContent = 'server neodpověděl'; });
+});
+
+const kopieEl = document.getElementById('kopieText');
+document.getElementById('kopirovat').addEventListener('click', (e) => {
+  const o = { rezim: JE_POSTUP ? 'postup' : 'volna', vzhled: {}, hra: {} };
+  for(const id of VZHLED_POSUVNIKY) o.vzhled[id] = document.getElementById(id).value;
+  for(const id of HRA_POSUVNIKY) o.hra[id] = document.getElementById(id).value;
+  o.stiny = document.getElementById('stiny').checked;
+  const text = JSON.stringify(o);
+  const btn = e.currentTarget;
+  const puvodni = btn.textContent;
+  const hotovo = () => { btn.textContent = '✓ zkopírováno'; setTimeout(() => { btn.textContent = puvodni; }, 1600); };
+  // Schránka jde jen z bezpečného původu; na http adrese telefonu selže,
+  // a tam se text aspoň ukáže k ručnímu označení.
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(hotovo).catch(() => { kopieEl.hidden = false; kopieEl.value = text; kopieEl.select(); });
+  } else { kopieEl.hidden = false; kopieEl.value = text; kopieEl.select(); }
+});
+
 const ulozVychBtn = document.getElementById('ulozVych');
 const naVychBtn = document.getElementById('naVych');
 
@@ -4416,6 +4518,10 @@ for(const id of ['projA','projB']){
   e.addEventListener('click', ukazNahled);
 }
 if(nacti()) console.log('[jet3d] nastavení obnoveno');
+// Publikovaná sada přebíjí to, co má hráč u sebe z minula — je to nastavení
+// hry, ne jeho volba. U ladění se nepoužije vůbec.
+if(pouzijNastaveniZeSite()) console.log('[jet3d] použito publikované nastavení');
+nastaveniZeSite();          // čerstvá verze se stáhne na pozadí pro příště
 // Až tady, po obnově uloženého stavu panelu: při nastavování nového postupu
 // musí být panel otevřený, ať se má co nastavovat.
 // BEZ LADĚNÍ SE NENASTAVUJE NIC. Ozubené kolo zmizí, panel se zavře a odpadá
