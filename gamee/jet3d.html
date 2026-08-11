@@ -14,10 +14,10 @@
     -webkit-user-select:none;user-select:none;
     touch-action:manipulation;overscroll-behavior:none}
   canvas{display:block;width:100%;height:100%;touch-action:none}
-  /* Tlačítko nastavení je DOLE V ROHU: nahoře přebíjelo pruh života a hráč
-     má nahoře koukat na stav, ne na ozubené kolo. */
   #tma{position:fixed;inset:0;z-index:2;pointer-events:none;
     background:#080b12;opacity:0}
+  /* Tlačítko nastavení je DOLE V ROHU: nahoře přebíjelo pruh života a hráč
+     má nahoře koukat na stav, ne na ozubené kolo. */
   #cog{position:fixed;left:10px;bottom:calc(10px + env(safe-area-inset-bottom, 0px));
     width:38px;height:38px;border:0;
     border-radius:50%;background:rgba(8,14,24,.8);color:#cfe0f5;font-size:19px;
@@ -250,8 +250,15 @@
     --o:0.22vh;--o2:0.30vh;--hloubka:0.42vh}
   #konecVyzva{position:relative;margin-top:1.6vh;font-size:2.4vh;line-height:1;
     --o:0.11vh;--o2:0.16vh;--hloubka:0.17vh;letter-spacing:.03em;opacity:.9}
+  /* Zaměřovač po konci hry ZMIZÍ. Zvažoval jsem nechat ho zamrznout pod
+     přehozem, ale kříž visící nad mrtvou scénou svádí k míření a odvádí oko
+     od hlášky — přitom jediné, co má hráč udělat, je klepnout kamkoli.
+     Během ztráty tlaku naopak zůstává plně vidět: tam ho hráč potřebuje
+     nejvíc, proto je nad přehozem (z-index 3 proti 2). */
   #kriz{position:fixed;left:0;top:0;width:54px;height:54px;margin:-27px 0 0 -27px;
+    transition:opacity .35s ease;
     pointer-events:none;z-index:3}
+  #kriz.pryc{opacity:0}
 </style>
 </head>
 <body>
@@ -1026,6 +1033,7 @@ function hlidejKonec(){
   for(const m of letici) if(m.typ === 'voda') return;
   konec = true;
   strika = false;
+  kriz.classList.add('pryc');
   nastavVodu(0);            // zbytek pod prahem dorovnat, ať pruh sedí s hláškou
   document.getElementById('konecRoh').hidden = false;
 }
@@ -2525,6 +2533,7 @@ function tahniDotykem(e){
   mir(x, y);
 }
 function mirZUdalosti(e){
+  if(konec) return;          // po konci se už nemíří, kříž stejně mizí
   if(jeDotyk(e)) tahniDotykem(e); else mir(e.clientX, e.clientY);
 }
 
