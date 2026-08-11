@@ -4542,6 +4542,11 @@ const KACH_PRAZDNO_DOLE = [0.1602, 0.1152, 0.2422, 0.2441];
 const VARIANTY = [1, 2, 3];
 const STRELEC = 1;                 // jediná varianta s koltem do objektivu
 const NEOZBROJENI = [2, 3];        // ti smějí stát i za sklem, nemají co ukázat
+// Padla už v tomhle patře mince? Pojistka prvního patra. Deklarace musí být
+// TADY NAHOŘE ze stejného důvodu jako balíček: `novaKoloda()` se volá při
+// načtení, tedy dřív, než by se `let` u té funkce stihl vyhodnotit — a modul
+// by spadl na dočasné mrtvé zóně ještě před prvním snímkem.
+let minceVPatre = false;
 // Balíček druhů pro rozehrané patro. Deklarovaný TADY, ne u novaKoloda():
 // první balíček se rozdává hned při startu hry, tedy o tisíc řádků výš, než
 // kde funkce leží — a `const` v dočasné mrtvé zóně by hru shodila.
@@ -4550,7 +4555,9 @@ const koloda = [];
 // terče — viz krokKachen: rána padne těsně před odchodem. Kolik jich na patře
 // je, určuje balíček (novaKoloda), ne náhoda. Nápřah je vidět předem, aby šel
 // výstřel číst.
-const NAPRAH_T = 0.5;
+// Taky na polovinu (0,5 s): nápřah je varování před ranou a mělo by být
+// znát, ne aby se stihlo zívnout.
+const NAPRAH_T = 0.25;
 // KDY SMÍ BANDITA VYSTŘELIT. Pořád jen jednou za objevení, ale kdykoli po
 // DVOU vteřinách od nasazení — ne až těsně před odchodem, jak to bylo dřív.
 // Tehdy se dal výstřel odhadnout podle cukání před zmizením a hráč se naučil,
@@ -4667,7 +4674,9 @@ for(let i=0;i<KACHEN_MAX;i++){
 //   4. VŽDYCKY JE NA CO STŘÍLET. Pod dva terče na scéně se dosypává hned,
 //      nad čtyři se nespawnuje vůbec.
 const ZIVOT_KACHNY = [3.8, 5.0, 6.4];    // podle patra, tedy podle hodnoty 10/20/30
-const VAROVANI = 0.9;                    // jak dlouho předem se ohlásí odchod
+// Poloviční proti dřívějšku (0,9 s): dlouhé cukání dávalo tolik času, že se
+// odchod dal v klidu přečkat a hráč se naučil kachničku dostřelit až na něj.
+const VAROVANI = 0.45;                   // jak dlouho předem se ohlásí odchod
 const PAUZA_PO_ZASAHU = 0.6;             // do téhle doby od zásahu odpočet stojí
 const KACHEN_MIN = 2, KACHEN_NA_SCENE = 4;
 
@@ -4981,10 +4990,14 @@ function najdiMisto(patro, potrebaKolt){
 // Platí tedy: balíček + živé kachničky = kolik ještě zbývá sestřelit.
 function novaKoloda(){
   koloda.length = 0;
+  minceVPatre = false;
   const n = kvota();
-  // Střelců přibývá s patrem, ale nikdy ne všichni — vždy zůstane aspoň jedna
-  // neozbrojená, jinak by patro bylo jen o uhýbání.
-  const strelcu = Math.max(1, Math.min(n - 1, Math.floor((patro + 1)/2)));
+  // PRVNÍ PATRO JE BEZ STŘELCŮ. Hráč se v něm učí mířit a hlavně si musí
+  // stihnout vydělat první mince — a protože rána bez peněz znamená konec hry,
+  // bandita v prvním patře je past dřív, než má hráč co ztratit.
+  // Dál střelců přibývá s patrem, ale nikdy ne všichni: vždy zůstane aspoň
+  // jedna neozbrojená, jinak by patro bylo jen o uhýbání.
+  const strelcu = patro <= 1 ? 0 : Math.max(1, Math.min(n - 1, Math.floor((patro + 1)/2)));
   for(let i=0;i<n;i++)
     koloda.push(i < strelcu ? STRELEC : NEOZBROJENI[(Math.random()*NEOZBROJENI.length)|0]);
   // zamíchat, ať střelci nechodí vždycky první
@@ -5040,6 +5053,13 @@ function pustKachnu(){
   // mincí a doletu by si nikdo nevšiml. Kolik jich nese, roste s patrem,
   // takže dražší kachnička je i bohatší.
   k.mince = Math.random() < 0.4 ? 1 + ((Math.random()*(patroK + 2))|0) : 0;
+  // V PRVNÍM PATŘE MUSÍ HRÁČ ODEJÍT ASPOŇ S JEDNOU MINCÍ. Bez ní vejde do
+  // druhého patra s prázdnou kapsou a první rána bandity je rovnou konec hry.
+  // Dokud žádnou nedostal, nese peníze KAŽDÁ nasazená kachnička — vlajka se
+  // shazuje až v okamžiku, kdy se mince opravdu připíše. Kdyby se shodila už
+  // při nasazení, stačilo by tu jednu kachničku nechat odejít a pojistka by
+  // byla pryč, aniž by hráč cokoli dostal.
+  if(patro === 1 && !minceVPatre) k.mince = Math.max(1, k.mince);
   k.naplneno = 0;
   k.odZasahu = 9;
   k.stav = 'najizdi'; k.t = 0; k.ttl = ZIVOT_KACHNY[patroK] * rand(0.9, 1.15);
@@ -5306,6 +5326,7 @@ function zasahKachny(k, u){
     k.stav = 'umira'; k.t = 0;
     k.matPrst.uniforms.postup.value = 1;
     pripisSkore(k.hodnota);
+    if(k.mince > 0) minceVPatre = true;    // pojistka prvního patra je splněná
     mince3dZKachny(k.mince, k.skup.position.x, k.skup.position.y + k.stred, k.skup.position.z);
     pustPeri(k.skup.position.x, k.skup.position.y + k.stred, k.skup.position.z, 18);
     pustPopup(k.skup.position.x, k.skup.position.y + k.stred + KACH_R*0.9,
