@@ -1283,7 +1283,29 @@ const STIT_STROP = 0.8;
 // Přepíná se v ⚙ panelu a přepnutí hru přenačte: boosty se čtou jednou při
 // startu, takže do rozehrané hry by se změna stejně nepropsala.
 const REZIM_KLIC = 'ws_rezim';
-const JE_POSTUP = localStorage.getItem(REZIM_KLIC) !== 'volna';
+// ČERSTVÉ NAČTENÍ ZAČÍNÁ VŽDYCKY BEZ POSTUPU. První spuštění, nová karta,
+// ruční obnovení stránky — vždy sólo, protože to je ta hra, kterou má člověk
+// dostat, když přijde bez záměru.
+//
+// Reload, který si VYŽÁDALA SAMA HRA (tlačítko „hrát", „spustit hru",
+// přepínač režimu, vynulování), si ale režim nese s sebou. Bez toho by hráč
+// po koupi boostu zmáčkl „hrát" a probudil se v sólu — postup by se nedal
+// dohrát. Značka je v sessionStorage a hned se spotřebuje, takže platí přesně
+// pro jedno přenačtení.
+const REZIM_NES = 'ws_rezimNes';
+let rezimUlozeny = localStorage.getItem(REZIM_KLIC);
+if(sessionStorage.getItem(REZIM_NES) === '1'){
+  sessionStorage.removeItem(REZIM_NES);
+} else if(rezimUlozeny !== 'volna'){
+  rezimUlozeny = 'volna';
+  try{ localStorage.setItem(REZIM_KLIC, 'volna'); }catch(e){}
+}
+const JE_POSTUP = rezimUlozeny !== 'volna';
+// Přenačtení vyžádané hrou — na rozdíl od `location.reload()` si nese režim.
+function prenacti(){
+  try{ sessionStorage.setItem(REZIM_NES, '1'); }catch(e){}
+  location.reload();
+}
 
 // ---- startovní nastavení ---------------------------------------------------
 // Po vynulování postupu se hra NESPUSTÍ ROVNOU: hráč si nejdřív nastaví, s čím
@@ -2407,7 +2429,7 @@ async function vynulujPostup(){
   }
   // Po přenačtení se nemá rovnou hrát, ale nastavovat nový postup.
   try{ localStorage.setItem(START_KLIC, '1'); }catch(e){}
-  location.reload();
+  prenacti();
 }
 
 // Popisek podle režimu: v postupu se maže dobrodružství, v sólu jméno
@@ -2442,7 +2464,7 @@ jmenoBox.addEventListener('submit', e => {
 // Klepnutí do panelu nesmí propadnout do hry pod ním — a hlavně nesmí
 // spustit restart, který visí na klepnutí kamkoli jinam.
 document.getElementById('zebricek').addEventListener('pointerdown', e => e.stopPropagation());
-document.getElementById('znovu').addEventListener('click', () => location.reload());
+document.getElementById('znovu').addEventListener('click', prenacti);
 
 // Dvě různé smrti, jedna obsluha: došlá voda a rozstřílený život. Text se
 // liší, protože hráč má vědět, na co umřel — jinak neví, co dělat příště.
@@ -2548,7 +2570,7 @@ function krokTmy(dt){
 // Mezerník zůstal jako zkratka na počítači, ale jen když se zrovna nepíše
 // jméno — jinak by se hra restartovala uprostřed psaní.
 addEventListener('keydown', e => {
-  if(konec && e.code === 'Space' && document.activeElement !== jmenoVstup) location.reload();
+  if(konec && e.code === 'Space' && document.activeElement !== jmenoVstup) prenacti();
 });
 nastavVodu(1);
 
@@ -4143,7 +4165,7 @@ document.getElementById('skupinaHra').textContent =
   JE_POSTUP ? 'výchozí hodnoty hry — postup' : 'výchozí hodnoty hry — volná hra';
 cbRezim.addEventListener('change', () => {
   try{ localStorage.setItem(REZIM_KLIC, cbRezim.checked ? 'postup' : 'volna'); }catch(e){}
-  location.reload();          // boosty se čtou při startu, změna platí od nové hry
+  prenacti();                 // boosty se čtou při startu, změna platí od nové hry
 });
 
 // STARTOVNÍ OBRAZOVKA. Ukáže se jen tehdy, když ji někdo vyžádal (vynulování
@@ -4155,7 +4177,7 @@ document.getElementById('startBtn').addEventListener('click', () => {
   // HRA SE PŘENAČTE. Při nastavování se stříká naostro, takže na policích
   // můžou být rozbité lahve a ve skóre pár bodů; do nového postupu se má jít
   // z čisté police a od nuly. Posuvníky reload přežijí, ty jsou v localStorage.
-  location.reload();
+  prenacti();
 });
 
 // Posuvník života je čistě na ladění a ZÁMĚRNĚ se neukládá — hra musí po
