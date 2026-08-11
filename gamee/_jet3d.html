@@ -1683,6 +1683,10 @@ const MINCEP_OD_LAHVE = 52;        // nejširší lahev má 27, ať mince nestoj
 // nejvýš OKNO_MAX široké.
 const MINCEP_OD_OKNA = 115;
 const MINCEP_DOSAH = MINCE_R*1.9;  // jak blízko musí uzel proudu projít
+// LEHCE NAD DESKOU. Mince postavená přesně na hraně vypadá jako přilepená
+// k polici, tedy jako součást nábytku; pár jednotek nad ní se čte jako věc,
+// která tam leží navíc — a je to i jediný náznak, že se dá vzít.
+const MINCEP_ZVED = 5;
 const mincePolice = [];
 
 function postavMincePolice(sek){
@@ -1763,7 +1767,7 @@ function rozmistiMincePolice(sek){
     const c = sek.minceP[dano++];
     c.ziva = true;
     // Deska police končí přesně na POLICE_Y, mince na ní stojí na hraně.
-    c.m.position.set(x, POLICE_Y[p] + MINCE_R, POLICE_Z + MINCEP_Z);
+    c.m.position.set(x, POLICE_Y[p] + MINCE_R + MINCEP_ZVED, POLICE_Z + MINCEP_Z);
     // Vlastní fáze i rychlost otáčení: se společnou by se všechny mince
     // v baru točily svorně jako metronom a bylo by vidět, že je to jeden kód.
     c.m.rotation.y = rand(0, Math.PI*2);
