@@ -79,11 +79,16 @@
   #vychRada .btn{margin-top:0;font-size:11px;padding:6px 4px}
   #vychRada #ulozVych{background:rgba(255,214,102,.16);
     border-color:rgba(255,214,102,.4);color:#ffe08a}
-  #publRada{display:flex;gap:6px;margin-top:6px}
-  #heslo{flex:1;min-width:0;box-sizing:border-box;padding:6px 8px;border-radius:7px;
-    border:1px solid rgba(207,224,255,.3);background:rgba(255,255,255,.08);
-    color:#eaf2ff;font:inherit;font-size:11px;-webkit-user-select:text;user-select:text}
-  #publRada .btn{margin-top:0;font-size:11px;padding:6px 8px;white-space:nowrap}
+  /* POLE NA HESLO MÁ VLASTNÍ ŘÁDEK. Vedle tlačítka se scvrklo na dva
+     centimetry — tlačítko má dlouhý text a v řádku si ho vzalo skoro celé,
+     kdežto pole šlo `min-width:0` smrsknout až k nule. */
+  #publRada{margin-top:8px}
+  #heslo{display:block;width:100%;box-sizing:border-box;padding:8px 9px;
+    border-radius:7px;border:1px solid rgba(207,224,255,.3);
+    background:rgba(255,255,255,.08);color:#eaf2ff;font:inherit;font-size:13px;
+    -webkit-user-select:text;user-select:text}
+  #heslo::placeholder{color:rgba(207,224,255,.45)}
+  #publRada .btn{width:100%;margin-top:6px;font-size:12px;padding:7px}
   #publStav{font-size:10px;line-height:1.4;color:#9fb4cc;min-height:1.4em;margin-top:3px}
   #publStav.chyba{color:#ff9b8a}
   /* posuvník si bere gesta sám: bez tohohle by prohlížeč šikmý tah po
