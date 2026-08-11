@@ -320,7 +320,11 @@
      zůstala díra; se sto pixely drží u výsledku pořád stejně, ať je jmen
      kolik chce, a volno zbude dole. Na nízkém displeji se odstup zmenší,
      aby se panel vešel. */
-  #konecRoh.sZebrickem #zebricek{margin-top:min(100px, 12vh);margin-bottom:auto}
+  /* Odstup se řídí tím, jak je tabulka plná: krátká visí níž (100 px), plná
+     se posune blíž k výsledku (80 px), ať se vejde i s tlačítky. Číslo dodá
+     JS podle počtu řádků, strop 12 vh chrání nízké displeje. */
+  #konecRoh.sZebrickem #zebricek{margin-top:min(var(--odstupTab, 100px), 12vh);
+    margin-bottom:auto}
   /* Startovní obrazovka je NAHOŘE, ne uprostřed: ⚙ panel vyjíždí ode dna
      a přes půl výšky, takže by se uprostřed potkaly. */
   /* Pod pruhem vody a mincí (ten sedí na 9,2 vh), ne přes něj — pruh je při
@@ -2290,6 +2294,11 @@ function vykresliZebricek(tab, jmeno, poradi){
   // se hráč na tabulku dívá. Přiroluje se k němu.
   const muj = zebTabEl.querySelector('li.ja');
   if(muj) muj.scrollIntoView({ block: 'nearest' });
+  // PLNÁ TABULKA SE PŘITÁHNE K VÝSLEDKU. S deseti řádky a tlačítky pod nimi
+  // je panel vysoký a sto pixelů nad ním je zbytečná díra; s pár jmény naopak
+  // vypadá lépe níž.
+  document.getElementById('zebricek').style.setProperty(
+    '--odstupTab', (zebTabEl.children.length >= 8 ? 80 : 100) + 'px');
 }
 
 // Věta o posunu. Je to jediné, co hráči řekne, jestli se ta hra vyplatila —
