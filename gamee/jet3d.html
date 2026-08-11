@@ -2490,7 +2490,22 @@ function konecHry(text){
   kriz.classList.add('pryc');
   for(const p of projektily){ p.ziva = false; p.m.visible = false; }
   nastavTitulek(document.getElementById('konecNadpis'), text);
-  nastavTitulek(document.getElementById('konecVyzva'), 'score ' + skore);
+
+  // V SÓLU SE MINCE NA KONCI MĚNÍ NA BODY. V postupu jsou mince měna, za
+  // kterou se kupují boosty, ale v sólu se utrácet nedají — a nasbírané peníze,
+  // které nakonec nic neznamenají, jsou horší než žádné. Padesát bodů za minci
+  // je dost na to, aby se pro ně vyplatilo zajet proudem stranou.
+  //
+  // Připisuje se ROVNOU DO `skore`, ne přes `pripisSkore`: ta se po `konec`
+  // schválně nic nedělá, aby dolétnuvší voda už nic nepřidala.
+  const bonus = JE_POSTUP ? 0 : mince*BODU_ZA_MINCI;
+  if(bonus > 0){
+    skore += bonus;
+    nastavTitulek(skoreEl, skore);
+  }
+  nastavTitulek(document.getElementById('konecVyzva'),
+    bonus > 0 ? 'score ' + skore + ' · ' + mince + '× mince = +' + bonus
+              : 'score ' + skore);
   document.getElementById('konecRoh').hidden = false;
   document.getElementById('konecRoh').classList.add('sZebrickem');   // nadpis nahoru, ať se panel vejde
   document.body.classList.add('konecPanel');                         // a HUD pod ním zmizí
@@ -2592,6 +2607,12 @@ nastavVodu(1);
 // Mince. Zatím jen počítadlo bez utrácení — jedna za sestřelenou kachničku,
 // jedna za rozbitou lahev. Až bude za co utrácet, změní se sazba tady.
 let mince = 0;
+// KOLIK BODŮ DÁ MINCE V SÓLU. Tam se utrácet nedají (obchod je jen v postupu),
+// takže by jinak byly k ničemu — a nasbírané peníze, které nakonec nic
+// neznamenají, jsou horší než žádné. Přepočet se dělá až na konci hry naráz,
+// ne při každém sebrání: během hry mají mince svůj vlastní pruh a míchat je
+// do skóre průběžně by rozmazalo obojí.
+const BODU_ZA_MINCI = 50;
 const minceEl = document.getElementById('minceCislo');
 function pripisMinci(n){
   if(konec) return;               // po smrti se nepřipisuje, viz pripisSkore
