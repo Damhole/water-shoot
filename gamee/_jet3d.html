@@ -232,9 +232,10 @@
      přeletí do pruhu. Je to HUD, ne scéna: kdyby letěly ve 3D, musely by se
      promítat do rohu obrazovky a v perspektivě by se u cíle scvrkly na nic.
      Let dělá jedna transformace, aby se to na mobilu zvládlo na GPU. */
-  /* Vodní kapka z lahve letí do zásobníku touž dráhou jako mince, jen se
-     cestou protahuje po směru letu (dělá to krokLetMinci v transformaci). */
-  .letMince, .letVoda{position:fixed;left:0;top:0;z-index:6;pointer-events:none;
+  /* Vodní kapka z lahve letí do zásobníku a cestou se protahuje po směru
+     letu (dělá to krokLetMinci v transformaci). Mince tudy nelétají — ty
+     jsou od v196 tělesa ve scéně. */
+  .letVoda{position:fixed;left:0;top:0;z-index:6;pointer-events:none;
     width:3.6vh;height:3.6vh;
     filter:drop-shadow(0 .3vh .4vh rgba(0,0,0,.45))}
   /* „Floor cleared!" — přes celou šířku, uprostřed výšky terčů. Naskočí
@@ -1136,7 +1137,8 @@ for(let i=0;i<MINCI_MAX;i++){
   m.castShadow = true;
   m.visible = false;
   scene.add(m);
-  mince3d.push({ m, ziva:false, t:0, vx:0, vy:0, vz:0, otoc:0 });
+  mince3d.push({ m, ziva:false, rezim:'pada', t:0, vx:0, vy:0, vz:0, otoc:0,
+                 cx:0, cy:0, cz:0, zx:0, zy:0, zz:0 });
 }
 
 // Vysypání při zásahu. Mince se odečtou hned a vyletí z místa, kde je v HUD
@@ -1166,7 +1168,8 @@ function vysypMince3d(pocet){
   for(const c of mince3d){
     if(dano >= pocet) break;
     if(c.ziva) continue;
-    c.ziva = true; c.t = 0;
+    c.ziva = true; c.rezim = 'pada'; c.t = 0;
+    c.m.scale.setScalar(1);
     // přesně z ikony mince v pruhu, jen s drobným rozhozem, ať nevyletí komínem
     c.m.position.set(_zdroj.x + rand(-10, 10), _zdroj.y + rand(-8, 8), _zdroj.z + rand(-20, 10));
     c.vx = rand(-300, 300);
@@ -1178,16 +1181,72 @@ function vysypMince3d(pocet){
   }
 }
 
+// MINCE Z KACHNIČKY. Taky tělesa, ne rovnou ikonky v HUD: hráč má vidět, že
+// peníze VYPADLY z terče a teprve pak si je hra připsala. Jsou o kus menší
+// než ty rozsypané, aby se ta dvě sdělení nepletla — tyhle si nemusí honit.
+const MINCE_Z_KACHNY = 0.78;       // měřítko proti rozsypaným
+const KM_CEKANI = 0.34;            // jak dlouho visí u kachničky, než odletí
+const KM_LET = 0.55;               // jak dlouho letí do pruhu
+function mince3dZKachny(pocet, x, y, z){
+  let dano = 0;
+  for(const c of mince3d){
+    if(dano >= pocet) break;
+    if(c.ziva) continue;
+    c.ziva = true; c.rezim = 'ceka'; c.t = -dano*0.07;     // rozestup, ať nesplynou
+    c.m.position.set(x + rand(-22, 22), y + rand(-6, 18), z + 20);
+    c.m.scale.setScalar(MINCE_Z_KACHNY);
+    c.zx = c.m.position.x; c.zy = c.m.position.y; c.zz = c.m.position.z;
+    c.vx = c.vy = c.vz = 0;
+    c.otoc = rand(4, 8);
+    c.m.visible = true;
+    dano++;
+  }
+}
+
+// Cíl letu = ikona mince v pruhu, převedená do hloubky, ve které mince právě
+// je. Díky tomu letí po obrazovce rovnou do pruhu a cestou nemění velikost —
+// kdyby se místo toho mířilo ke kameře, koule by u cíle narostla přes půl
+// obrazovky.
+const _cilMince = new THREE.Vector3();
+function zamirDoBaru(c){
+  const ikona = document.querySelector('#minceRoh .mince').getBoundingClientRect();
+  zeObrazovky((ikona.left + ikona.right)/2, (ikona.top + ikona.bottom)/2,
+              c.m.position.z, _cilMince);
+  c.cx = _cilMince.x; c.cy = _cilMince.y; c.cz = _cilMince.z;
+  c.zx = c.m.position.x; c.zy = c.m.position.y; c.zz = c.m.position.z;
+  c.rezim = 'leti'; c.t = 0;
+}
+
 function krokMinci3d(dt){
   for(const c of mince3d){
     if(!c.ziva) continue;
     c.t += dt;
+    c.m.rotation.y += c.otoc*dt;
+
+    // ČEKÁ U KACHNIČKY: chvíli se vznáší a lehce pohupuje, pak vyrazí.
+    if(c.rezim === 'ceka'){
+      if(c.t < 0) continue;                       // ještě nenaskočila (rozestup)
+      c.m.position.y = c.zy + Math.sin(c.t*7)*3 + c.t*22;
+      if(c.t >= KM_CEKANI) zamirDoBaru(c);
+      continue;
+    }
+    // LETÍ DO PRUHU: klidný rozjezd i dojezd, u cíle se připíše.
+    if(c.rezim === 'leti'){
+      const u = Math.min(1, c.t/KM_LET);
+      const e = u*u*(3 - 2*u);
+      c.m.position.set(c.zx + (c.cx - c.zx)*e,
+                       c.zy + (c.cy - c.zy)*e - Math.sin(Math.PI*e)*40,
+                       c.zz + (c.cz - c.zz)*e);
+      c.m.scale.setScalar(MINCE_Z_KACHNY*(1 - 0.35*u));
+      if(u >= 1){ c.ziva = false; c.m.visible = false; c.m.scale.setScalar(1); pripisMinci(1); }
+      continue;
+    }
+
     c.vy -= G*dt;
     const predY = c.m.position.y;
     c.m.position.x += c.vx*dt;
     c.m.position.y += c.vy*dt;
     c.m.position.z += c.vz*dt;
-    c.m.rotation.y += c.otoc*dt;
 
     // Dopad na desku police: odraz a kutálení. Testuje se PRŮCHOD horní
     // rovinou, ne poloha — mince urazí za snímek víc, než je deska tlustá.
@@ -1214,15 +1273,14 @@ function krokMinci3d(dt){
 // Sebrání proudem: mince odletí do pruhu s penězi a připíše se.
 function narazDoMince(bod){
   for(const c of mince3d){
-    if(!c.ziva) continue;
+    if(!c.ziva || c.rezim !== 'pada') continue;     // co už letí do banku, netřeba sbírat
     const dx = bod.x - c.m.position.x, dy = bod.y - c.m.position.y, dz = bod.z - c.m.position.z;
     if(dx*dx + dy*dy + dz*dz < (MINCE_R*2.1)*(MINCE_R*2.1)) return c;
   }
   return null;
 }
 function seberMinci(c){
-  c.ziva = false; c.m.visible = false;
-  letMinci(1, c.m.position.x, c.m.position.y, c.m.position.z);
+  zamirDoBaru(c);            // odsud už letí stejně jako mince z kachničky
 }
 
 // ---- projektily kachniček --------------------------------------------------
@@ -1655,6 +1713,8 @@ function pripisMinci(n){
 // Bez téhle pauzy vyletěla ve stejném snímku, ve kterém kachnička padla, a
 // splynula s peřím a korunkou — hráč viděl jen „něco cvrnklo do rohu".
 // Půl vteřiny stačí, aby si jich všiml a spočítal je.
+// Tyhle časy dnes řídí let VODNÍ KAPKY z lahve; jméno zůstalo z doby, kdy
+// takhle létaly i mince (ty jsou od v196 tělesa ve scéně).
 const MINCE_DOBA = 0.62, MINCE_ODSTUP = 0.075, MINCE_CEKANI = 0.55;
 const MINCE_NASKOK = 0.13;           // jak rychle se mince vynoří
 const MINCE_HOUP_A = 5, MINCE_HOUP_W = 5.2;   // houpání při levitaci
@@ -1670,9 +1730,9 @@ function naObrazovku(x, y, z, out){
 // Mince i vodní kapka letí stejnou dráhou do svého pruhu, liší se jen tím,
 // co se klonuje, kam se letí a co se připíše při doletu. Tvarová pružnost je
 // navíc jen u vody — mince je kus kovu, ta se deformovat nemá.
+// Zbyla tu jen voda: mince od v196 létají jako TĚLESA ve scéně (mince3d),
+// takže HUD verze jejich letu už není k čemu.
 const LETY = {
-  mince: { sablona: '#minceRoh .mince', cil: '#minceRoh .mince',
-           trida: 'letMince', pruzna: false, dorazil: () => pripisMinci(1) },
   voda:  { sablona: '#vodaRoh .kapka',  cil: '#vodaRoh .kapka',
            trida: 'letVoda',  pruzna: true,  dorazil: () => nastavVodu(voda + VODA_ZA_KAPKU) },
 };
@@ -1680,8 +1740,6 @@ const LETY = {
 // být hlavním zdrojem — od toho budou truhly s pořádnou dávkou. S desetinou
 // pokryla lahev skoro dvě vteřiny stříkání a zásobník se sám držel nahoře.
 const VODA_ZA_KAPKU = 0.04;
-
-function letMinci(pocet, wx, wy, wz){ letPredmet('mince', pocet, wx, wy, wz); }
 
 function letVody(pocet, wx, wy, wz){ letPredmet('voda', pocet, wx, wy, wz); }
 
@@ -4047,7 +4105,7 @@ function zasahKachny(k, u){
     k.stav = 'umira'; k.t = 0;
     k.matPrst.uniforms.postup.value = 1;
     pripisSkore(k.hodnota);
-    letMinci(k.mince, k.skup.position.x, k.skup.position.y + k.stred, k.skup.position.z);
+    mince3dZKachny(k.mince, k.skup.position.x, k.skup.position.y + k.stred, k.skup.position.z);
     pustPeri(k.skup.position.x, k.skup.position.y + k.stred, k.skup.position.z, 18);
     pustPopup(k.skup.position.x, k.skup.position.y + k.stred + KACH_R*0.9,
               k.skup.position.z, k.hodnota);
