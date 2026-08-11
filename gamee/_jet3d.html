@@ -1252,7 +1252,7 @@ const _p3 = [0,0,0], _d3 = [0,0,0];
 function narazDoDreva(a, b){
   _p3[0] = a.x;      _p3[1] = a.y;      _p3[2] = a.z;
   _d3[0] = b.x - a.x; _d3[1] = b.y - a.y; _d3[2] = b.z - a.z;
-  let nejT = 2, nejOsa = -1, nejZnam = 0;
+  let nejT = 2, nejOsa = -1, nejZnam = 0, nejKv = null;
   for(const kv of DREVO){
     let t0 = 0, t1 = 1, osa = -1, znam = 0, mimo = false;
     for(let i=0;i<3;i++){
@@ -1267,9 +1267,9 @@ function narazDoDreva(a, b){
       if(t0 > t1){ mimo = true; break; }
     }
     if(mimo || osa < 0) continue;      // osa < 0 = úsečka začínala uvnitř
-    if(t0 < nejT){ nejT = t0; nejOsa = osa; nejZnam = znam; }
+    if(t0 < nejT){ nejT = t0; nejOsa = osa; nejZnam = znam; nejKv = kv; }
   }
-  return nejOsa < 0 ? null : { t: nejT, osa: nejOsa, znam: nejZnam };
+  return nejOsa < 0 ? null : { t: nejT, osa: nejOsa, znam: nejZnam, kv: nejKv };
 }
 
 // ---- mokré fleky -----------------------------------------------------------
@@ -1417,6 +1417,56 @@ function mokryFlek(x, y, z){
   cil.uhel = rand(0, Math.PI*2);
 }
 
+// ---- odkapávání z polic ----------------------------------------------------
+// Voda, která spadne na desku, z ní musí někam odtéct — jinak police vypadá,
+// že se jí zásah netýkal. Kapky se pouštějí ze SPODNÍ PŘEDNÍ HRANY desky,
+// tedy odtud, kam voda po desce steče a odkud v reálu odkapává.
+//
+// Nejde o částice na místě dopadu: mezi zásahem a kapkou má být prodleva
+// (voda se musí posbírat), takže deska si drží „kolik toho ještě odkápne"
+// a pouští to po jedné s odstupem. Zdroje se navíc SLÉVAJÍ po ose x, jinak
+// by proud při 90 uzlech za vteřinu založil zdroj na každý zásah a z police
+// by crčel vodopád.
+const KAPACU_MAX = 16;
+const kapace = [];
+for(let i=0;i<KAPACU_MAX;i++) kapace.push({ ziva:false, x:0, y:0, z:0, zbyva:0, cas:0 });
+const KAPAC_SLITI = 70;        // jak blízko po x se zásah přilepí ke zdroji
+const KAPAC_ZBYVA_MAX = 7;     // strop, aby dlouhé polévání nedělalo nekonečno
+const KAPAC_PRIDA = 0.10;      // kolik kapek přidá jeden zásah
+
+function namocPolici(x, y, z){
+  for(const k of kapace){
+    if(!k.ziva) continue;
+    if(Math.abs(k.x - x) < KAPAC_SLITI && Math.abs(k.y - y) < 30){
+      k.zbyva = Math.min(KAPAC_ZBYVA_MAX, k.zbyva + KAPAC_PRIDA);
+      return;
+    }
+  }
+  let c = kapace.find(k => !k.ziva);
+  if(!c){                                   // přepsat ten nejvysychlejší
+    c = kapace[0];
+    for(const k of kapace) if(k.zbyva < c.zbyva) c = k;
+  }
+  c.ziva = true; c.x = x; c.y = y; c.z = z;
+  c.zbyva = 1; c.cas = rand(0.25, 0.7);     // první kapka až za chvíli
+}
+
+function krokKapacu(dt){
+  for(const k of kapace){
+    if(!k.ziva) continue;
+    k.cas -= dt;
+    if(k.cas > 0) continue;
+    k.cas = rand(0.4, 1.2);
+    k.zbyva -= 1;
+    if(k.zbyva <= 0) k.ziva = false;
+    // Kapka se odlepí skoro bez rychlosti a zbytek udělá gravitace — proto
+    // to čte jako odkápnutí, ne jako výstřel.
+    _kapkaU.p.set(k.x + rand(-16, 16), k.y - 2, k.z);
+    _kapkaU.v.set(0, -14, 0);
+    pustKapku(_kapkaU, 7, 1);
+  }
+}
+
 // Setřít všechno naráz. Volá se při přejezdu na nové patro.
 function smazFleky(){
   for(const f of fleky) f.ziva = false;
@@ -1484,6 +1534,11 @@ function dopadNaDrevo(u, z){
   // takže flek na něm překryl lahve i sklenice stojící na polici — vypadalo
   // to, že mokro plave před nimi ve vzduchu.
   if(z.osa === 2 && _bod.z < POLICE_Z - 30) mokryFlek(_bod.x, _bod.y, _bod.z);
+  // Namočená police pak odkapává. Deska je vysoká 18 jednotek, kdežto zadní
+  // stěna je vysoká celá sekce — rozliší se to výškou kvádru, ne indexem.
+  // Kapky pouštím ze spodní přední hrany, tedy `min[1]` a `max[2]`.
+  if(z.kv && z.kv.max[1] - z.kv.min[1] < 40)
+    namocPolici(_bod.x, z.kv.min[1], z.kv.max[2]);
   rozprsk(_bod, _nor, u.v, 3 + (Math.random()*3|0));
   // K mlze pár VELKÝCH kapek, co se od plochy odrazí. Sama mlha je u dopadu
   // málo — podlaha jich odjakživa pouští 3 až 6 a je to ono místo, kam se
@@ -2742,9 +2797,11 @@ function krokPostupu(dt){
     L.telo.position.y += dY;
     L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
   }
-  // Mokré fleky jedou s nábytkem. Jsou nalepené na stěně, takže se musí
-  // posouvat úplně stejně jako ona — jinak by po nich scéna „projela".
+  // Mokré fleky i odkapávající police jedou s nábytkem. Jsou na něm nalepené,
+  // takže se musí posouvat úplně stejně jako on — jinak by po nich scéna
+  // „projela".
   for(const f of fleky) if(f.ziva) f.y += dY;
+  for(const k of kapace) if(k.ziva) k.y += dY;
   if(prechod <= 0){
     prechod = 0; posun = 0;
     // `posun` se vrací z −620 na 0, ale scéna se nepohnula — sekce se jen
@@ -2766,6 +2823,7 @@ function krokPostupu(dt){
     // a protože leží v pevných světových souřadnicích, zatímco bar pod nimi
     // sjede o celou sekci, vynoří se v novém patře jako „ty staré".
     smazFleky();
+    for(const k of kapace) k.ziva = false;   // odkapávání patří k odjetému patru
   }
 }
 
@@ -3353,6 +3411,7 @@ function smycka(now){
   krokPopupu(dt);
   krokKrouzku(dt);
   krokFleku(dt);
+  krokKapacu(dt);
   krokKorunek(dt);
   krokLetMinci(dt);
   postavJet(now/1000);
