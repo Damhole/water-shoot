@@ -4541,6 +4541,12 @@ const koloda = [];
 // je, určuje balíček (novaKoloda), ne náhoda. Nápřah je vidět předem, aby šel
 // výstřel číst.
 const NAPRAH_T = 0.5;
+// KDY SMÍ BANDITA VYSTŘELIT. Pořád jen jednou za objevení, ale kdykoli po
+// třech vteřinách od nasazení — ne až těsně před odchodem, jak to bylo dřív.
+// Tehdy se dal výstřel odhadnout podle cukání před zmizením a hráč se naučil,
+// že do té doby má klid. Náhodný rozptyl navíc znamená, že se dvě kachničky
+// nasazené naráz neozvou ve stejný okamžik.
+const STRELBA_OD = 3.0, STRELBA_ROZPTYL = 1.5;
 const KACH_VYSKA = KACH_R*2*BANDIT_ZOOM;
 const KACH_POSAZENI = KACH_PRAZDNO_DOLE.map(p => KACH_VYSKA*(0.5 - p));
 const geoPlane = new THREE.PlaneGeometry(1, 1);
@@ -4981,6 +4987,7 @@ function pustKachnu(){
   // ne do výstřelu: nic se nesmí objevit odnikud, takže se kachna nejdřív
   // viditelně napřáhne.
   k.strelec = false; k.napr = 0; k.vystrelil = false;
+  k.strelbaPo = STRELBA_OD + Math.random()*STRELBA_ROZPTYL;
   // JEDEN Z BANDITŮ, ale ne ze všech čtyř. Varianta 0 míří revolverem doleva,
   // tedy mimo hráče — kachna s vytaseným koltem, která nikdy nevystřelí, je
   // porušený slib: hráč se učí číst „zbraň = nebezpečí" a tahle ho to
@@ -5075,12 +5082,11 @@ function krokKachen(dt){
       // STŘELBA. Odpočet běží jen střelci a zastaví se, jakmile začne nápřah.
       // Během nápřahu kachnička drncá — je to týž pohyb jako pod proudem, jen
       // z vlastní vůle, takže hráč pozná „něco chystá" dřív, než to přijde.
-      // STŘELÍ JEDNOU, TĚSNĚ PŘED ODCHODEM. Dřív střílela opakovaně od nasazení,
-      // takže se z terče stal kulomet a hráč neměl důvod ji sestřelit dřív —
-      // stejně by dostal další ránu. Takhle je to jasná pobídka: kdo ji
-      // nesestřelí včas, tomu na rozloučenou vystřelí.
-      // Nápřah začíná tak, aby výstřel padl přesně na začátek cukání před
-      // odchodem — kachnička se tedy po výstřelu roztřepe a zmizí.
+      // STŘELÍ JEDNOU ZA OBJEVENÍ, ale kdykoli po `strelbaPo` (3 až 4,5 s od
+      // nasazení). Opakovaná střelba z terče dělá kulomet a hráč pak nemá
+      // důvod ji sestřelit dřív — stejně by dostal další ránu. Vázat výstřel
+      // na odchod byla ale druhá krajnost: šel odhadnout podle cukání před
+      // zmizením a do té doby měl hráč klid.
       if(k.strelec && !k.vystrelil && !konec){
         // KOLT MUSÍ BÝT VIDĚT I V OKAMŽIKU VÝSTŘELU, ne jen při nasazení.
         // Lahve se hýbou: hráč je porazí, srazí z police nebo posune, takže
@@ -5100,7 +5106,9 @@ function krokKachen(dt){
             s.set(s.x/c, s.y*c, 1);
             if(k.napr <= 0){ vystrel(k); k.vystrelil = true; }
           }
-        } else if(vidi && k.ttl <= VAROVANI + NAPRAH_T){
+        } else if(vidi && k.t >= k.strelbaPo){
+          // Kdo se v tu chvíli schovává za lahví, vystřelí, jakmile na něj
+          // bude vidět — podmínka platí dál, dokud kachnička neodejde.
           k.napr = NAPRAH_T;
         }
       }
