@@ -16,6 +16,8 @@
   canvas{display:block;width:100%;height:100%;touch-action:none}
   /* Tlačítko nastavení je DOLE V ROHU: nahoře přebíjelo pruh života a hráč
      má nahoře koukat na stav, ne na ozubené kolo. */
+  #tma{position:fixed;inset:0;z-index:2;pointer-events:none;
+    background:#080b12;opacity:0}
   #cog{position:fixed;left:10px;bottom:calc(10px + env(safe-area-inset-bottom, 0px));
     width:38px;height:38px;border:0;
     border-radius:50%;background:rgba(8,14,24,.8);color:#cfe0f5;font-size:19px;
@@ -254,6 +256,11 @@
 </head>
 <body>
 <canvas id="c"></canvas>
+<!-- Ztmavení hrací plochy při ztrátě tlaku. Leží NAD plátnem, ale POD
+     zaměřovačem a HUD (z-index 2 proti 3 a 4), takže scéna potemní, kdežto
+     ukazatele a kříž zůstanou čitelné — jinak by hráč přestal vidět zrovna
+     to, podle čeho se má v tísni rozhodovat. -->
+<div id="tma"></div>
 <!-- Směrové rozmazání. CSS filter: blur() umí jen kruhové rozostření, což
      vypadá jako rozostřená kamera. feGaussianBlur bere stdDeviation zvlášť
      pro X a Y, takže se dá rozmazat JEN VE SMĚRU POHYBU a scéna se pak maže
@@ -1022,6 +1029,21 @@ function hlidejKonec(){
   nastavVodu(0);            // zbytek pod prahem dorovnat, ať pruh sedí s hláškou
   document.getElementById('konecRoh').hidden = false;
 }
+// ZTMAVENÍ PŘI ZTRÁTĚ TLAKU. Řídí se hladinou vody, ne stříkáním — sucho je
+// stav, ne akce, a hráč o něm má vědět i v pauze mezi proudy. Náběh se
+// nedělá CSS přechodem, protože hodnota se přepisuje každý snímek a přechod
+// by za ní jen zaostával; místo toho se skutečné krytí přitahuje k cíli,
+// což plynule funguje v obou směrech (i při doplnění z lahve).
+const TMA_MAX = 0.5;
+let tma = 0;
+const tmaEl = document.getElementById('tma');
+function krokTmy(dt){
+  const cil = konec ? TMA_MAX : (1 - Math.min(1, voda/TLAK_OD))*TMA_MAX;
+  tma += (cil - tma)*Math.min(1, dt*5);
+  if(tma < 0.002) tma = 0;
+  tmaEl.style.opacity = tma.toFixed(3);
+}
+
 // Restart je reload: stav hry je rozprostřený v sekcích, lahvích, poolech
 // i fyzice a ruční nulování by bylo zdrojem chyb. Nastavení z ⚙ panelu
 // přežije, protože je v localStorage.
@@ -3573,6 +3595,7 @@ function smycka(now){
   const dt = Math.min((now - t0)/1000, 0.05); t0 = now;
 
   hlidejKonec();
+  krokTmy(dt);
   krokKamery(dt);
   // Po konci hry scéna DOŽÍVÁ: voda dolétne, kapky dopadnou, kachničky
   // dostojí. Zamrznutý obraz působí jako pád hry, kdežto dozvuk jako konec.
