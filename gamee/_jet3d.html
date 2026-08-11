@@ -1034,21 +1034,18 @@ const SPOTREBA_VODY = () => +document.getElementById('spotr').value/100;
 // slábnoucím čůrku a hra v té době už byla jen dojezd. Slábnutí patří na
 // poslední procenta: se 6 % a spotřebou 2 %/s to jsou tři vteřiny.
 const TLAK_OD = 0.06;
-// A konec přijde JEŠTĚ BĚHEM slábnutí, ne až na dně. V okamžiku konce má
-// tryska 2,5/6 síly, takže hráč vidí, jak mu proud umírá pod rukama —
-// kdežto čekat na absolutní nulu znamenalo hrát ještě vteřinu s ničím.
-const KONEC_PRI = 0.025;
+// Konec hry se NEVÁŽE NA HLADINU, ale na dojetí zatmívání (viz krokTmy) —
+// to je jediné místo, kde se rozhoduje, že je dohráno.
 
 // ---- konec hry -------------------------------------------------------------
 // Dojde-li voda, je konec. Hlídá se to na jednom místě v hlavní smyčce, ne
 // v obsluze stříkání — voda může dojít i doběhem už vypuštěného proudu.
 let konec = false;
 function hlidejKonec(){
-  if(konec || voda > KONEC_PRI) return;
-  // Kapka, která je zrovna na cestě do zásobníku, se ještě počítá. Bez toho
-  // by hráč umřel dvě desetiny předtím, než mu dorazí voda, kterou si právě
-  // vystřílel — a to je přesně ten druh nespravedlnosti, co se nepromíjí.
-  for(const m of letici) if(m.typ === 'voda') return;
+  // Konec padá až na konci zatmívání, ne na hladině vody. Zatmívání totiž
+  // začíná ve chvíli, kdy proud UŽ NEMÁ ŠANCI na nic dosáhnout — od té chvíle
+  // je to dojezd a nemá cenu ho protahovat.
+  if(konec || umira < TMA_DOBA) return;
   konec = true;
   strika = false;
   kriz.classList.add('pryc');
@@ -1081,15 +1078,25 @@ function hlidejMaloVody(){
 }
 
 const TMA_MAX = 0.5;
-const TMA_OD = 0.04;      // ztmívání začíná až pod 4 %, tlak slábne od 6 %
+const TMA_OD = 0.02;      // pod tím už proud nedosáhne ani na nejbližší polici
+const TMA_DOBA = 1.1;     // jak dlouho tma najíždí; na jejím konci je konec hry
 let tma = 0;
+let umira = 0;            // 0 = ještě se neumírá, jinak čas od spuštění tmy
 const tmaEl = document.getElementById('tma');
 function krokTmy(dt){
-  // Vlastní práh, NIŽŠÍ než tlakový: ztmívačka začínala spolu se ztrátou
-  // tlaku a to bylo brzo — hráč ještě normálně hraje a obraz už tmavne.
-  // Takhle nejdřív zeslábne proud, a teprve když ani to nepomůže, jde dolů
-  // světlo.
-  const cil = konec ? TMA_MAX : (1 - Math.min(1, voda/TMA_OD))*TMA_MAX;
+  // ZATMÍVÁNÍ JE JEDNOSMĚRNÉ A SPOUŠTÍ SE, AŽ KDYŽ JE PROUD K NIČEMU.
+  // Dřív se řídilo hladinou vody, takže se stalo tohle: obraz začal tmavnout,
+  // proud ještě dosáhl na lahev, hladina povyskočila a zatmívání se zrušilo.
+  // Tma má být bod, ze kterého není návratu — proto se pod prahem TMA_OD
+  // jednou spustí a odtud už jen běží čas.
+  //
+  // Práh 2 % je vybraný tak, aby proud opravdu neměl šanci: síla trysky je
+  // pak 2/6 = 0,33, rychlost tedy 0,30 + 0,70·0,33 = 0,53 běžné — a protože
+  // dostřik roste s DRUHOU MOCNINOU rychlosti, je z doletu 0,28. To nedosáhne
+  // ani na nejbližší polici.
+  if(!umira && voda <= TMA_OD && !konec) umira = 1e-6;
+  if(umira) umira += dt;
+  const cil = konec ? TMA_MAX : Math.min(1, umira/TMA_DOBA)*TMA_MAX;
   tma += (cil - tma)*Math.min(1, dt*5);
   if(tma < 0.002) tma = 0;
   tmaEl.style.opacity = tma.toFixed(3);
