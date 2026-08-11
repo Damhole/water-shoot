@@ -402,7 +402,6 @@
   #zebricekTab .jm{flex:1;min-width:0;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
   #zebricekTab .sk{font-variant-numeric:tabular-nums;font-weight:700}
-  #zebricekTab .mn{opacity:.75;font-size:12px;font-variant-numeric:tabular-nums}
   /* Mince se řídí velikostí písma řádku, ve kterém stojí — v tabulce je pak
      menší než v peněžence a nikde nevytlačí řádek do výšky. */
   .minceIk{width:1.05em;height:1.05em;vertical-align:-.17em;margin-right:.22em}
@@ -2294,7 +2293,10 @@ function vykresliZebricek(tab, jmeno, poradi){
     const p = document.createElement('span'); p.className = 'poradi'; p.textContent = (i + 1) + '.';
     const j = document.createElement('span'); j.className = 'jm'; j.textContent = z.jmeno;
     const s = document.createElement('span'); s.className = 'sk'; s.textContent = z.skore;
-    li.append(p, j, s, sMinci(z.mince || 0, 'mn'));
+    // MINCE SE V TABULCE NEUKAZUJÍ. V sólu, a jinde žebříček není, se všechny
+    // převádějí na body — číslo vedle skóre by tedy říkalo totéž dvakrát, jen
+    // v jiných jednotkách. Do serveru se dál posílá, ať se dá kdykoli vrátit.
+    li.append(p, j, s);
     return li;
   };
   tab.slice(0, ZEBRICEK_MIST).forEach((z, i) => zebTabEl.append(radek(z, i)));
