@@ -238,6 +238,21 @@
   #hlaska.vidno{opacity:1;transform:scale(1)}
   /* Konec hry sedí na výšce terčů jako „Floor cleared!", jen výš a ve dvou
      řádcích. Přes celou šířku, takže se dlouhý text nemusí zmenšovat. */
+  /* VAROVÁNÍ „Low water!". Naskočí jednou při poklesu pod práh a zase
+     zmizí; trvalý stav ukazuje pulzující pruh, ne blikající text — ten by
+     po pár vteřinách přestal být varováním a začal být otravou. */
+  #vodaMalo{position:fixed;right:max(10px,3vw);top:calc(9.2vh + 2.6vh);
+    z-index:5;pointer-events:none;font-size:2.1vh;line-height:1;
+    --o:0.10vh;--o2:0.14vh;--hloubka:0.15vh;letter-spacing:.02em;
+    opacity:0;transform:translateY(-4px);
+    transition:opacity .18s ease, transform .18s ease}
+  #vodaMalo.vidno{opacity:1;transform:translateY(0)}
+  /* Pulzování pruhu MUSÍ zachovat translateY(-50%), jinak pruh při každém
+     kmitu poskočí o půl své výšky. */
+  #vodaRoh.malo{animation:pulzVoda .8s ease-in-out infinite}
+  @keyframes pulzVoda{
+    0%,100%{transform:translateY(-50%) scale(1)}
+    50%{transform:translateY(-50%) scale(1.06)}}
   #konecRoh{position:fixed;left:0;right:0;top:38vh;z-index:7;text-align:center;
     pointer-events:none}
   #konecRoh[hidden]{display:none}
@@ -345,6 +360,9 @@
 <!-- Konec hry. Vlastní prvek, ne přepsaná „Floor cleared!" — ta se sama
      schovává a musela by se kvůli tomu předělat; navíc konec potřebuje
      dva řádky a zůstat svítit. -->
+<!-- Varování o docházející vodě. Sedí pod pruhem vody, tedy u toho, čeho se
+     týká — hláška uprostřed obrazovky by hráče na vteřinu odvedla od terčů. -->
+<div id="vodaMalo" class="titulek" data-text="Low water!">Low water!</div>
 <div id="konecRoh" hidden>
   <div id="konecNadpis" class="titulek" data-text="Out of water!">Out of water!</div>
   <div id="konecVyzva" class="titulek" data-text="tap to play again">tap to play again</div>
@@ -1042,11 +1060,36 @@ function hlidejKonec(){
 // nedělá CSS přechodem, protože hodnota se přepisuje každý snímek a přechod
 // by za ní jen zaostával; místo toho se skutečné krytí přitahuje k cíli,
 // což plynule funguje v obou směrech (i při doplnění z lahve).
+// Práh, pod kterým se hlásí docházející voda. Je hodně nad tlakovým prahem
+// (6 %) schválně: varování má přijít v době, kdy se s tím ještě dá něco
+// dělat, kdežto ztráta tlaku už je jen odpočet.
+const VODA_MALO = 0.25;
+let maloHlaseno = false;
+const vodaMaloEl = document.getElementById('vodaMalo');
+const vodaRohEl = document.getElementById('vodaRoh');
+function hlidejMaloVody(){
+  const malo = voda > 0 && voda <= VODA_MALO && !konec;
+  vodaRohEl.classList.toggle('malo', malo);
+  if(malo && !maloHlaseno){
+    maloHlaseno = true;
+    vodaMaloEl.classList.add('vidno');
+    setTimeout(() => vodaMaloEl.classList.remove('vidno'), 1600);
+  }
+  // Doplnil-li si hráč zpátky, smí ho hra varovat znovu.
+  if(!malo && voda > VODA_MALO*1.2) maloHlaseno = false;
+  if(konec) vodaMaloEl.classList.remove('vidno');
+}
+
 const TMA_MAX = 0.5;
+const TMA_OD = 0.04;      // ztmívání začíná až pod 4 %, tlak slábne od 6 %
 let tma = 0;
 const tmaEl = document.getElementById('tma');
 function krokTmy(dt){
-  const cil = konec ? TMA_MAX : (1 - Math.min(1, voda/TLAK_OD))*TMA_MAX;
+  // Vlastní práh, NIŽŠÍ než tlakový: ztmívačka začínala spolu se ztrátou
+  // tlaku a to bylo brzo — hráč ještě normálně hraje a obraz už tmavne.
+  // Takhle nejdřív zeslábne proud, a teprve když ani to nepomůže, jde dolů
+  // světlo.
+  const cil = konec ? TMA_MAX : (1 - Math.min(1, voda/TMA_OD))*TMA_MAX;
   tma += (cil - tma)*Math.min(1, dt*5);
   if(tma < 0.002) tma = 0;
   tmaEl.style.opacity = tma.toFixed(3);
@@ -3604,6 +3647,7 @@ function smycka(now){
   const dt = Math.min((now - t0)/1000, 0.05); t0 = now;
 
   hlidejKonec();
+  hlidejMaloVody();
   krokTmy(dt);
   krokKamery(dt);
   // Po konci hry scéna DOŽÍVÁ: voda dolétne, kapky dopadnou, kachničky
