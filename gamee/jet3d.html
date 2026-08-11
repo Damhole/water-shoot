@@ -1086,9 +1086,8 @@ const TLAK_OD = 0.06;
 // PŘÍLEŽITOST. Hráč se musí rozhodnout, jestli honit mince, nebo držet proud
 // na kachničkách — a to jde jen tehdy, když mince leží ve stejném prostoru
 // jako všechno ostatní.
-const VYSYP_Y = 880;               // pod pruhem s penězi, tedy u horní hrany
 const MINCI_MAX = 24;
-const MINCE_R = 17, MINCE_TL = 5;
+const MINCE_R = 22, MINCE_TL = 6;
 const MINCE_ODRAZ = 0.42;          // kolik rychlosti zůstane po dopadu na desku
 const MINCE_TRENI = 0.86;          // brzdění při kutálení (za vteřinu)
 const MINCE_ZIVOT = 9;             // po téhle době zmizí, i kdyby ležela
@@ -1100,7 +1099,7 @@ function texturaMince(){
   c.width = c.height = 128;
   const g = c.getContext('2d');
   const gr = g.createLinearGradient(0, 0, 40, 128);
-  gr.addColorStop(0, '#ffe07a'); gr.addColorStop(1, '#d08b1c');
+  gr.addColorStop(0, '#ffe98f'); gr.addColorStop(1, '#dc9412');
   g.fillStyle = gr; g.beginPath(); g.arc(64, 64, 62, 0, Math.PI*2); g.fill();
   g.strokeStyle = '#a86a12'; g.lineWidth = 5;
   g.beginPath(); g.arc(64, 64, 47, 0, Math.PI*2); g.stroke();
@@ -1122,8 +1121,12 @@ const texMince = texturaMince();
 // svislé osy a střídavě ukazuje líc a hranu, přesně jako prstýnek v Sonicovi.
 const geoMince = new THREE.CylinderGeometry(MINCE_R, MINCE_R, MINCE_TL, 20);
 geoMince.rotateX(Math.PI/2);
-const matMinceHrana = new THREE.MeshToonMaterial({ color: 0xc98d1e, gradientMap: toonGrad });
-const matMinceLic   = new THREE.MeshToonMaterial({ map: texMince, gradientMap: toonGrad });
+// BEZ TOON STÍNOVÁNÍ. Mince je proti zlatu v HUD vybledlá právě tím, že jí
+// toon ubere na odvrácené straně a k tomu ji projede úprava sytosti scény.
+// Basic materiál kreslí přesně to, co je v textuře — a tím sedí barva mince
+// ve scéně s barvou mince v pruhu, což je jediné, co po ní chceme.
+const matMinceHrana = new THREE.MeshBasicMaterial({ color: 0xd9971f });
+const matMinceLic   = new THREE.MeshBasicMaterial({ map: texMince });
 const mince3d = [];
 for(let i=0;i<MINCI_MAX;i++){
   const m = new THREE.Mesh(geoMince, [matMinceHrana, matMinceLic, matMinceLic]);
@@ -1138,16 +1141,36 @@ for(let i=0;i<MINCI_MAX;i++){
 
 // Vysypání při zásahu. Mince se odečtou hned a vyletí z místa, kde je v HUD
 // pruh s penězi — tedy shora od středu, aby bylo poznat, ODKUD hráč přišel.
+// Opak `naObrazovku`: paprsek od kamery bodem na obrazovce až do zadané
+// hloubky. Potřeba proto, aby mince VYLÉTLY Z IKONY V PRUHU — ta je HUD, tedy
+// v pixelech, kdežto mince jsou tělesa ve světě.
+const _ndc = new THREE.Vector3();
+function zeObrazovky(px, py, cilZ, out){
+  _ndc.set((px/innerWidth)*2 - 1, -(py/innerHeight)*2 + 1, 0.5).unproject(camera);
+  _ndc.sub(camera.position).normalize();
+  const t = (cilZ - camera.position.z)/_ndc.z;
+  out.set(camera.position.x + _ndc.x*t, camera.position.y + _ndc.y*t, cilZ);
+}
+const _zdroj = new THREE.Vector3();
+
 function vysypMince3d(pocet){
   pripisMinci(-pocet);
+  // zdroj = ikona mince v HUD, převedená do roviny polic
+  const ikona = document.querySelector('#minceRoh .mince').getBoundingClientRect();
+  zeObrazovky((ikona.left + ikona.right)/2, (ikona.top + ikona.bottom)/2,
+              POLICE_Z + 40, _zdroj);
+  // HVĚZDIČKOVÝ ZÁBLESK v místě, odkud se peníze vysypaly — je to rána do
+  // měšce, ne jen ubylé číslo.
+  zablesk(_zdroj.x, _zdroj.y, _zdroj.z + 30, MINCE_R*7);
   let dano = 0;
   for(const c of mince3d){
     if(dano >= pocet) break;
     if(c.ziva) continue;
     c.ziva = true; c.t = 0;
-    c.m.position.set(rand(-90, 90), VYSYP_Y, POLICE_Z + rand(-30, 10));
-    c.vx = rand(-260, 260);
-    c.vy = rand(-40, 120);
+    // přesně z ikony mince v pruhu, jen s drobným rozhozem, ať nevyletí komínem
+    c.m.position.set(_zdroj.x + rand(-10, 10), _zdroj.y + rand(-8, 8), _zdroj.z + rand(-20, 10));
+    c.vx = rand(-300, 300);
+    c.vy = rand(-30, 150);
     c.vz = rand(-40, 40);
     c.otoc = rand(4, 9)*(Math.random() < 0.5 ? -1 : 1);
     c.m.visible = true;
