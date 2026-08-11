@@ -1841,7 +1841,7 @@ const drobneVel   = new Float32Array(DROBNYCH_MAX);
 const drobneKryti = new Float32Array(DROBNYCH_MAX);
 const drobneBarva = new Float32Array(DROBNYCH_MAX*3);
 const drobne = [];
-for(let i=0;i<DROBNYCH_MAX;i++) drobne.push({ ziva:false, x:0,y:0,z:0, vx:0,vy:0,vz:0, t:0, zivot:0, vel:0, r:1, g:1, b:1 });
+for(let i=0;i<DROBNYCH_MAX;i++) drobne.push({ ziva:false, lezi:false, x:0,y:0,z:0, vx:0,vy:0,vz:0, t:0, zivot:0, vel:0, r:1, g:1, b:1 });
 const drobneGeo = new THREE.BufferGeometry();
 drobneGeo.setAttribute('position',  new THREE.BufferAttribute(drobnePos, 3));
 drobneGeo.setAttribute('velikost',  new THREE.BufferAttribute(drobneVel, 1));
@@ -1889,7 +1889,7 @@ scene.add(drobneMesh);
 function pustDrobnou(x, y, z, vx, vy, vz, vel, zivot){
   for(const k of drobne){
     if(k.ziva) continue;
-    k.ziva = true; k.t = 0; k.zivot = zivot;
+    k.ziva = true; k.lezi = false; k.t = 0; k.zivot = zivot;
     k.x = x; k.y = y; k.z = z; k.vx = vx; k.vy = vy; k.vz = vz; k.vel = vel;
     // U DOPADU JE KAPIČKA MODRÁ a cestou bledne do pěny (dělá to krokDrobnych).
     // Souvislá hmota vody je modrá, protože je jí přes sebe hodně; jakmile se
@@ -1912,10 +1912,38 @@ function krokDrobnych(dt){
   for(const k of drobne){
     if(!k.ziva) continue;
     k.t += dt;
-    k.vy -= G*dt;
-    k.vx *= tlum; k.vy *= tlum; k.vz *= tlum;
-    k.x += k.vx*dt; k.y += k.vy*dt; k.z += k.vz*dt;
-    if(k.t > k.zivot || k.y < podlahaY + 2){ k.ziva = false; continue; }
+    if(k.lezi){
+      // Kapička už leží na desce. Nehýbe se, jen dožívá — je z ní mokrý bod,
+      // ne létající částice.
+      if(k.t > k.zivot){ k.ziva = false; continue; }
+    } else {
+      k.vy -= G*dt;
+      k.vx *= tlum; k.vy *= tlum; k.vz *= tlum;
+      const predY = k.y;
+      k.x += k.vx*dt; k.y += k.vy*dt; k.z += k.vz*dt;
+      if(k.t > k.zivot || k.y < podlahaY + 2){ k.ziva = false; continue; }
+      // DOPAD NA DESKU POLICE. Bez tohohle kapičky policemi propadávaly, což
+      // je hlavně u rozstřiku od zadní stěny vidět — voda se rozbije o zeď
+      // a měla by skončit na nejbližší desce pod sebou, ne propadnout celým
+      // barem až na podlahu.
+      // Testuje se PRŮCHOD horní rovinou (předchozí y nad, nové pod), ne jen
+      // aktuální poloha: kapička urazí za snímek až 12 jednotek, kdežto deska
+      // je 18 tenká, takže test na poloze by část průchodů propásl.
+      if(k.vy < 0){
+        for(const kv of DREVO){
+          if(kv.max[1] - kv.min[1] > 40) continue;        // deska, ne stěna
+          if(predY <= kv.max[1] || k.y > kv.max[1]) continue;
+          if(k.x < kv.min[0] || k.x > kv.max[0]) continue;
+          if(k.z < kv.min[2] || k.z > kv.max[2]) continue;
+          k.y = kv.max[1] + 1;
+          k.vx = k.vy = k.vz = 0;
+          k.lezi = true;
+          // ať se neválí dlouho: zbytek života se zkrátí na třetinu
+          k.zivot = k.t + (k.zivot - k.t)*0.34;
+          break;
+        }
+      }
+    }
     const u = k.t/k.zivot;
     drobnePos[n*3] = k.x; drobnePos[n*3+1] = k.y; drobnePos[n*3+2] = k.z;
     // Kapička je plná bílá skoro celý život a teprve poslední čtvrtinu zhasne.
