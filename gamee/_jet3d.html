@@ -19,9 +19,11 @@
   /* Záblesk je KRÁTKÝ (0,45 s) a jde od krajů dovnitř: přes celou plochu
      rovnoměrně by na okamžik zakryl terče, kdežto vinětace nechá střed
      průhledný a přesto to nejde přehlédnout. */
+  /* MODRÝ, ne červený: do hráče přiletěla VODA. Červená čte jako zranění,
+     jenže tady se neubližuje zdraví, jen měšci. */
   #zasah{position:fixed;inset:0;z-index:2;pointer-events:none;opacity:0;
     background:radial-gradient(ellipse at center,
-      rgba(200,20,20,0) 42%, rgba(200,20,20,.75) 100%)}
+      rgba(40,150,235,0) 40%, rgba(40,150,235,.8) 100%)}
   #zasah.bliknuti{animation:zasahBlik .45s ease-out}
   @keyframes zasahBlik{0%{opacity:0}12%{opacity:1}100%{opacity:0}}
   /* Tlačítko nastavení je DOLE V ROHU: nahoře přebíjelo pruh života a hráč
@@ -1561,7 +1563,7 @@ function krokProjektilu(dt){
     if(u >= 1){                                  // doletěla na hráče
       p.ziva = false; p.m.visible = false;
       if(ZIVOTY_ZAP) uberZivot(PROJ_UBERE);
-      zasahHrace();
+      zasahHrace(p.m.position.x, p.m.position.y, p.m.position.z);
     }
   }
 }
@@ -1584,11 +1586,19 @@ function zasahProjektilu(p, u){
   rozprsk(_bod, _nor, u.v, 3);
   if(p.naplneno >= PROJ_POTREBA){
     p.ziva = false; p.m.visible = false;
-    // ŽÁDNÁ ODMĚNA. Sestřelení střely je obrana, ne kořist — hráč tím
-    // nezískává, jen nepřichází o život. Odměnou je samo rozprsknutí:
-    // pořádný rozstřik a korunka, ať je poznat, že to vyšlo.
-    rozprsk(_bod, _nor, u.v, 16);
-    korunka(_bod, _nor, 44);
+    // ŽÁDNÁ ODMĚNA, ZATO POŘÁDNÁ RÁNA. Sestřelení je obrana, ne kořist —
+    // hráč tím nezískává, jen nepřichází o peníze. Jediné, co za to dostane,
+    // je efekt, takže ten musí stát za to: záblesk, prstenec, korunka,
+    // mračno mlhy a pár velkých kapek do stran.
+    zablesk(_bod.x, _bod.y, _bod.z + 10, PROJ_R*5);
+    krouzek(_bod.x, _bod.y, _bod.z, 'celo', 90);
+    korunka(_bod, _nor, 74);
+    rozprsk(_bod, _nor, u.v, 30);
+    for(let i=0;i<6;i++){
+      _kapkaU.p.copy(_bod);
+      _kapkaU.v.set(rand(-520, 520), rand(-160, 460), rand(-120, 340));
+      pustKapku(_kapkaU, 60, 1);
+    }
   }
 }
 
@@ -1601,7 +1611,25 @@ let konec = false;
 // hráč jen zjistí, že mu ubyl pruh, a neví proč. Krátký červený záblesk přes
 // celou plochu je nejlevnější způsob, jak to říct bez odvedení očí od terčů.
 const zasahEl = document.getElementById('zasah');
-function zasahHrace(){
+// Kam se rozstřikne voda, která trefila hráče. Je to kousek před kamerou,
+// takže jsou kapky velké přes půl obrazovky — přesně jako když někdo šplíchne
+// na objektiv.
+const _zasahBod = new THREE.Vector3(), _zasahNor = new THREE.Vector3(0, 0, 1);
+const _zasahV = new THREE.Vector3();
+function rozstrikNaHrace(x, y, z){
+  _zasahBod.set(x, y, z);
+  _zasahV.set(0, 0, 900);                       // letí na diváka
+  rozprsk(_zasahBod, _zasahNor, _zasahV, 26);
+  krouzek(x, y, z, 'celo', 120);
+  for(let i=0;i<5;i++){
+    _kapkaU.p.copy(_zasahBod);
+    _kapkaU.v.set(rand(-420, 420), rand(-120, 380), rand(120, 420));
+    pustKapku(_kapkaU, 40, 1);
+  }
+}
+
+function zasahHrace(x, y, z){
+  rozstrikNaHrace(x, y, z);
   zasahEl.classList.remove('bliknuti');
   void zasahEl.offsetWidth;             // restart animace i při rychlé druhé ráně
   zasahEl.classList.add('bliknuti');
