@@ -315,10 +315,12 @@
   #konecRoh.sZebrickem{top:0;bottom:0;display:flex;flex-direction:column;
     align-items:center;justify-content:flex-start;
     padding:calc(13vh - 50px) 0 3vh}
-  /* Vystředěná ve zbytku, ale nikdy nalepená: `auto` rozdělí volno rovnoměrně,
-     `min-height` na mezeře nad ní drží odstup i tehdy, když volna moc není. */
-  #konecRoh.sZebrickem #zebricek{margin:auto 0}
-  #konecRoh.sZebrickem::before{content:'';display:block;min-height:2.5vh}
+  /* PEVNÝ ODSTUP OD VÝSLEDKU, ne středění ve zbytku. Vystředěná tabulka
+     se s jedním jménem propadla do půlky obrazovky a mezi výsledkem a jí
+     zůstala díra; se sto pixely drží u výsledku pořád stejně, ať je jmen
+     kolik chce, a volno zbude dole. Na nízkém displeji se odstup zmenší,
+     aby se panel vešel. */
+  #konecRoh.sZebrickem #zebricek{margin-top:min(100px, 12vh);margin-bottom:auto}
   /* Startovní obrazovka je NAHOŘE, ne uprostřed: ⚙ panel vyjíždí ode dna
      a přes půl výšky, takže by se uprostřed potkaly. */
   /* Pod pruhem vody a mincí (ten sedí na 9,2 vh), ne přes něj — pruh je při
