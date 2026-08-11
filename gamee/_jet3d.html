@@ -2193,6 +2193,13 @@ function hlidejKonec(){
   konecHry('Out of water!');
 }
 
+// ---- vlastní rekord --------------------------------------------------------
+// Zvlášť pro každý režim: v postupu se hraje s boosty, takže jedno společné
+// číslo by druhý režim znehodnotilo.
+const REKORD_KLIC = () => 'ws_rekord_' + (JE_POSTUP ? 'postup' : 'volna');
+function nactiRekord(){ return Math.max(0, +(localStorage.getItem(REKORD_KLIC()) || 0)); }
+function ulozRekord(v){ try{ localStorage.setItem(REKORD_KLIC(), String(v|0)); }catch(e){} }
+
 // ---- žebříček --------------------------------------------------------------
 // Tabulka nejlepších na konci hry. Hráč se do ní zapíše jménem (jen jednou na
 // zařízení, pak si ho hra pamatuje) a při každém dalším konci vidí, kam se
@@ -2279,6 +2286,23 @@ async function posliVysledek(zaznam){
   const tab = zapisDoTabulky(nactiMistni(), zaznam);
   ulozMistni(tab);
   return { tabulka: tab, poradi: poradiVTabulce(tab, zaznam.jmeno), sdilene: false };
+}
+
+// REKORD SE NA STARTU SROVNÁ SE SERVEREM. Uložený rekord je jen na tomhle
+// zařízení, kdežto v tabulce může být pod týmž jménem lepší výsledek — z jiného
+// telefonu, nebo z doby před smazáním dat prohlížeče. Bez tohohle hra ohlásí
+// „nový rekord" u skóre, které je proti vlastnímu řádku v tabulce podprůměrné
+// (viděno: v tabulce 632, hlášeno „new highscore 515").
+//
+// Je to jediný dotaz navíc a leží mimo kritickou cestu: když se nepovede,
+// zůstane platit místní rekord a hra o tom neví.
+if(!JE_POSTUP && ZEBRICEK_URL){
+  const jm = (localStorage.getItem(ZEB_JMENO) || '').trim().toLowerCase();
+  if(jm) fetch(ZEBRICEK_URL).then(o => o.json()).then(d => {
+    const muj = (d && Array.isArray(d.tabulka) ? d.tabulka : [])
+      .find(z => String(z.jmeno || '').trim().toLowerCase() === jm);
+    if(muj && +muj.skore > nactiRekord()) ulozRekord(+muj.skore);
+  }).catch(() => {});
 }
 
 const zebTabEl = document.getElementById('zebricekTab');
@@ -2564,10 +2588,9 @@ function konecHry(text){
   // funguje i tomu, kdo na první místo v tabulce nikdy nedosáhne.
   // Drží se zvlášť pro každý režim: v postupu se hraje s boosty a srovnávat
   // ho se sólem by nedávalo smysl.
-  const rekordKlic = 'ws_rekord_' + (JE_POSTUP ? 'postup' : 'volna');
-  const rekord = Math.max(0, +(localStorage.getItem(rekordKlic) || 0));
+  const rekord = nactiRekord();
   const jeRekord = skore > rekord;
-  if(jeRekord && !nuluji){ try{ localStorage.setItem(rekordKlic, String(skore)); }catch(e){} }
+  if(jeRekord && !nuluji) ulozRekord(skore);
   const vyzvaEl = document.getElementById('konecVyzva');
   vyzvaEl.classList.toggle('rekord', jeRekord);
   nastavTitulek(vyzvaEl, (jeRekord ? 'your new highscore ' : 'your score ') + skore);
