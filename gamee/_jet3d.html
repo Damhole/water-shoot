@@ -1084,8 +1084,8 @@ const PROJ_BODY = 25;               // odměna za sestřelení
 // Toon stínování ubere na odvrácené straně, takže barvy musí být SVĚTLEJŠÍ,
 // než by člověk zvolil na papíře — s tmavší modrou vyšla koule jako šedivý
 // kámen a oranžová jako bláto.
-const PROJ_BARVA_A = new THREE.Color(0x49c2ff);
-const PROJ_BARVA_B = new THREE.Color(0xffa32e);
+const PROJ_BARVA_A = new THREE.Color(0x2ea8ff);
+const PROJ_BARVA_B = new THREE.Color(0xff8c1a);
 const geoProj = new THREE.SphereGeometry(PROJ_R, 14, 10);
 // ODLESK: malá světlá skvrna nahoře vlevo. Sprite se sám natáčí za kamerou,
 // takže odlesk drží polohu vůči divákovi i když koule letí napříč scénou —
@@ -1109,8 +1109,14 @@ for(let i=0;i<PROJEKTILU_MAX;i++){
   // Toon materiál místo Basic: Basic je plochá barva bez jakéhokoli stínování,
   // takže koule vypadala jako nálepka. Toon jí dá pásmo světla a stínu ze
   // stejného světla, jaké svítí na celý bar.
+  // SVÍTIVOST, NE GLOW. Toon materiál barvu na odvrácené straně utlumí, takže
+  // z modré vyšla tmavě modrá a z oranžové hnědá. Řešením není záře kolem
+  // koule (ta by rozmazala obrys a v téhle hře nemá obdobu), ale vlastní
+  // svit materiálu: `emissive` přičte barvu bez ohledu na světlo, takže je
+  // koule sytá i ve stínu a pásmo toon stínování zůstane jen jako náznak.
   const m = new THREE.Mesh(geoProj, new THREE.MeshToonMaterial({
-    color: 0x49c2ff, gradientMap: toonGrad }));
+    color: 0x2ea8ff, emissive: 0x2ea8ff, emissiveIntensity: 0.62,
+    gradientMap: toonGrad }));
   // obrys stejným trikem jako u lahví: obrácená slupka o kus větší
   const obrys = new THREE.Mesh(geoProj, matObrysTelo);
   obrys.scale.setScalar(1.16);
@@ -1222,10 +1228,16 @@ function krokProjektilu(dt){
     // PULZ JAKO ODPOČET: u startu dva kmity za vteřinu, těsně před dopadem
     // devět. Hráč tak nemusí odhadovat vzdálenost, stačí mu poslouchat rytmus
     // očima.
+    // POBLIKÁVÁ, NEPŘELÉVÁ SE. Plynulý přechod z modré do oranžové jde
+    // v RGB přes šeď, růžovou a fialovou — a právě ty mezitóny dělaly
+    // z koule tmavě modrohnědou kaši. Sinus se proto ořízne do skoro
+    // obdélníkové vlny: přes 90 % času drží čistou barvu a přehoupne se
+    // za zlomek vteřiny.
     const f = 2 + 7*u*u;
-    const b = 0.5 + 0.5*Math.sin(p.t*f*Math.PI*2);
+    const b = Math.min(1, Math.max(0, 0.5 + Math.sin(p.t*f*Math.PI*2)*4));
     _projBarva.copy(PROJ_BARVA_A).lerp(PROJ_BARVA_B, b);
     p.m.material.color.copy(_projBarva);
+    p.m.material.emissive.copy(_projBarva);   // svit jde s barvou, jinak by pulz zešedl
     if(u >= 1){                                  // doletěla na hráče
       p.ziva = false; p.m.visible = false;
       uberZivot(PROJ_UBERE);
