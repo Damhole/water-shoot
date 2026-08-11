@@ -4587,12 +4587,11 @@ const NAPRAH_T = 0.25;
 // že do té doby má klid. Náhodný rozptyl navíc znamená, že se dvě kachničky
 // nasazené naráz neozvou ve stejný okamžik.
 const STRELBA_OD = 2.0, STRELBA_ROZPTYL = 1.5;
-// DRUHÁ RÁNA. Ne vždycky — z každé třetí kachničky se vyklube ta, co vystřelí
-// dvakrát. Nepravidelnost je celý smysl: kdyby střílely dvakrát všechny, je to
-// jen jiné pevné číslo a hráč se ho naučí; takhle se nedá spolehnout na to, že
-// po první ráně je klid. Mezi ranami je pauza, jinak by druhá koule vyletěla
-// hráči do obličeje dřív, než stihne sestřelit první.
-const DRUHA_SANCE = 0.30;
+// DRUHÁ RÁNA. Ne vždycky a ne pořád stejně často — pravděpodobnost dodává
+// křivka obtížnosti podle patra (v prvních třech vůbec, pak od desetiny výš).
+// Nepravidelnost je celý smysl: kdyby střílely dvakrát všechny, je to jen jiné
+// pevné číslo a hráč se ho naučí. Mezi ranami je pauza, jinak by druhá koule
+// vyletěla hráči do obličeje dřív, než stihne sestřelit první.
 const DRUHA_PAUZA = [1.0, 1.6];
 // CHODCI. Kachnička, která má polici sama pro sebe, se po ní za svůj život
 // projde sem a tam. Nechodí všechny: kde by cestou potkala jinou kachničku,
@@ -4701,7 +4700,7 @@ const ZIVOT_KACHNY = [3.8, 5.0, 6.4];    // podle patra, tedy podle hodnoty 10/2
 // odchod dal v klidu přečkat a hráč se naučil kachničku dostřelit až na něj.
 const VAROVANI = 0.45;                   // jak dlouho předem se ohlásí odchod
 const PAUZA_PO_ZASAHU = 0.6;             // do téhle doby od zásahu odpočet stojí
-const KACHEN_MIN = 2, KACHEN_NA_SCENE = 4;
+const KACHEN_MIN = 2;              // pod tímhle počtem se dosypává skoro hned
 
 // Kachničky se rodí jen v pásu, který se vejde na TELEFON. Police jsou široké
 // ±620, jenže na svislém displeji je v hloubce terčů vidět jen zlomek — na
@@ -4730,7 +4729,48 @@ function pasKachen(){
 // Na scéně nesmí být víc kachniček, než kolik jich zbývá. Bez toho by se dalo
 // patro „dočistit" sestřelem jedné ze tří zobrazených a zbylé dvě by zmizely
 // samy — to je matoucí i nespravedlivé.
-const KVOTA_ZAKLAD = 4;
+// ---- křivka obtížnosti -----------------------------------------------------
+// LEVEL DESIGN PATRO PO PATŘE, ne vzorec. Prvních deset pater je to, co hráč
+// opravdu hraje, takže se vyplatí napsat je ručně a mít je před očima v jedné
+// tabulce; ze vzorce čísla vycházejí, jak vyjdou, a ladí se hůř.
+//
+// Dřív rostlo všechno naráz a strmě: pátým patrem už bylo osm kachniček (strop),
+// střelců přibýval jeden každé druhé patro a dvojranou měla rovnou třetina
+// z nich. Nově roste vždycky JEN JEDNA VĚC ZA PATRO — jednou kachnička, jindy
+// střelec, jindy dvojrana — takže je pokaždé poznat, čím to ztvrdlo.
+//
+//   kach     kolik kachniček musí padnout, než se patro vyčistí
+//   naScene  kolik jich smí být na scéně naráz (tohle hráč cítí nejvíc)
+//   strelcu  kolik z nich je banditů s koltem
+//   dvojrana pravděpodobnost, že střelec vypálí dvakrát za objevení
+const KRIVKA = [
+  { kach: 3, naScene: 2, strelcu: 0, dvojrana: 0    },  // 1 — učí se mířit, nikdo nestřílí
+  { kach: 4, naScene: 2, strelcu: 1, dvojrana: 0    },  // 2 — první bandita
+  { kach: 4, naScene: 3, strelcu: 1, dvojrana: 0    },  // 3 — víc cílů naráz
+  { kach: 5, naScene: 3, strelcu: 1, dvojrana: 0.10 },  // 4 — první dvojrana
+  { kach: 5, naScene: 3, strelcu: 2, dvojrana: 0.10 },  // 5 — druhý bandita
+  { kach: 6, naScene: 3, strelcu: 2, dvojrana: 0.15 },  // 6
+  { kach: 6, naScene: 4, strelcu: 2, dvojrana: 0.20 },  // 7
+  { kach: 7, naScene: 4, strelcu: 3, dvojrana: 0.20 },  // 8
+  { kach: 7, naScene: 4, strelcu: 3, dvojrana: 0.25 },  // 9
+  { kach: 8, naScene: 4, strelcu: 3, dvojrana: 0.30 },  // 10 — konec ručního ladění
+];
+// Nad desáté patro se přitvrzuje JEMNĚ: kachnička každé třetí patro, střelec
+// každé čtvrté, dvojrana o dvě procenta za patro. Stropy jsou proto, aby se
+// z toho ve dvacátém patře nestala loterie, ve které se nedá nic ubránit.
+const KRIVKA_MAX = { kach: 12, naScene: 5, strelcu: 5, dvojrana: 0.5 };
+function stupen(){
+  const z = KRIVKA[Math.min(patro, KRIVKA.length) - 1];
+  if(patro <= KRIVKA.length) return z;
+  const nad = patro - KRIVKA.length;
+  return {
+    kach:     Math.min(KRIVKA_MAX.kach,     z.kach     + Math.floor(nad/3)),
+    naScene:  Math.min(KRIVKA_MAX.naScene,  z.naScene  + Math.floor(nad/6)),
+    strelcu:  Math.min(KRIVKA_MAX.strelcu,  z.strelcu  + Math.floor(nad/4)),
+    dvojrana: Math.min(KRIVKA_MAX.dvojrana, z.dvojrana + nad*0.02),
+  };
+}
+
 // Přejezd byl 1,4 s a působil jako výtah. Zkrácený na 0,55 s a s OSTŘEJŠÍM
 // easingem: smootherstep u³(6u²−15u+10) místo smoothstepu. Má pořád nulovou
 // rychlost i zrychlení na obou koncích (žádné trhnutí), ale uprostřed je
@@ -4775,7 +4815,7 @@ let patro = 1, zbyva = 0, prechod = 0, posun = 0, posunMinuly = 0, hlaska = 0;
 const patroEl = document.getElementById('patroRoh');
 const hlaskaEl = document.getElementById('hlaska');
 function hraciSekce(){ return sekce.find(s => s.slot === 0); }
-function kvota(){ return KVOTA_ZAKLAD + Math.min(4, patro - 1); }
+function kvota(){ return stupen().kach; }
 function ukazPatro(){
   // anglicky, ať to ladí s „Floor cleared!"
   if(patroEl) nastavTitulek(patroEl, 'floor ' + patro + ' · ' + zbyva + ' left');
@@ -5015,12 +5055,10 @@ function novaKoloda(){
   koloda.length = 0;
   minceVPatre = false;
   const n = kvota();
-  // PRVNÍ PATRO JE BEZ STŘELCŮ. Hráč se v něm učí mířit a hlavně si musí
-  // stihnout vydělat první mince — a protože rána bez peněz znamená konec hry,
-  // bandita v prvním patře je past dřív, než má hráč co ztratit.
-  // Dál střelců přibývá s patrem, ale nikdy ne všichni: vždy zůstane aspoň
-  // jedna neozbrojená, jinak by patro bylo jen o uhýbání.
-  const strelcu = patro <= 1 ? 0 : Math.max(1, Math.min(n - 1, Math.floor((patro + 1)/2)));
+  // Kolik střelců říká křivka; pojistka drží aspoň jednu neozbrojenou, jinak
+  // by patro bylo jen o uhýbání. V prvním patře jsou podle křivky nula —
+  // rána bez peněz je konec hry a bandita dřív, než má hráč co ztratit, je past.
+  const strelcu = Math.min(stupen().strelcu, n - 1);
   for(let i=0;i<n;i++)
     koloda.push(i < strelcu ? STRELEC : NEOZBROJENI[(Math.random()*NEOZBROJENI.length)|0]);
   // zamíchat, ať střelci nechodí vždycky první
@@ -5093,7 +5131,7 @@ function pustKachnu(){
   // viditelně napřáhne.
   k.strelec = false; k.napr = 0;
   k.vystrelu = 0;
-  k.ran = Math.random() < DRUHA_SANCE ? 2 : 1;
+  k.ran = Math.random() < stupen().dvojrana ? 2 : 1;
   k.strelbaPo = STRELBA_OD + Math.random()*STRELBA_ROZPTYL;
   // JEDEN Z BANDITŮ, ale ne ze všech čtyř. Varianta 0 míří revolverem doleva,
   // tedy mimo hráče — kachna s vytaseným koltem, která nikdy nevystřelí, je
@@ -5162,7 +5200,7 @@ function krokKachen(dt){
   // vyčištění patra chybí. Když zbývá poslední, svítí právě jedna a její
   // sestřel patro opravdu uzavře.
   if(prechod <= 0 && hlaska <= 0){
-    const strop = Math.min(KACHEN_NA_SCENE, zbyva);
+    const strop = Math.min(stupen().naScene, zbyva);
     // pod minimem se dosypává skoro hned, nad strop se nespawnuje vůbec
     if(kachTimer <= 0 && n < strop){
       pustKachnu();
