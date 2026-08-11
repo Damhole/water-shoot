@@ -1116,17 +1116,12 @@ function texturaOdlesku(){
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const g = c.getContext('2d');
-  // ODLESK JE OSTRÝ, ne rozmazaný. Na vodě je to zrcadlový obraz světla —
-  // má hranu. Rozmazaná skvrna dělá z koule matný plast.
-  const gr = g.createRadialGradient(32, 32, 1, 32, 32, 30);
-  gr.addColorStop(0,    'rgba(255,255,255,0.30)');
-  gr.addColorStop(0.62, 'rgba(255,255,255,0.10)');
-  gr.addColorStop(1,    'rgba(255,255,255,0)');
-  g.fillStyle = gr; g.beginPath(); g.arc(32, 32, 30, 0, Math.PI*2); g.fill();
-  // plné zrcátko: ostrá kapka s tvrdým okrajem a malý doprovodný bod
+  // ODLESKY JSOU TVRDÉ BODY, žádná záře. V kreslené vodě jsou to prostě
+  // bílé kapky s ostrým okrajem — tři různě velké, ať to není souměrné.
   g.fillStyle = '#ffffff';
-  g.beginPath(); g.ellipse(28, 26, 13, 9, -0.6, 0, Math.PI*2); g.fill();
-  g.beginPath(); g.ellipse(46, 44, 4.5, 3.2, -0.6, 0, Math.PI*2); g.fill();
+  g.beginPath(); g.ellipse(26, 24, 12, 8.5, -0.6, 0, Math.PI*2); g.fill();
+  g.beginPath(); g.ellipse(44, 41, 5.5, 4, -0.6, 0, Math.PI*2); g.fill();
+  g.beginPath(); g.arc(38, 15, 3.2, 0, Math.PI*2); g.fill();
   const t = new THREE.CanvasTexture(c);
   t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
   return t;
@@ -1172,28 +1167,31 @@ function postavKouli(){
       void main(){
         vec3 N = normalize(vNorm);
         vec3 V = normalize(vPohled);
-        // fresnel: 0 uprostřed, 1 na obvodu
-        float f = 1.0 - abs(dot(N, V));
+        float f = 1.0 - abs(dot(N, V));       // 0 uprostřed, 1 na obvodu
 
-        // VLNĚNÍ NENÍ TEXTURA, ALE POHYBLIVÁ HRANICE. Posouvaný vzor po
-        // povrchu vypadá jako potisk balonku; kapalina se pozná podle toho,
-        // že se hranice mezi tmavým jádrem a světlým lemem převaluje.
-        float vlna = 0.07*sin(cas*2.0 + N.y*6.5) + 0.05*sin(cas*1.3 - N.x*5.0);
+        // CELL SHADING, ŽÁDNÉ PŘECHODY. Plynulé stínování dělá z kapky
+        // gumový míč — kreslená voda je z PLOCH s ostrou hranou. Proto step,
+        // ne smoothstep, a jen tři tóny: jádro, plášť a skelný proužek.
+        //
+        // KOULE V KOULI. Vnitřní tvar není soustředný: hranice se posouvá
+        // podle toho, kam míří normála, takže je plášť silnější vlevo nahoře
+        // a jádro sedí níž vpravo. Přesně tím vzniká dojem, že uvnitř kapky
+        // plave další.
+        float bias = 0.17*dot(N, normalize(vec3(-0.55, 0.62, 0.0)));
 
-        // Lem je ÚZKÝ a ostrý. Široký přechod je zase jen matný plast —
-        // u kapky se světlo sbírá do tenkého proužku těsně u okraje.
-        float lem = smoothstep(0.42 + vlna, 0.97, f);
+        // Hranice se přitom pomalu převaluje — hýbe se OBSAH, ne povrch.
+        float vlna = 0.05*sin(cas*2.0 + N.y*6.0) + 0.035*sin(cas*1.4 - N.x*5.0);
 
-        // KAUSTIKA: světlo, které projde kapkou skrz, se sbírá NAPROTI
-        // odlesku. Odlesk sedí vlevo nahoře, tohle tedy vpravo dole — a bez
-        // něj vypadá jádro jako díra.
-        vec3 smerK = normalize(vec3(0.45, -0.55, 0.70));
-        float k = smoothstep(0.15, 1.0, dot(N, smerK));
-        k *= 0.85 + 0.15*sin(cas*2.4 + N.x*4.0);      // i ta se mírně vlní
+        float plast = step(0.50 - bias + vlna, f);
+        float kraj  = step(0.90, f);          // tenký skelný proužek u obrysu
 
-        vec3 jadro = barva*0.34 + barva*0.62*k;
-        vec3 lemB  = mix(barva, vec3(1.0), 0.62);
-        gl_FragColor = vec4(mix(jadro, lemB, lem), 1.0);
+        vec3 jadro  = barva;
+        vec3 plastB = mix(barva, vec3(1.0), 0.52);
+        vec3 krajB  = mix(barva, vec3(1.0), 0.82);
+
+        vec3 col = mix(jadro, plastB, plast);
+        col = mix(col, krajB, kraj);
+        gl_FragColor = vec4(col, 1.0);
       }`,
   }));
   // obrys stejným trikem jako u lahví: obrácená slupka o kus větší
