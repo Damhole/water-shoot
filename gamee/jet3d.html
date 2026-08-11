@@ -1272,6 +1272,143 @@ function narazDoDreva(a, b){
   return nejOsa < 0 ? null : { t: nejT, osa: nejOsa, znam: nejZnam };
 }
 
+// ---- mokré fleky -----------------------------------------------------------
+// Stopa po vodě na svislých plochách. Bez ní bylo po deseti vteřinách polévání
+// dřevo úplně stejné jako na začátku a proud nezanechával nic.
+//
+// Rozhodnutí, která to drží pohromadě:
+//
+//   1. JEDEN DRAW CALL. Fleky jsou body (Points) s vlastním shaderem, ne mesh
+//      na každý flek — čtyřicet meshů by znamenalo čtyřicet draw callů, což je
+//      přesně to, co na telefonu bolí. Cenou je, že se bod natáčí za kamerou,
+//      takže fleky patří JEN NA SVISLÉ plochy (stěna, čelo police), kde to
+//      splývá s rovinou. Na desku shora by ležel plakát ve vzduchu.
+//   2. SLÉVÁNÍ. Nový zásah blízko živého fleku ten flek ZVĚTŠÍ a znovu namočí
+//      místo aby přidal další. Proud vyrábí 90 uzlů za vteřinu — bez slévání
+//      by pool zmizel za půl vteřiny a ze stěny by byl korálkový přehoz.
+//   3. NÁHODNÝ ÚHEL v shaderu. Textura je jedna, takže bez natočení by byl
+//      všude přesně týž flek a bylo by to vidět jako razítko.
+const FLEKU_MAX = 40;
+const flekPos = new Float32Array(FLEKU_MAX*3);
+const flekVel = new Float32Array(FLEKU_MAX);
+const flekKryti = new Float32Array(FLEKU_MAX);
+const flekUhel = new Float32Array(FLEKU_MAX);
+const fleky = [];
+for(let i=0;i<FLEKU_MAX;i++) fleky.push({ ziva:false, x:0,y:0,z:0, r:0, rCil:0, t:0, zivot:0, uhel:0 });
+
+// Nepravidelná skvrna, ne kolečko: pár překrytých kruhů. Kolečko čte jako
+// airbrush, kdežto tohle jako louže.
+function texturaFleku(){
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const kruhy = [[32,32,20],[22,27,13],[42,26,12],[27,42,12],[41,41,11],[32,20,10]];
+  for(const [x,y,r] of kruhy){
+    const gr = g.createRadialGradient(x, y, r*0.15, x, y, r);
+    gr.addColorStop(0, 'rgba(255,255,255,0.95)');
+    gr.addColorStop(0.6, 'rgba(255,255,255,0.55)');
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI*2); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
+  return t;
+}
+const texFlek = texturaFleku();
+const flekGeo = new THREE.BufferGeometry();
+flekGeo.setAttribute('position', new THREE.BufferAttribute(flekPos, 3));
+flekGeo.setAttribute('velikost', new THREE.BufferAttribute(flekVel, 1));
+flekGeo.setAttribute('kryti',    new THREE.BufferAttribute(flekKryti, 1));
+flekGeo.setAttribute('uhel',     new THREE.BufferAttribute(flekUhel, 1));
+const matFlek = new THREE.ShaderMaterial({
+  uniforms: { mapa: { value: texFlek },
+              barva: { value: new THREE.Color(0x2a1608) },
+              mer: { value: innerHeight*0.5*Math.min(devicePixelRatio,2) } },
+  transparent: true, depthWrite: false,
+  vertexShader: `
+    attribute float velikost;
+    attribute float kryti;
+    attribute float uhel;
+    uniform float mer;
+    varying float vKryti;
+    varying float vUhel;
+    void main(){
+      vKryti = kryti; vUhel = uhel;
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = velikost * (mer / -mv.z);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    uniform sampler2D mapa;
+    uniform vec3 barva;
+    varying float vKryti;
+    varying float vUhel;
+    void main(){
+      vec2 p = gl_PointCoord - 0.5;
+      float c = cos(vUhel), s = sin(vUhel);
+      vec2 q = vec2(p.x*c - p.y*s, p.x*s + p.y*c) + 0.5;
+      float a = texture2D(mapa, q).a * vKryti;
+      if(a < 0.01) discard;
+      gl_FragColor = vec4(barva, a);
+    }`,
+});
+const flekMesh = new THREE.Points(flekGeo, matFlek);
+flekMesh.frustumCulled = false;
+scene.add(flekMesh);
+
+const FLEK_SLITI = 46;          // jak blízko se zásah přilepí ke stávajícímu fleku
+const FLEK_ZIVOT = 5.5;         // jak dlouho schne
+const FLEK_NAMOCENI = 0.18;     // jak rychle se objeví
+const FLEK_MAXR = 74;
+function mokryFlek(x, y, z){
+  // 1) slít se sousedem
+  for(const f of fleky){
+    if(!f.ziva) continue;
+    const dx = f.x - x, dy = f.y - y, dz = f.z - z;
+    if(dx*dx + dy*dy + dz*dz < FLEK_SLITI*FLEK_SLITI){
+      f.rCil = Math.min(FLEK_MAXR, f.rCil + 2.4);
+      f.t = Math.min(f.t, FLEK_NAMOCENI);      // znovu namočený neschne
+      return;
+    }
+  }
+  // 2) nový; když není místo, přepíše se ten nejstarší
+  let cil = fleky.find(f => !f.ziva);
+  if(!cil){
+    cil = fleky[0];
+    for(const f of fleky) if(f.t > cil.t) cil = f;
+  }
+  cil.ziva = true; cil.t = 0; cil.zivot = FLEK_ZIVOT*rand(0.8, 1.25);
+  cil.x = x; cil.y = y; cil.z = z;
+  cil.r = 0; cil.rCil = rand(26, 38);
+  cil.uhel = rand(0, Math.PI*2);
+}
+
+function krokFleku(dt){
+  let n = 0;
+  for(const f of fleky){
+    if(!f.ziva) continue;
+    f.t += dt;
+    if(f.t >= f.zivot){ f.ziva = false; continue; }
+    const u = f.t/f.zivot;
+    // namočení → schnutí: nejdřív doroste, pak se zmenšuje a bledne
+    const nam = Math.min(1, f.t/FLEK_NAMOCENI);
+    const schne = u < 0.35 ? 0 : (u - 0.35)/0.65;
+    f.r = f.rCil*nam*(1 - 0.75*schne*schne);
+    flekPos[n*3] = f.x; flekPos[n*3+1] = f.y; flekPos[n*3+2] = f.z;
+    flekVel[n] = f.r;
+    flekKryti[n] = 0.34*nam*(1 - schne*schne);
+    flekUhel[n] = f.uhel;
+    n++;
+  }
+  flekGeo.setDrawRange(0, n);
+  flekGeo.attributes.position.needsUpdate = true;
+  flekGeo.attributes.velikost.needsUpdate = true;
+  flekGeo.attributes.kryti.needsUpdate = true;
+  flekGeo.attributes.uhel.needsUpdate = true;
+  return n;
+}
+
 // Zásah do dřeva vypadá stejně jako dopad na zem, jen se kroužek položí do
 // roviny zasažené stěny — na desku shora, na čelo police a na zadní stěnu svisle.
 function dopadNaDrevo(u, z){
@@ -1283,6 +1420,9 @@ function dopadNaDrevo(u, z){
   // vypadá jako terč, ne jako mokré místo. Rozstřik jde naopak z každého,
   // ten se má slévat.
   if(Math.random() < 0.14) krouzek(_bod.x, _bod.y, _bod.z, z.osa === 1 ? 'up' : 'celo', 20 + Math.random()*16);
+  // Mokrá stopa jen na SVISLÝCH plochách (osa 1 = deska shora) — viz komentář
+  // u fleků: bod se natáčí za kamerou a na vodorovné desce by ležel ve vzduchu.
+  if(z.osa !== 1) mokryFlek(_bod.x, _bod.y, _bod.z);
   rozprsk(_bod, _nor, u.v, 3 + (Math.random()*3|0));
   // K mlze pár VELKÝCH kapek, co se od plochy odrazí. Sama mlha je u dopadu
   // málo — podlaha jich odjakživa pouští 3 až 6 a je to ono místo, kam se
@@ -3119,6 +3259,7 @@ function resize(){
   camera.aspect = w/h; camera.updateProjectionMatrix();
   // vlastní shader kapiček si měřítko pro sizeAttenuation nedopočítá sám
   matDrobne.uniforms.mer.value = h*0.5*Math.min(devicePixelRatio, 2);
+  matFlek.uniforms.mer.value   = h*0.5*Math.min(devicePixelRatio, 2);
   matPeri.uniforms.mer.value  = h*0.5*Math.min(devicePixelRatio, 2);
 }
 addEventListener('resize', resize); resize();
@@ -3137,6 +3278,7 @@ function smycka(now){
   krokPeri(dt, now/1000);
   krokPopupu(dt);
   krokKrouzku(dt);
+  krokFleku(dt);
   krokKorunek(dt);
   krokLetMinci(dt);
   postavJet(now/1000);
