@@ -280,6 +280,17 @@
     50%{stroke:#a3372c}}
   #konecRoh{position:fixed;left:0;right:0;top:38vh;z-index:7;text-align:center;
     pointer-events:none}
+  /* SE ŽEBŘÍČKEM SE NADPIS POSUNE NAHORU. Na 38 vh je vycentrovaný pro holou
+     hlášku, jenže s tabulkou, kartami a zásobníkem pod sebou už se to na
+     malém telefonu (375×812) nevešlo: vlastní řádek vyjel nad okraj panelu
+     a sloty se uřízly dole. */
+  #konecRoh.sZebrickem{top:6vh}
+  /* SE ŽEBŘÍČKEM ZMIZÍ HUD. Nadpis se posunul nahoru přesně tam, kde visí
+     pruh vody a mince, a text se s nimi překrýval. Hra navíc skončila —
+     stav běhu už nikoho nezajímá a výsledek stojí v panelu. */
+  body.konecPanel #skoreRoh, body.konecPanel #patroRoh,
+  body.konecPanel #zivotRoh, body.konecPanel #vodaRoh, body.konecPanel #minceRoh{
+    opacity:0;transition:opacity .3s ease;pointer-events:none}
   #konecRoh[hidden]{display:none}
   /* POSITION:RELATIVE JE TU POVINNÉ. Hloubková kopie (.titulek::after) je
      absolutně polohovaná, takže se řídí nejbližším POLOHOVANÝM předkem —
@@ -299,8 +310,11 @@
     border-radius:12px;padding:11px 12px 12px;text-align:left;
     /* Na nízkém displeji se panel i s klávesnicí nevejde, tak ať jde rolovat.
        100svh, ne 100vh — viz past u ⚙ panelu. */
-    max-height:calc(100svh - 46vh);overflow-y:auto;
+    max-height:calc(100svh - 15vh);overflow-y:auto;
     touch-action:pan-y;overscroll-behavior:contain}
+  /* ROLUJE SEZNAM, NE CELÝ PANEL. Karty, zásobník a tlačítko musí zůstat
+     vidět pořád — když roloval celý panel, hráč o nich nevěděl. */
+  #zebricekTab{max-height:32svh;overflow-y:auto;overscroll-behavior:contain}
   #zebricekPosun{font-size:13px;line-height:1.35;margin-bottom:7px;color:#ffe08a;
     min-height:1.35em}
   #zebricekPosun .dol{color:#e8a48f}
@@ -331,6 +345,35 @@
     background:rgba(255,214,102,.18);border-color:rgba(255,214,102,.45);
     color:#ffe08a;font-weight:700}
   #zebricek [hidden]{display:none}
+  /* KARTY S BOOSTY. Tři vedle sebe, protože volba ze tří se dá přečíst
+     jedním pohledem — na čtyři už je na mobilu karta užší než palec. */
+  #kartyNadpis{font-size:12px;opacity:.7;margin:11px 0 6px;text-align:center}
+  #kartyRada{display:flex;gap:7px}
+  .karta{flex:1;min-width:0;padding:9px 4px 8px;border-radius:9px;text-align:center;
+    background:rgba(255,255,255,.07);border:1px solid rgba(207,224,255,.22);
+    cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .karta:active{transform:translateY(1px)}
+  .karta .ik{font-size:22px;line-height:1.1}
+  .karta .nm{font-size:11px;line-height:1.25;margin-top:3px;
+    overflow:hidden;text-overflow:ellipsis}
+  .karta .cn{font-size:11px;margin-top:5px;font-weight:700;color:#ffe08a;
+    font-variant-numeric:tabular-nums}
+  .karta.zdarma .cn{color:#9fe6a0}
+  /* NA CO HRÁČ NEMÁ, JE ZŠEDLÉ, ale zůstane vidět — jinak by nevěděl, že mu
+     něco uteklo, a neměl důvod si příště naspořit. */
+  .karta.draha{opacity:.42}
+  .karta.draha .cn{color:#e8a48f}
+  #preskocit{display:block;width:100%;margin-top:7px;font-size:12px;
+    background:none;border:0;color:rgba(207,224,255,.55)}
+  #zasobnik{display:flex;align-items:center;gap:8px;margin-top:10px}
+  #slotyRada{display:flex;gap:5px;flex:1}
+  .slot{width:30px;height:30px;border-radius:7px;display:flex;
+    align-items:center;justify-content:center;font-size:17px;
+    background:rgba(255,255,255,.06);border:1px dashed rgba(207,224,255,.28)}
+  .slot.plny{background:rgba(255,214,102,.16);border-style:solid;
+    border-color:rgba(255,214,102,.45)}
+  #penezenka{font-size:14px;font-weight:700;color:#ffe08a;white-space:nowrap;
+    font-variant-numeric:tabular-nums}
   /* Zaměřovač po konci hry ZMIZÍ. Zvažoval jsem nechat ho zamrznout pod
      přehozem, ale kříž visící nad mrtvou scénou svádí k míření a odvádí oko
      od hlášky — přitom jediné, co má hráč udělat, je klepnout kamkoli.
@@ -443,7 +486,16 @@
     <div id="zebricekPosun"></div>
     <ol id="zebricekTab"></ol>
     <div id="zebricekStav"></div>
-    <button id="znovu" type="button">hrát znovu</button>
+    <div id="karty" hidden>
+      <div id="kartyNadpis">vyber si jeden boost</div>
+      <div id="kartyRada"></div>
+      <button id="preskocit" type="button">přeskočit</button>
+    </div>
+    <div id="zasobnik">
+      <div id="slotyRada"></div>
+      <div id="penezenka"></div>
+    </div>
+    <button id="znovu" type="button" hidden>hrát</button>
   </div>
 </div>
 <!-- Zaměřovač podle předlohy: silnější a v týchž barvách jako text, tedy
@@ -1887,7 +1939,7 @@ function hlidejKonec(){
 // (zápis jména, pořadí, posun) funguje úplně stejně — vyplněním adresy se
 // z toho stane společná tabulka, aniž by se sáhlo na cokoli dalšího.
 const ZEBRICEK_URL = '';           // sem přijde adresa sdíleného žebříčku
-const ZEBRICEK_MIST = 8;           // kolik míst se ukazuje
+const ZEBRICEK_MIST = 10;          // kolik míst se ukazuje
 const ZEBRICEK_CEKANI = 3500;      // po téhle době se server vzdá a jede se lokálně
 const ZEB_KLIC = 'ws_zebricek', ZEB_JMENO = 'ws_jmeno', ZEB_PORADI = 'ws_poradi';
 
@@ -1972,6 +2024,10 @@ function vykresliZebricek(tab, jmeno, poradi){
   };
   tab.slice(0, ZEBRICEK_MIST).forEach((z, i) => zebTabEl.append(radek(z, i)));
   if(poradi > ZEBRICEK_MIST && tab[poradi - 1]) zebTabEl.append(radek(tab[poradi - 1], poradi - 1));
+  // Seznam roluje, takže vlastní řádek nemusí být vidět — a právě kvůli němu
+  // se hráč na tabulku dívá. Přiroluje se k němu.
+  const muj = zebTabEl.querySelector('li.ja');
+  if(muj) muj.scrollIntoView({ block: 'nearest' });
 }
 
 // Věta o posunu. Je to jediné, co hráči řekne, jestli se ta hra vyplatila —
@@ -1993,7 +2049,104 @@ async function zapisVysledek(jmeno){
   napisPosun(v.poradi);
   zebStavEl.textContent = v.sdilene ? '' : (ZEBRICEK_URL ? 'server neodpověděl — jen tohle zařízení'
                                                          : 'žebříček jen na tomhle zařízení');
+  // Karty až po zápisu do žebříčku: pořadí je odměna za odehranou hru,
+  // boost je příprava na další. V tomhle pořadí to hráč i čte.
+  nabidniKarty();
 }
+
+// ---- boosty, zásobník a peněženka -----------------------------------------
+// Pod žebříčkem se nabídnou TŘI KARTY, z nich si hráč vezme jednu — buď
+// zadarmo, nebo za mince. Co si vezme, uloží se mu do zásobníku o pěti
+// slotech a teprve pak se objeví tlačítko „hrát".
+//
+// PENÍZE SE PŘENÁŠEJÍ MEZI HRAMI. Jinak by nákup neměl co utrácet: mince
+// vydělané v poslední hře by se rozdaly hned a spořit by nešlo. Na konci hry
+// se výdělek přisype do peněženky a ta žije v localStorage dál.
+//
+// ÚČINKY BOOSTŮ ZATÍM NEJSOU. Tohle je celý obchod až po uložení do slotu;
+// co který boost ve hře udělá, se doplní, až se to rozhodne — proto to hra
+// i napíše, aby si toho hráč nevšiml až tím, že se nic nestalo.
+const SLOTU = 5;
+const BOOSTY = [
+  { id:'voda',   ikona:'💧', nazev:'Plná nádrž',  cena: 8 },
+  { id:'mesec',  ikona:'🪙', nazev:'Měšec',       cena: 6 },
+  { id:'proud',  ikona:'🌊', nazev:'Silný proud', cena:10 },
+  { id:'stit',   ikona:'🛡️', nazev:'Štít',        cena:12 },
+  { id:'magnet', ikona:'🧲', nazev:'Magnet',      cena: 9 },
+];
+const PENIZE_KLIC = 'ws_penize', SLOTY_KLIC = 'ws_sloty';
+
+function nactiPenize(){ return Math.max(0, +(localStorage.getItem(PENIZE_KLIC) || 0) | 0); }
+function ulozPenize(n){ try{ localStorage.setItem(PENIZE_KLIC, String(Math.max(0, n|0))); }catch(e){} }
+function nactiSloty(){
+  try{ const a = JSON.parse(localStorage.getItem(SLOTY_KLIC) || '[]');
+       return Array.isArray(a) ? a.slice(0, SLOTU) : []; }catch(e){ return []; }
+}
+function ulozSloty(a){ try{ localStorage.setItem(SLOTY_KLIC, JSON.stringify(a.slice(0, SLOTU))); }catch(e){} }
+
+const kartyEl = document.getElementById('karty');
+const kartyRadaEl = document.getElementById('kartyRada');
+const slotyRadaEl = document.getElementById('slotyRada');
+const penezenkaEl = document.getElementById('penezenka');
+const znovuBtn = document.getElementById('znovu');
+
+function vykresliZasobnik(){
+  const sloty = nactiSloty();
+  slotyRadaEl.textContent = '';
+  for(let i=0;i<SLOTU;i++){
+    const d = document.createElement('div');
+    const b = BOOSTY.find(q => q.id === sloty[i]);
+    d.className = 'slot' + (b ? ' plny' : '');
+    d.textContent = b ? b.ikona : '';
+    if(b) d.title = b.nazev;
+    slotyRadaEl.append(d);
+  }
+  penezenkaEl.textContent = '◆ ' + nactiPenize();
+}
+
+// Nabídka. Tři různé boosty a JEDEN Z NICH VŽDYCKY ZADARMO — kdyby vyšly tři
+// placené a hráč neměl na žádný, byla by to nabídka jen naoko a konec hry by
+// se změnil v obrazovku, přes kterou se jen proklikává.
+function nabidniKarty(){
+  const zbyva = BOOSTY.slice();
+  const vyber = [];
+  for(let i=0;i<3 && zbyva.length;i++) vyber.push(zbyva.splice((Math.random()*zbyva.length)|0, 1)[0]);
+  const zdarmaIdx = (Math.random()*vyber.length)|0;
+  const penize = nactiPenize();
+  const plno = nactiSloty().length >= SLOTU;
+
+  kartyRadaEl.textContent = '';
+  vyber.forEach((b, i) => {
+    const cena = i === zdarmaIdx ? 0 : b.cena;
+    const k = document.createElement('div');
+    k.className = 'karta' + (cena === 0 ? ' zdarma' : '') + (cena > penize ? ' draha' : '');
+    const ik = document.createElement('div'); ik.className = 'ik'; ik.textContent = b.ikona;
+    const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = b.nazev;
+    const cn = document.createElement('div'); cn.className = 'cn';
+    cn.textContent = cena === 0 ? 'zdarma' : '◆ ' + cena;
+    k.append(ik, nm, cn);
+    k.addEventListener('click', () => vezmiBoost(b, cena, plno));
+    kartyRadaEl.append(k);
+  });
+  kartyEl.hidden = false;
+  znovuBtn.hidden = true;          // tlačítko „hrát" až po volbě
+}
+
+function vezmiBoost(b, cena, plno){
+  if(plno){ zebStavEl.textContent = 'zásobník je plný (' + SLOTU + '/' + SLOTU + ')'; return; }
+  const penize = nactiPenize();
+  if(cena > penize){ zebStavEl.textContent = 'na tohle nemáš — chybí ' + (cena - penize) + '◆'; return; }
+  ulozPenize(penize - cena);
+  const sloty = nactiSloty(); sloty.push(b.id); ulozSloty(sloty);
+  zebStavEl.textContent = b.nazev + ' je v zásobníku — účinky boostů se teprve doplní';
+  zavriKarty();
+}
+function zavriKarty(){
+  kartyEl.hidden = true;
+  vykresliZasobnik();
+  znovuBtn.hidden = false;
+}
+document.getElementById('preskocit').addEventListener('click', zavriKarty);
 
 jmenoBox.addEventListener('submit', e => {
   e.preventDefault();
@@ -2018,6 +2171,13 @@ function konecHry(text){
   nastavTitulek(document.getElementById('konecNadpis'), text);
   nastavTitulek(document.getElementById('konecVyzva'), 'score ' + skore);
   document.getElementById('konecRoh').hidden = false;
+  document.getElementById('konecRoh').classList.add('sZebrickem');   // nadpis nahoru, ať se panel vejde
+  document.body.classList.add('konecPanel');                         // a HUD pod ním zmizí
+  // VÝDĚLEK PADÁ DO PENĚŽENKY. Mince z běhu jsou to, čím se za chvíli platí
+  // za boost; kdyby se neukládaly, nedalo by se na nic spořit a dražší karty
+  // by hráč nikdy neviděl jinak než zšedlé.
+  ulozPenize(nactiPenize() + mince);
+  vykresliZasobnik();
   // Jméno se ptá JEN POPRVÉ NA ZAŘÍZENÍ. Podruhé už by to byla otravná
   // překážka mezi koncem a další hrou.
   const jmeno = (localStorage.getItem(ZEB_JMENO) || '').trim();
