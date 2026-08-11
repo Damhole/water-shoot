@@ -247,12 +247,18 @@
     opacity:0;transform:translateY(-4px);
     transition:opacity .18s ease, transform .18s ease}
   #vodaMalo.vidno{opacity:1;transform:translateY(0)}
-  /* Pulzování pruhu MUSÍ zachovat translateY(-50%), jinak pruh při každém
-     kmitu poskočí o půl své výšky. */
-  #vodaRoh.malo{animation:pulzVoda .8s ease-in-out infinite}
-  @keyframes pulzVoda{
-    0%,100%{transform:translateY(-50%) scale(1)}
-    50%{transform:translateY(-50%) scale(1.06)}}
+  /* PULZUJE OBRYS DO ČERVENA, ne velikost. Zvětšování pruhu bylo vidět, ale
+     hýbalo celým rohem obrazovky; barva obrysu křičí stejně nahlas a přitom
+     nic neposkakuje. Červená je navíc jediná barva, kterou hráč v téhle hře
+     jinde nepotká — voda je modrá, život tmavě rudý, dřevo hnědé. */
+  #vodaRoh.malo .pruh{animation:pulzObrys .75s ease-in-out infinite}
+  #vodaRoh.malo .kapka path{animation:pulzObrysKapka .75s ease-in-out infinite}
+  @keyframes pulzObrys{
+    0%,100%{border-color:#000}
+    50%{border-color:#ff2f21}}
+  @keyframes pulzObrysKapka{
+    0%,100%{stroke:#000}
+    50%{stroke:#ff2f21}}
   #konecRoh{position:fixed;left:0;right:0;top:38vh;z-index:7;text-align:center;
     pointer-events:none}
   #konecRoh[hidden]{display:none}
@@ -396,13 +402,13 @@
   <input type="range" id="ziv" min="0" max="100" step="1" value="100">
   <label>voda (na ladění) <span id="vVod"></span></label>
   <input type="range" id="vod" min="0" max="100" step="1" value="100">
-  <!-- ID je „spotr", ne „spot", ZÁMĚRNĚ. Posuvníky se ukládají do localStorage
-       podle id, takže na zařízení, kde už hra běžela, by se výchozí hodnota
-       nikdy neprojevila — držela by se tam stará spotřeba. Přejmenování id
-       je nejlevnější způsob, jak nastavení téhle jediné položky zahodit a
-       zbytek doladěného panelu nechat být. -->
+  <!-- ID SE MĚNÍ S KAŽDOU ZMĚNOU VÝCHOZÍ HODNOTY (spot → spotr → spot3).
+       Posuvníky se ukládají do localStorage podle id, takže na zařízení, kde
+       už hra běžela, by se nová výchozí hodnota nikdy neprojevila — držela by
+       se tam ta stará. Přejmenování je nejlevnější způsob, jak zahodit tuhle
+       jedinou položku a zbytek doladěného panelu nechat být. -->
   <label>spotřeba vody (0 = nekonečná) <span id="vSpot"></span></label>
-  <input type="range" id="spotr" min="0" max="20" step="0.5" value="2">
+  <input type="range" id="spot3" min="0" max="20" step="0.1" value="3.3">
   <label>zorný úhel (nižší = blíž) <span id="vFov"></span></label>
   <input type="range" id="fov" min="30" max="60" step="1" value="53">
   <label>sytost barev <span id="vSyt"></span></label>
@@ -1026,7 +1032,7 @@ function uberVodu(v){ nastavVodu(voda - v); }
 // Spotřeba je na posuvníku, protože správnou hodnotu pozná jedině hraní:
 // je to poměr mezi tím, jak dlouho se stříká na kachničku, a kolik vody
 // vydá lahev. Nula = nekonečná voda (na ladění všeho ostatního).
-const SPOTREBA_VODY = () => +document.getElementById('spotr').value/100;
+const SPOTREBA_VODY = () => +document.getElementById('spot3').value/100;
 // Pod touhle hladinou začne proud slábnout tlakem. Ne skokem u nuly:
 // zkracující se čůrek je jediné varování, které hráč uvidí, aniž by musel
 // spustit oči z terčů.
@@ -2602,7 +2608,7 @@ addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 // Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
 // přežijí reload, aby se doladěné nastavení neztrácelo.
 const ULOZ_KLIC = 'ws_jet3d_tune';
-const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','obrT','obrB','rad','tl','sp','sila','ramp','imp','kor','spotr'];
+const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','obrT','obrB','rad','tl','sp','sila','ramp','imp','kor','spot3'];
 
 function uloz(){
   const o = {};
@@ -2670,7 +2676,7 @@ document.getElementById('reset').addEventListener('click', ()=>{
   // seděly hned napoprvé.
   const vych = { fov:53, syt:135, svx:-70, svy:110, stinS:75,
                  vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52',
-                 rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100, spotr:2 };
+                 rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100, spot3:3.3 };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -2717,7 +2723,7 @@ function obnovPopisky(){
   vTl.textContent = tl.value;  vSp.textContent = sp.value;
   vSila.textContent = sila.value; vRamp.textContent = (+ramp.value).toFixed(2);
   vImp.textContent = imp.value;
-  vSpot.textContent = spotr.value + ' %/s';
+  vSpot.textContent = spot3.value + ' %/s';
   korunkaMer = +kor.value/100;
   vKor.textContent = kor.value + ' %';
 }
