@@ -4557,6 +4557,13 @@ const NAPRAH_T = 0.5;
 // že do té doby má klid. Náhodný rozptyl navíc znamená, že se dvě kachničky
 // nasazené naráz neozvou ve stejný okamžik.
 const STRELBA_OD = 2.0, STRELBA_ROZPTYL = 1.5;
+// DRUHÁ RÁNA. Ne vždycky — z každé třetí kachničky se vyklube ta, co vystřelí
+// dvakrát. Nepravidelnost je celý smysl: kdyby střílely dvakrát všechny, je to
+// jen jiné pevné číslo a hráč se ho naučí; takhle se nedá spolehnout na to, že
+// po první ráně je klid. Mezi ranami je pauza, jinak by druhá koule vyletěla
+// hráči do obličeje dřív, než stihne sestřelit první.
+const DRUHA_SANCE = 0.30;
+const DRUHA_PAUZA = [1.0, 1.6];
 // CHODCI. Kachnička, která má polici sama pro sebe, se po ní za svůj život
 // projde sem a tam. Nechodí všechny: kde by cestou potkala jinou kachničku,
 // zůstane stát — dvě, které si přes sebe přejíždějí, hráč nerozliší a neví,
@@ -5041,7 +5048,9 @@ function pustKachnu(){
   // na tom, jak často ta varianta padne. `strelbaZa` je odpočet do NÁPŘAHU,
   // ne do výstřelu: nic se nesmí objevit odnikud, takže se kachna nejdřív
   // viditelně napřáhne.
-  k.strelec = false; k.napr = 0; k.vystrelil = false;
+  k.strelec = false; k.napr = 0;
+  k.vystrelu = 0;
+  k.ran = Math.random() < DRUHA_SANCE ? 2 : 1;
   k.strelbaPo = STRELBA_OD + Math.random()*STRELBA_ROZPTYL;
   // JEDEN Z BANDITŮ, ale ne ze všech čtyř. Varianta 0 míří revolverem doleva,
   // tedy mimo hráče — kachna s vytaseným koltem, která nikdy nevystřelí, je
@@ -5175,7 +5184,7 @@ function krokKachen(dt){
       // důvod ji sestřelit dřív — stejně by dostal další ránu. Vázat výstřel
       // na odchod byla ale druhá krajnost: šel odhadnout podle cukání před
       // zmizením a do té doby měl hráč klid.
-      if(k.strelec && !k.vystrelil && !konec){
+      if(k.strelec && k.vystrelu < k.ran && !konec){
         // KOLT MUSÍ BÝT VIDĚT I V OKAMŽIKU VÝSTŘELU, ne jen při nasazení.
         // Lahve se hýbou: hráč je porazí, srazí z police nebo posune, takže
         // kachnička, která se nasazovala s volnou hlavní, může stát za sklem
@@ -5192,7 +5201,13 @@ function krokKachen(dt){
             const w = 1 - k.napr/NAPRAH_T;
             const c = 1 + 0.10*w*Math.sin(k.t*40);
             s.set(s.x/c, s.y*c, 1);
-            if(k.napr <= 0){ vystrel(k); k.vystrelil = true; }
+            if(k.napr <= 0){
+              vystrel(k);
+              k.vystrelu++;
+              // Kdo má v zásobě druhou ránu, dostane na ni nový čas — až po
+              // pauze, aby se rány nepřekryly.
+              if(k.vystrelu < k.ran) k.strelbaPo = k.t + rand(DRUHA_PAUZA[0], DRUHA_PAUZA[1]);
+            }
           }
         } else if(vidi && k.t >= k.strelbaPo){
           // Kdo se v tu chvíli schovává za lahví, vystřelí, jakmile na něj
