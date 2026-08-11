@@ -307,8 +307,15 @@
      pár jmen, je panel nízký a nahoře nalepený vypadal jako utržený; naopak
      když je jmen hodně, roztáhne se dolů a horní okraj drží odsazení. Proto
      ne pevné `top`, ale plocha přes celou výšku se svislým středěním. */
+  /* NADPIS DRŽÍ VÝŠKU HERNÍHO SKÓRE. Během hry je velké číslo na 21,5 vh −
+     50 px; když konec hry přistane jinam, obraz při smrti poskočí. Nadpis
+     proto začíná tam a TABULKA SE VYSTŘEDÍ V TOM, CO ZBUDE POD NÍM
+     (`margin: auto` v obou směrech rozdělí volno rovnoměrně) — s pár jmény
+     tak neplave u horní hrany a s plnou tabulkou se roztáhne dolů. */
   #konecRoh.sZebrickem{top:0;bottom:0;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;padding:5vh 0 3vh}
+    align-items:center;justify-content:flex-start;
+    padding:calc(13vh - 50px) 0 3vh}
+  #konecRoh.sZebrickem #zebricek{margin-top:auto;margin-bottom:auto}
   /* Startovní obrazovka je NAHOŘE, ne uprostřed: ⚙ panel vyjíždí ode dna
      a přes půl výšky, takže by se uprostřed potkaly. */
   /* Pod pruhem vody a mincí (ten sedí na 9,2 vh), ne přes něj — pruh je při
@@ -336,6 +343,9 @@
   /* SE ŽEBŘÍČKEM ZMIZÍ HUD. Nadpis se posunul nahoru přesně tam, kde visí
      pruh vody a mince, a text se s nimi překrýval. Hra navíc skončila —
      stav běhu už nikoho nezajímá a výsledek stojí v panelu. */
+  /* I hláška „Floor cleared!" — dohasínala za panelem a vypadala, jako by
+     hra běžela dál. */
+  body.konecPanel #hlaska,
   body.konecPanel #skoreRoh, body.konecPanel #patroRoh,
   body.konecPanel #zivotRoh, body.konecPanel #vodaRoh, body.konecPanel #minceRoh{
     opacity:0;transition:opacity .3s ease;pointer-events:none}
