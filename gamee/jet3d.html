@@ -1431,7 +1431,7 @@ const KAPACU_MAX = 16;
 const kapace = [];
 for(let i=0;i<KAPACU_MAX;i++) kapace.push({ ziva:false, x:0, y:0, z:0, zbyva:0, cas:0 });
 const KAPAC_SLITI = 70;        // jak blízko po x se zásah přilepí ke zdroji
-const KAPAC_ZBYVA_MAX = 7;     // strop, aby dlouhé polévání nedělalo nekonečno
+const KAPAC_ZBYVA_MAX = 12;    // strop, aby dlouhé polévání nedělalo nekonečno
 const KAPAC_PRIDA = 0.10;      // kolik kapek přidá jeden zásah
 
 function namocPolici(x, y, z){
@@ -1451,19 +1451,33 @@ function namocPolici(x, y, z){
   c.zbyva = 1; c.cas = rand(0.25, 0.7);     // první kapka až za chvíli
 }
 
+// Kapka se odlepí skoro bez rychlosti a zbytek udělá gravitace — proto to
+// čte jako odkápnutí, ne jako výstřel.
+function odkapni(k){
+  _kapkaU.p.set(k.x + rand(-16, 16), k.y - 2, k.z);
+  _kapkaU.v.set(0, -14, 0);
+  pustKapku(_kapkaU, 7, 1);
+}
+
 function krokKapacu(dt){
   for(const k of kapace){
     if(!k.ziva) continue;
     k.cas -= dt;
     if(k.cas > 0) continue;
-    k.cas = rand(0.4, 1.2);
+    // KOLIK VODY, TOLIK KAPEK. Odstup se řídí tím, jak je police mokrá:
+    // sotva potřísněná odkápne jednou za vteřinu, pořádně politá čtyřikrát
+    // častěji. Pevný odstup 0,4–1,2 s znamenal, že dlouhé polévání vypadalo
+    // úplně stejně jako mimoletmý zásah — a to je přesně ta informace,
+    // která hráči má z police kapat zpátky.
+    const podil = Math.min(1, k.zbyva/KAPAC_ZBYVA_MAX);
+    k.cas = (0.16 + 0.92*(1 - podil)) * rand(0.8, 1.3);
     k.zbyva -= 1;
+    odkapni(k);
+    // Z hodně mokré police padají chvílemi dvě naráz. Samotné zrychlení
+    // odstupu se totiž u horní hranice přestane číst — oko sleduje počet
+    // kapek ve vzduchu, ne jejich takt.
+    if(podil > 0.65 && Math.random() < 0.5 && k.zbyva > 0){ k.zbyva -= 0.5; odkapni(k); }
     if(k.zbyva <= 0) k.ziva = false;
-    // Kapka se odlepí skoro bez rychlosti a zbytek udělá gravitace — proto
-    // to čte jako odkápnutí, ne jako výstřel.
-    _kapkaU.p.set(k.x + rand(-16, 16), k.y - 2, k.z);
-    _kapkaU.v.set(0, -14, 0);
-    pustKapku(_kapkaU, 7, 1);
   }
 }
 
