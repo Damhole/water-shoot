@@ -1160,7 +1160,18 @@ function zeObrazovky(px, py, cilZ, out){
 }
 const _zdroj = new THREE.Vector3();
 
+// Vrací, kolik mincí se opravdu vysypalo — a jen tolik se taky odečte.
+//
+// PŘEDTÍM SE ODEČETLO VŽDYCKY VŠECHNO, i když se do scény nevešlo. Pool má
+// 24 kusů a dělí se o něj rozsypané mince i ty, co letí z kachniček; při plné
+// scéně tak rána sebrala patnáct mincí a NEOBJEVILA SE ANI JEDNA (naměřeno:
+// 24 živých před ranou, 24 po ní, bank 276 → 261). Hráč přišel o peníze, aniž
+// by měl co honit — přesně ten případ, kdy to vypadá jako rozbitá hra.
 function vysypMince3d(pocet){
+  let volnych = 0;
+  for(const c of mince3d) if(!c.ziva) volnych++;
+  pocet = Math.min(pocet, volnych);
+  if(pocet <= 0) return 0;
   pripisMinci(-pocet);
   // zdroj = ikona mince v HUD, převedená do roviny polic
   const ikona = document.querySelector('#minceRoh .mince').getBoundingClientRect();
@@ -1184,6 +1195,7 @@ function vysypMince3d(pocet){
     c.m.visible = true;
     dano++;
   }
+  return dano;
 }
 
 // MINCE Z KACHNIČKY. Taky tělesa, ne rovnou ikonky v HUD: hráč má vidět, že
@@ -1780,8 +1792,14 @@ function zasahHrace(x, y, z){
   zasahEl.classList.remove('bliknuti');
   void zasahEl.offsetWidth;             // restart animace i při rychlé druhé ráně
   zasahEl.classList.add('bliknuti');
-  // STŘELA OKRÁDÁ, NEZABÍJÍ. Bandita hráči vysype část banku — hra tím
-  // netrestá smrtí, ale tím, co si hráč na konci koupí.
+  // STŘELA OKRÁDÁ. Bandita hráči vysype část banku — hra netrestá smrtí,
+  // ale tím, co si hráč na konci koupí.
+  //
+  // NA PRÁZDNOU KAPSU UŽ ALE NENÍ CO VZÍT, A TÍM HRA KONČÍ. Do teď byl zásah
+  // bez peněz úplně bez následku: bandita vystřelil, plocha bliknula a nestalo
+  // se nic — hráč bez mincí byl nezranitelný a střely mohl ignorovat. Teď je
+  // prázdný měšec to, co ho zabije, takže peníze nejsou jen skóre, ale i zdraví.
+  if(mince <= 0){ konecHry('Out of money!'); return; }
   const kolik = Math.min(mince, KRADEZ_MAX, Math.max(KRADEZ_MIN, Math.round(mince*KRADEZ_PODIL)));
   if(kolik > 0) vysypMince3d(kolik);
   if(ZIVOTY_ZAP && zivot <= 0) konecHry('Soaked!');
