@@ -372,6 +372,10 @@
     color:rgba(207,224,255,.8)}
   #konecRovnice .minceIk{vertical-align:-.16em}
   #konecRovnice b{color:#ffe08a}
+  /* Rekord se odliší barvou, ne dalším řádkem: text „your new highscore" je
+     sám o sobě delší a zlatá ho spojí s mincemi a se vším ostatním, co je
+     v téhle hře odměna. */
+  #konecVyzva.rekord{color:#ffe08a}
   #konecVyzva{position:relative;margin-top:.5vh;font-size:3.4vh;line-height:1;
     --o:0.11vh;--o2:0.16vh;--hloubka:0.17vh;letter-spacing:.03em;opacity:.9}
   /* ŽEBŘÍČEK. Jediné místo ve hře, kam se opravdu KLEPÁ (pole na jméno,
@@ -2486,7 +2490,8 @@ async function vynulujPostup(){
         poCase(ZEBRICEK_CEKANI) ]);
     }catch(e){ /* na řádku ve sdílené tabulce nezáleží tolik, aby kvůli němu nulování uvázlo */ }
   }
-  for(const k of [ZEB_KLIC, ZEB_JMENO, ZEB_PORADI, PENIZE_KLIC, BOOSTY_KLIC]){
+  for(const k of [ZEB_KLIC, ZEB_JMENO, ZEB_PORADI, PENIZE_KLIC, BOOSTY_KLIC,
+                  'ws_rekord_postup', 'ws_rekord_volna']){
     try{ localStorage.removeItem(k); }catch(e){}
   }
   // Po přenačtení se nemá rovnou hrát, ale nastavovat nový postup.
@@ -2554,7 +2559,18 @@ function konecHry(text){
   // VÝSLEDEK VELKÝM, ROZKLAD DROBNĚ POD NÍM. Jedna řádka „score 6011 · 33×
   // mince = +1650" se četla jako rovnice, ve které 6011 je základ — a hráč
   // pak nevěděl, které z těch čísel je jeho výsledek.
-  nastavTitulek(document.getElementById('konecVyzva'), 'your score ' + skore);
+  // VLASTNÍ REKORD. Žebříček říká, jak si hráč stojí proti ostatním, ale
+  // většina her se hraje proti sobě — a „posunul jsem se" je ta odměna, která
+  // funguje i tomu, kdo na první místo v tabulce nikdy nedosáhne.
+  // Drží se zvlášť pro každý režim: v postupu se hraje s boosty a srovnávat
+  // ho se sólem by nedávalo smysl.
+  const rekordKlic = 'ws_rekord_' + (JE_POSTUP ? 'postup' : 'volna');
+  const rekord = Math.max(0, +(localStorage.getItem(rekordKlic) || 0));
+  const jeRekord = skore > rekord;
+  if(jeRekord && !nuluji){ try{ localStorage.setItem(rekordKlic, String(skore)); }catch(e){} }
+  const vyzvaEl = document.getElementById('konecVyzva');
+  vyzvaEl.classList.toggle('rekord', jeRekord);
+  nastavTitulek(vyzvaEl, (jeRekord ? 'your new highscore ' : 'your score ') + skore);
   const rovniceEl = document.getElementById('konecRovnice');
   rovniceEl.textContent = '';
   if(bonus > 0){
