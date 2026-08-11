@@ -303,7 +303,12 @@
      hlášku, jenže s tabulkou, kartami a zásobníkem pod sebou už se to na
      malém telefonu (375×812) nevešlo: vlastní řádek vyjel nad okraj panelu
      a sloty se uřízly dole. */
-  #konecRoh.sZebrickem{top:6vh}
+  /* SE ŽEBŘÍČKEM SE OBRAZOVKA VYSTŘEDÍ, ne přilepí nahoru. Když je v tabulce
+     pár jmen, je panel nízký a nahoře nalepený vypadal jako utržený; naopak
+     když je jmen hodně, roztáhne se dolů a horní okraj drží odsazení. Proto
+     ne pevné `top`, ale plocha přes celou výšku se svislým středěním. */
+  #konecRoh.sZebrickem{top:0;bottom:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;padding:5vh 0 3vh}
   /* Startovní obrazovka je NAHOŘE, ne uprostřed: ⚙ panel vyjíždí ode dna
      a přes půl výšky, takže by se uprostřed potkaly. */
   /* Pod pruhem vody a mincí (ten sedí na 9,2 vh), ne přes něj — pruh je při
@@ -359,7 +364,7 @@
     border-radius:12px;padding:11px 12px 12px;text-align:left;
     /* Na nízkém displeji se panel i s klávesnicí nevejde, tak ať jde rolovat.
        100svh, ne 100vh — viz past u ⚙ panelu. */
-    max-height:calc(100svh - 15vh);overflow-y:auto;
+    max-height:calc(100svh - 26vh);overflow-y:auto;
     touch-action:pan-y;overscroll-behavior:contain}
   /* ROLUJE SEZNAM, NE CELÝ PANEL. Karty, zásobník a tlačítko musí zůstat
      vidět pořád — když roloval celý panel, hráč o nich nevěděl. */
