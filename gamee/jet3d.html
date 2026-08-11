@@ -443,6 +443,13 @@
   <input type="range" id="obrT" min="100" max="160" step="2" value="122">
   <label>obrys vody – barva</label>
   <input type="color" id="obrB" value="#123a52" style="width:100%;height:26px;padding:0;border:0;background:none">
+  <!-- Střela poblikává mezi DVĚMA barvami, takže se nastavují obě. Pozor při
+       ladění: čím blíž jsou si barvy, tím míň je blikání vidět — smysl to dává
+       s dvojicí, která si je vzdálená (proto modrá a červenooranžová). -->
+  <label>střela – barva 1</label>
+  <input type="color" id="projA" value="#2ea8ff" style="width:100%;height:26px;padding:0;border:0;background:none">
+  <label>střela – barva 2</label>
+  <input type="color" id="projB" value="#ff5a22" style="width:100%;height:26px;padding:0;border:0;background:none">
   <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
     <input type="checkbox" id="autoStrik"> automatické stříkání (na ladění)</label>
   <label>poloměr proudu <span id="vTl"></span></label>
@@ -2864,7 +2871,7 @@ addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 // Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
 // přežijí reload, aby se doladěné nastavení neztrácelo.
 const ULOZ_KLIC = 'ws_jet3d_tune';
-const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','obrT','obrB','rad','tl','sp','sila','ramp','imp','kor','spot3'];
+const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','obrT','obrB','rad','tl','sp','sila','ramp','imp','kor','spot3','projA','projB'];
 
 function uloz(){
   const o = {};
@@ -2932,7 +2939,7 @@ document.getElementById('reset').addEventListener('click', ()=>{
   // seděly hned napoprvé.
   const vych = { fov:53, syt:135, svx:-70, svy:110, stinS:75,
                  vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52',
-                 rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100, spot3:3.3 };
+                 rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100, spot3:3.3, projA:'#2ea8ff', projB:'#ff5a22' };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -2980,6 +2987,11 @@ function obnovPopisky(){
   vSila.textContent = sila.value; vRamp.textContent = (+ramp.value).toFixed(2);
   vImp.textContent = imp.value;
   vSpot.textContent = spot3.value + ' %/s';
+  // Barvy střely se MĚNÍ V MÍSTĚ (`set` na existující Color), ne přiřazením
+  // nové instance — krokProjektilu z nich každý snímek míchá aktuální odstín
+  // a s novým objektem by si držel ten starý.
+  PROJ_BARVA_A.set(projA.value);
+  PROJ_BARVA_B.set(projB.value);
   korunkaMer = +kor.value/100;
   vKor.textContent = kor.value + ' %';
 }
