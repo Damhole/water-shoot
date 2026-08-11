@@ -4555,6 +4555,13 @@ const STRELBA_OD = 3.0, STRELBA_ROZPTYL = 1.5;
 const CHODEC_SANCE = 0.75;         // i osamělá kachnička občas jen stojí
 const CHODEC_V = [26, 54];         // jednotek za vteřinu, losuje se z rozsahu
 const CHODEC_KRAJ = KACH_R*0.6;    // o kolik dřív se otočí, ať nevyjede z obrazu
+// OTOČKA S MRSKNUTÍM. Prosté překlopení sprite je jednosnímková výměna a oko
+// ji čte jako lupnutí, ne jako obrat. Kachnička se proto při obrátce nejdřív
+// zabrzdí do šířky (a vytáhne do výšky), V NEJUŽŠÍM OKAMŽIKU SE PŘEKLOPÍ —
+// tam je plochá, takže výměnu není kam vidět — a pak přestřelí do opačné
+// polohy a dosedne. Klasické squash and stretch, jen kolem svislé osy.
+const OTOC_T = 0.30;               // jak dlouho obrat trvá
+const OTOC_A = 0.34;               // jak moc se zmáčkne (a pak roztáhne)
 const KACH_VYSKA = KACH_R*2*BANDIT_ZOOM;
 const KACH_POSAZENI = KACH_PRAZDNO_DOLE.map(p => KACH_VYSKA*(0.5 - p));
 const geoPlane = new THREE.PlaneGeometry(1, 1);
@@ -5057,7 +5064,7 @@ function pustKachnu(){
   k.smer = Math.random() < 0.5 ? -1 : 1;
   k.rychlost = rand(CHODEC_V[0], CHODEC_V[1]);
   // Kdo stojí, dívá se jako dřív (doleva); chodec se rovnou otočí, kam jde.
-  k.zrcadlo = null;
+  k.zrcadlo = null; k.otocT = 0;
   otocKachnu(k, k.chodec && k.smer > 0 ? -1 : 1);
   k.zaklY = hraciSekce().zaklY + POLICE_Y[patroK];
   k.skup.position.set(k.zaklX, k.zaklY, KACH_Z);
@@ -5118,8 +5125,8 @@ function krokKachen(dt){
       if(k.chodec){
         const mez = pasKachen() - CHODEC_KRAJ;
         k.poziceX += k.smer*k.rychlost*dt;
-        if(k.poziceX > mez){ k.poziceX = mez; k.smer = -1; otocKachnu(k, 1); }
-        else if(k.poziceX < -mez){ k.poziceX = -mez; k.smer = 1; otocKachnu(k, -1); }
+        if(k.poziceX > mez){ k.poziceX = mez; k.smer = -1; k.otocT = OTOC_T; }
+        else if(k.poziceX < -mez){ k.poziceX = -mez; k.smer = 1; k.otocT = OTOC_T; }
       }
       // Odpočet stojí, dokud do kachničky teče. Kdo ji drží, ten ji dostane.
       if(k.odZasahu > PAUZA_PO_ZASAHU) k.ttl -= dt;
@@ -5134,6 +5141,18 @@ function krokKachen(dt){
         const d = 1 + 0.02*Math.sin(k.t*3.1);
         s.set(1/d, d, 1);
         k.skup.rotation.z = 0;
+      }
+      // MRSKNUTÍ PŘI OBRÁTCE. Přičítá se AŽ ZA dýchání i cukání, protože ta
+      // měřítko nastavují absolutně — kdyby šlo naopak, obrat by se přepsal.
+      // Půlvlna dolů zmáčkne do šířky, půlvlna nahoru přestřelí do opačné
+      // polohy; překlopení sprite padne přesně na dno té první, kde je
+      // kachnička nejužší a výměnu není kam vidět.
+      if(k.otocT > 0){
+        k.otocT -= dt;
+        const u = 1 - Math.max(0, k.otocT)/OTOC_T;
+        const q = 1 - OTOC_A*Math.sin(u*2*Math.PI);
+        s.set(s.x*q, s.y/q, 1);
+        if(k.otocT <= OTOC_T*0.75) otocKachnu(k, k.smer > 0 ? -1 : 1);
       }
       // STŘELBA. Odpočet běží jen střelci a zastaví se, jakmile začne nápřah.
       // Během nápřahu kachnička drncá — je to týž pohyb jako pod proudem, jen
