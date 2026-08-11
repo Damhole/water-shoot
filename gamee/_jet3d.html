@@ -356,7 +356,11 @@
   .karta .ik{font-size:22px;line-height:1.1}
   .karta .nm{font-size:11px;line-height:1.25;margin-top:3px;
     overflow:hidden;text-overflow:ellipsis}
-  .karta .cn{font-size:11px;margin-top:5px;font-weight:700;color:#ffe08a;
+  /* Procenta jsou to, co hráč porovnává, takže stojí nad cenou a jsou
+     světlejší než název. */
+  .karta .pr{font-size:12px;margin-top:4px;font-weight:700;color:#9fd6ff;
+    font-variant-numeric:tabular-nums}
+  .karta .cn{font-size:11px;margin-top:4px;font-weight:700;color:#ffe08a;
     font-variant-numeric:tabular-nums}
   .karta.zdarma .cn{color:#9fe6a0}
   /* NA CO HRÁČ NEMÁ, JE ZŠEDLÉ, ale zůstane vidět — jinak by nevěděl, že mu
@@ -367,9 +371,12 @@
     background:none;border:0;color:rgba(207,224,255,.55)}
   #zasobnik{display:flex;align-items:center;gap:8px;margin-top:10px}
   #slotyRada{display:flex;gap:5px;flex:1}
-  .slot{width:30px;height:30px;border-radius:7px;display:flex;
-    align-items:center;justify-content:center;font-size:17px;
+  .slot{flex:1;min-width:0;height:38px;border-radius:7px;display:flex;
+    flex-direction:column;align-items:center;justify-content:center;
     background:rgba(255,255,255,.06);border:1px dashed rgba(207,224,255,.28)}
+  .slot .si{font-size:15px;line-height:1}
+  .slot .sp{font-size:9px;line-height:1.2;color:#ffe08a;font-weight:700;
+    font-variant-numeric:tabular-nums}
   .slot.plny{background:rgba(255,214,102,.16);border-style:solid;
     border-color:rgba(255,214,102,.45)}
   #penezenka{font-size:14px;font-weight:700;color:#ffe08a;white-space:nowrap;
@@ -1181,7 +1188,43 @@ function uberVodu(v){ nastavVodu(voda - v); }
 // Spotřeba je na posuvníku, protože správnou hodnotu pozná jedině hraní:
 // je to poměr mezi tím, jak dlouho se stříká na kachničku, a kolik vody
 // vydá lahev. Nula = nekonečná voda (na ladění všeho ostatního).
-const SPOTREBA_VODY = () => +document.getElementById('spot3').value/100;
+// ---- boosty: co si hráč koupil na konci minulé hry -------------------------
+// Datová část leží TADY NAHOŘE, protože se z ní čte v místech rozházených po
+// celém souboru (spotřeba vody, síla trysky, náběh tlaku, krádež mincí).
+// Obchod, který je prodává, je až dole u žebříčku.
+//
+// JEDEN SLOT NA DRUH, procenta se v něm SČÍTAJÍ. Kdo si koupí větší nádrž
+// dvakrát, nemá dva sloty po dvaceti procentech, ale jeden se čtyřiceti —
+// jinak by pět slotů znamenalo pět nákupů a konec.
+const BOOSTY = [
+  { id:'sila',    ikona:'🌊',  nazev:'Síla trysky',  proc:10, cena: 8 },
+  { id:'rozjezd', ikona:'⚡',  nazev:'Rychlejší tlak', proc:15, cena: 6 },
+  { id:'nadrz',   ikona:'💧',  nazev:'Větší nádrž',  proc:20, cena:10 },
+  { id:'stit',    ikona:'🛡️', nazev:'Štít',         proc:15, cena:12 },
+];
+const SLOTU = 5;
+const BOOSTY_KLIC = 'ws_boosty';
+// STROP ŠTÍTU. Bez něj by se dal štít nakupovat, dokud rána nesebere nula
+// mincí, a bandita by přestal existovat. Osmdesát procent nechá ránu bolet,
+// ale ne zabíjet — a spodní hranice jedné mince platí vždycky.
+const STIT_STROP = 0.8;
+
+function nactiBoosty(){
+  try{ const o = JSON.parse(localStorage.getItem(BOOSTY_KLIC) || '{}');
+       return (o && typeof o === 'object') ? o : {}; }catch(e){ return {}; }
+}
+function ulozBoosty(o){ try{ localStorage.setItem(BOOSTY_KLIC, JSON.stringify(o)); }catch(e){} }
+// Načte se JEDNOU při startu hry. Nákup uprostřed běhu neexistuje — kupuje se
+// po smrti a hraje se po reloadu, takže se hodnota za běhu nemá jak změnit.
+const BOOST = nactiBoosty();
+const boostProc = id => Math.max(0, +BOOST[id] || 0);
+const boostNasob = id => 1 + boostProc(id)/100;
+
+// VĚTŠÍ NÁDRŽ = POMALEJŠÍ UBÝVÁNÍ. Nádrž je v celé hře vedená jako podíl
+// 0..1 (pruh, prahy varování, zatmívání), takže zvětšovat se dá jedině tím,
+// jak rychle z ní ubývá — jinak by se musely přepočítat všechny prahy
+// a lahev by doplňovala pokaždé jiný kus pruhu.
+const SPOTREBA_VODY = () => (+document.getElementById('spot3').value/100) / boostNasob('nadrz');
 // Pod touhle hladinou začne proud slábnout tlakem. Ne skokem u nuly:
 // zkracující se čůrek je jediné varování, které hráč uvidí, aniž by musel
 // spustit oči z terčů.
@@ -1909,7 +1952,11 @@ function zasahHrace(x, y, z){
   // se nic — hráč bez mincí byl nezranitelný a střely mohl ignorovat. Teď je
   // prázdný měšec to, co ho zabije, takže peníze nejsou jen skóre, ale i zdraví.
   if(mince <= 0){ konecHry('Out of money!'); return; }
-  const kolik = Math.min(mince, KRADEZ_MAX, Math.max(KRADEZ_MIN, Math.round(mince*KRADEZ_PODIL)));
+  let kolik = Math.min(mince, KRADEZ_MAX, Math.max(KRADEZ_MIN, Math.round(mince*KRADEZ_PODIL)));
+  // ŠTÍT CHRÁNÍ PENÍZE, ne život. Čím silnější, tím míň rána sebere — ale
+  // vždycky aspoň jednu minci, jinak by se bandita dal koupit z existence.
+  const stit = Math.min(STIT_STROP, boostProc('stit')/100);
+  if(stit > 0) kolik = Math.max(1, Math.round(kolik*(1 - stit)));
   if(kolik > 0) vysypMince3d(kolik);
   if(ZIVOTY_ZAP && zivot <= 0) konecHry('Soaked!');
 }
@@ -2057,35 +2104,25 @@ async function zapisVysledek(jmeno){
   nabidniKarty();
 }
 
-// ---- boosty, zásobník a peněženka -----------------------------------------
+// ---- obchod: karty, zásobník a peněženka ----------------------------------
 // Pod žebříčkem se nabídnou TŘI KARTY, z nich si hráč vezme jednu — buď
-// zadarmo, nebo za mince. Co si vezme, uloží se mu do zásobníku o pěti
-// slotech a teprve pak se objeví tlačítko „hrát".
+// zadarmo, nebo za mince. Katalog boostů i jejich účinky jsou nahoře u vody
+// (BOOSTY, BOOST); tady je jen prodej.
 //
 // PENÍZE SE PŘENÁŠEJÍ MEZI HRAMI. Jinak by nákup neměl co utrácet: mince
 // vydělané v poslední hře by se rozdaly hned a spořit by nešlo. Na konci hry
 // se výdělek přisype do peněženky a ta žije v localStorage dál.
 //
-// ÚČINKY BOOSTŮ ZATÍM NEJSOU. Tohle je celý obchod až po uložení do slotu;
-// co který boost ve hře udělá, se doplní, až se to rozhodne — proto to hra
-// i napíše, aby si toho hráč nevšiml až tím, že se nic nestalo.
-const SLOTU = 5;
-const BOOSTY = [
-  { id:'voda',   ikona:'💧', nazev:'Plná nádrž',  cena: 8 },
-  { id:'mesec',  ikona:'🪙', nazev:'Měšec',       cena: 6 },
-  { id:'proud',  ikona:'🌊', nazev:'Silný proud', cena:10 },
-  { id:'stit',   ikona:'🛡️', nazev:'Štít',        cena:12 },
-  { id:'magnet', ikona:'🧲', nazev:'Magnet',      cena: 9 },
-];
-const PENIZE_KLIC = 'ws_penize', SLOTY_KLIC = 'ws_sloty';
+// SLOT SE ZABERE JEN NOVÝM DRUHEM. Koupě druhu, který hráč už má, jen přičte
+// procenta do jeho slotu — pět slotů tedy není pět nákupů, ale pět druhů.
+const PENIZE_KLIC = 'ws_penize';
 
 function nactiPenize(){ return Math.max(0, +(localStorage.getItem(PENIZE_KLIC) || 0) | 0); }
 function ulozPenize(n){ try{ localStorage.setItem(PENIZE_KLIC, String(Math.max(0, n|0))); }catch(e){} }
-function nactiSloty(){
-  try{ const a = JSON.parse(localStorage.getItem(SLOTY_KLIC) || '[]');
-       return Array.isArray(a) ? a.slice(0, SLOTU) : []; }catch(e){ return []; }
-}
-function ulozSloty(a){ try{ localStorage.setItem(SLOTY_KLIC, JSON.stringify(a.slice(0, SLOTU))); }catch(e){} }
+// Zásobník = mapa druh → procenta. Pořadí slotů je pořadí, v jakém si je hráč
+// pořídil, protože přesně tak si je pamatuje.
+function nactiZasobnik(){ return nactiBoosty(); }
+function pocetSlotu(o){ return Object.keys(o).length; }
 
 const kartyEl = document.getElementById('karty');
 const kartyRadaEl = document.getElementById('kartyRada');
@@ -2093,15 +2130,22 @@ const slotyRadaEl = document.getElementById('slotyRada');
 const penezenkaEl = document.getElementById('penezenka');
 const znovuBtn = document.getElementById('znovu');
 
+// Slot ukazuje IKONU A NASČÍTANÁ PROCENTA. Bez čísla by hráč po pěti nákupech
+// nevěděl, jestli má nádrž o pětinu, nebo dvojnásobnou.
 function vykresliZasobnik(){
-  const sloty = nactiSloty();
+  const zas = nactiZasobnik();
+  const druhy = Object.keys(zas).filter(id => BOOSTY.some(b => b.id === id));
   slotyRadaEl.textContent = '';
   for(let i=0;i<SLOTU;i++){
     const d = document.createElement('div');
-    const b = BOOSTY.find(q => q.id === sloty[i]);
+    const b = BOOSTY.find(q => q.id === druhy[i]);
     d.className = 'slot' + (b ? ' plny' : '');
-    d.textContent = b ? b.ikona : '';
-    if(b) d.title = b.nazev;
+    if(b){
+      d.title = b.nazev + ' +' + zas[b.id] + ' %';
+      const ik = document.createElement('div'); ik.className = 'si'; ik.textContent = b.ikona;
+      const pr = document.createElement('div'); pr.className = 'sp'; pr.textContent = '+' + zas[b.id] + '%';
+      d.append(ik, pr);
+    }
     slotyRadaEl.append(d);
   }
   penezenkaEl.textContent = '◆ ' + nactiPenize();
@@ -2116,32 +2160,47 @@ function nabidniKarty(){
   for(let i=0;i<3 && zbyva.length;i++) vyber.push(zbyva.splice((Math.random()*zbyva.length)|0, 1)[0]);
   const zdarmaIdx = (Math.random()*vyber.length)|0;
   const penize = nactiPenize();
-  const plno = nactiSloty().length >= SLOTU;
+  const zas = nactiZasobnik();
 
   kartyRadaEl.textContent = '';
   vyber.forEach((b, i) => {
     const cena = i === zdarmaIdx ? 0 : b.cena;
+    // Plný zásobník blokuje jen NOVÉ druhy; co už hráč má, může posilovat dál.
+    const blokovano = pocetSlotu(zas) >= SLOTU && !zas[b.id];
     const k = document.createElement('div');
-    k.className = 'karta' + (cena === 0 ? ' zdarma' : '') + (cena > penize ? ' draha' : '');
+    k.className = 'karta' + (cena === 0 ? ' zdarma' : '')
+      + (cena > penize || blokovano ? ' draha' : '');
     const ik = document.createElement('div'); ik.className = 'ik'; ik.textContent = b.ikona;
     const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = b.nazev;
+    const pr = document.createElement('div'); pr.className = 'pr'; pr.textContent = '+' + b.proc + '%';
+    // Kdo druh už má, vidí rovnou, kam se dostane — „+20 %" samo o sobě
+    // neřekne, jestli je to jeho první, nebo pátá nádrž.
+    if(zas[b.id]) pr.textContent += ' → ' + (zas[b.id] + b.proc) + '%';
     const cn = document.createElement('div'); cn.className = 'cn';
     cn.textContent = cena === 0 ? 'zdarma' : '◆ ' + cena;
-    k.append(ik, nm, cn);
-    k.addEventListener('click', () => vezmiBoost(b, cena, plno));
+    k.append(ik, nm, pr, cn);
+    k.addEventListener('click', () => vezmiBoost(b, cena));
     kartyRadaEl.append(k);
   });
   kartyEl.hidden = false;
   znovuBtn.hidden = true;          // tlačítko „hrát" až po volbě
 }
 
-function vezmiBoost(b, cena, plno){
-  if(plno){ zebStavEl.textContent = 'zásobník je plný (' + SLOTU + '/' + SLOTU + ')'; return; }
+function vezmiBoost(b, cena){
+  const zas = nactiZasobnik();
+  if(pocetSlotu(zas) >= SLOTU && !zas[b.id]){
+    zebStavEl.textContent = 'zásobník je plný (' + SLOTU + '/' + SLOTU + ') — posílit jde jen to, co už máš';
+    return;
+  }
   const penize = nactiPenize();
   if(cena > penize){ zebStavEl.textContent = 'na tohle nemáš — chybí ' + (cena - penize) + '◆'; return; }
   ulozPenize(penize - cena);
-  const sloty = nactiSloty(); sloty.push(b.id); ulozSloty(sloty);
-  zebStavEl.textContent = b.nazev + ' je v zásobníku — účinky boostů se teprve doplní';
+  const uz = +zas[b.id] || 0;
+  zas[b.id] = uz + b.proc;
+  ulozBoosty(zas);
+  zebStavEl.textContent = uz
+    ? b.nazev + ' posílen na +' + zas[b.id] + ' % (platí od další hry)'
+    : b.nazev + ' +' + b.proc + ' % je v zásobníku (platí od další hry)';
   zavriKarty();
 }
 function zavriKarty(){
@@ -2573,7 +2632,7 @@ function rychlostNaCil(cilX, cilY, cilZ){
   // Vyšší rychlost = kratší doba letu = plošší oblouk. Na daleké terče se
   // s pomalým proudem muselo mířit přes vysokou parabolu, což je špatně
   // odhadnutelné.
-  const t = vodorovne / (+document.getElementById('sila').value);
+  const t = vodorovne / (+document.getElementById('sila').value * boostNasob('sila'));
   return new THREE.Vector3(dx/t, (dy + 0.5*G*t*t)/t, dz/t);
 }
 
@@ -2978,7 +3037,8 @@ function krokProudu(dt, cil, strikaJe){
   // tryska nedává plný proud a čůrek se plynule zkracuje k nule. Je to
   // varování, které jde vidět bez koukání na ukazatel — a zároveň to hráči
   // dá pár vteřin, kdy ještě může trefit lahev a doplnit si.
-  const rampT = Math.max(0.02, +document.getElementById('ramp').value);
+  // Rychlejší rozjezd tlaku = KRATŠÍ náběh, proto se dělí.
+  const rampT = Math.max(0.02, +document.getElementById('ramp').value / boostNasob('rozjezd'));
   const tlak = Math.min(1, voda/TLAK_OD);
   const cilSily = strikaJe ? tlak : 0;
   sila += (cilSily - sila) * Math.min(1, dt/rampT);
