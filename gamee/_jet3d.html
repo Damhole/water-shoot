@@ -342,7 +342,13 @@
      k hornímu okraji kontejneru a překryla nadpis cizím textem. */
   #konecNadpis{position:relative;font-size:5.2vh;line-height:1.1;
     --o:0.22vh;--o2:0.30vh;--hloubka:0.42vh}
-  #konecVyzva{position:relative;margin-top:1.6vh;font-size:2.4vh;line-height:1;
+  /* VÝSLEDEK JE TO, PROČ SE HRÁČ NA OBRAZOVKU DÍVÁ — proto větší než dřív.
+     Rozklad na složky patří pod něj, a drobně: je to vysvětlení, ne titulek. */
+  #konecRovnice{position:relative;margin-top:.7vh;font-size:12px;line-height:1.3;
+    color:rgba(207,224,255,.8)}
+  #konecRovnice .minceIk{vertical-align:-.16em}
+  #konecRovnice b{color:#ffe08a}
+  #konecVyzva{position:relative;margin-top:1.2vh;font-size:3.4vh;line-height:1;
     --o:0.11vh;--o2:0.16vh;--hloubka:0.17vh;letter-spacing:.03em;opacity:.9}
   /* ŽEBŘÍČEK. Jediné místo ve hře, kam se opravdu KLEPÁ (pole na jméno,
      tlačítko) — proto si musí pointer-events zapnout zpátky; #konecRoh je má
@@ -544,7 +550,8 @@
 </div>
 <div id="konecRoh" hidden>
   <div id="konecNadpis" class="titulek" data-text="Out of water!">Out of water!</div>
-  <div id="konecVyzva" class="titulek" data-text="score 0">score 0</div>
+  <div id="konecVyzva" class="titulek" data-text="your score 0">your score 0</div>
+  <div id="konecRovnice"></div>
   <div id="zebricek">
     <form id="jmenoBox" hidden>
       <input id="jmenoVstup" maxlength="12" placeholder="tvé jméno"
@@ -2498,14 +2505,25 @@ function konecHry(text){
   //
   // Připisuje se ROVNOU DO `skore`, ne přes `pripisSkore`: ta se po `konec`
   // schválně nic nedělá, aby dolétnuvší voda už nic nepřidala.
+  const zaklad = skore;
   const bonus = JE_POSTUP ? 0 : mince*BODU_ZA_MINCI;
   if(bonus > 0){
     skore += bonus;
     nastavTitulek(skoreEl, skore);
   }
-  nastavTitulek(document.getElementById('konecVyzva'),
-    bonus > 0 ? 'score ' + skore + ' · ' + mince + '× mince = +' + bonus
-              : 'score ' + skore);
+  // VÝSLEDEK VELKÝM, ROZKLAD DROBNĚ POD NÍM. Jedna řádka „score 6011 · 33×
+  // mince = +1650" se četla jako rovnice, ve které 6011 je základ — a hráč
+  // pak nevěděl, které z těch čísel je jeho výsledek.
+  nastavTitulek(document.getElementById('konecVyzva'), 'your score ' + skore);
+  const rovniceEl = document.getElementById('konecRovnice');
+  rovniceEl.textContent = '';
+  if(bonus > 0){
+    rovniceEl.append(String(zaklad) + ' + ');
+    rovniceEl.append(sMinci(mince));                    // ikona mince s počtem
+    rovniceEl.append(' × ' + BODU_ZA_MINCI + ' = ');
+    const b = document.createElement('b'); b.textContent = skore;
+    rovniceEl.append(b);
+  }
   document.getElementById('konecRoh').hidden = false;
   document.getElementById('konecRoh').classList.add('sZebrickem');   // nadpis nahoru, ať se panel vejde
   document.body.classList.add('konecPanel');                         // a HUD pod ním zmizí
