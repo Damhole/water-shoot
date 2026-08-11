@@ -2146,8 +2146,14 @@ async function posliVysledek(zaznam){
       clearTimeout(budik);
       if(odp){
         const data = await Promise.race([odp.json(), poCase(ZEBRICEK_CEKANI)]);
-        if(data && Array.isArray(data.tabulka))
+        if(data && Array.isArray(data.tabulka)){
+          // ÚSPĚŠNÁ ODPOVĚĎ PŘEPÍŠE MÍSTNÍ KOPII. Bez toho v zařízení leží
+          // tabulka z doby, kdy hráč hrál naposledy offline — a při prvním
+          // výpadku serveru se vynoří jako „starý seznam se skóre", kterému
+          // hráč nemá důvod nevěřit.
+          ulozMistni(data.tabulka.slice());
           return { tabulka: data.tabulka, poradi: data.poradi || poradiVTabulce(data.tabulka, zaznam.jmeno), sdilene: true };
+        }
       }
     }catch(e){ /* spadne se na místní */ }
   }
