@@ -4224,6 +4224,19 @@ function nacti(){
   return neco;
 }
 
+// ---- kdo smí sahat na nastavení ------------------------------------------
+// ⚙ PANEL JE NÁSTROJ VÝVOJÁŘE, NE HRÁČE. Každý si ho totiž ladí u sebe:
+// nastavení leží v `localStorage`, takže je má každý vlastní a nikomu jinému
+// ho změnit nemůže — ale zároveň si smí zlehčit hru, jak se mu zlíbí, a pak
+// se srovnává v žebříčku s někým, kdo hrál naostro.
+//
+// Proto se panel ukazuje jen tam, kde se ladí:
+//   • na localhostu (vývoj),
+//   • s `?ladeni=1` v adrese (telefon, Pages).
+// Hráč bez toho ozubené kolo vůbec neuvidí a hraje s hodnotami z kódu.
+const LADENI = /[?&]ladeni=1(&|$)/.test(location.search)
+  || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+
 const cog = document.getElementById('cog');
 const hud = document.getElementById('hud');
 cog.addEventListener('click', e => { e.stopPropagation(); hud.hidden = !hud.hidden; uloz(); });
@@ -4361,6 +4374,14 @@ for(const id of ['projA','projB']){
 if(nacti()) console.log('[jet3d] nastavení obnoveno');
 // Až tady, po obnově uloženého stavu panelu: při nastavování nového postupu
 // musí být panel otevřený, ať se má co nastavovat.
+// BEZ LADĚNÍ SE NENASTAVUJE NIC. Ozubené kolo zmizí, panel se zavře a odpadá
+// i startovní obrazovka — ta existuje jen proto, aby se v ní dalo nastavovat,
+// takže by hráče jen zdržela u obrazovky, se kterou nemá co dělat.
+if(!LADENI){
+  cog.hidden = true;
+  hud.hidden = true;
+  if(cekaSeNaStart){ cekaSeNaStart = false; try{ localStorage.removeItem(START_KLIC); }catch(e){} }
+}
 if(cekaSeNaStart){
   nastavTitulek(document.getElementById('startNadpis'), JE_POSTUP ? 'Nový postup' : 'Nová hra');
   startRoh.hidden = false;
