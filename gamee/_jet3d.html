@@ -603,7 +603,7 @@
        jedinou položku a zbytek doladěného panelu nechat být. -->
   <!-- Odtud dolů jsou VÝCHOZÍ HODNOTY HRY, tedy s čím se začíná, než si hráč
        něco koupí. Boosty se na ně násobí. -->
-  <div class="skupina">výchozí hodnoty hry</div>
+  <div class="skupina" id="skupinaHra">výchozí hodnoty hry</div>
   <label>spotřeba vody (0 = nekonečná) <span id="vSpot"></span></label>
   <input type="range" id="spot3" min="0" max="20" step="0.1" value="3.3">
   <!-- VÝCHOZÍ VELIKOST NÁDRŽE, tedy s čím hráč začíná, než si cokoli koupí.
@@ -4055,26 +4055,51 @@ addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 // Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
 // přežijí reload, aby se doladěné nastavení neztrácelo.
 const ULOZ_KLIC = 'ws_jet3d_tune';
-const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','obrT','obrB','rad','tl','sp','sila','ramp','imp','kor','spot3','nadrz1','projA','projB'];
+// VÝCHOZÍ HODNOTY HRY MÁ KAŽDÝ REŽIM VLASTNÍ. Volná hra a postup jsou dvě
+// různé hry: co je doladěné pro dlouhé dobrodružství, nemusí sedět na rychlé
+// kolo — a přenastavovat to sem a tam by znamenalo si to pamatovat po hlavě.
+//
+// VZHLED A LADĚNÍ ZŮSTÁVÁ SPOLEČNÉ (zorný úhel, barvy, stíny, světlo). Je to
+// jedna a tatáž hra na pohled a doladit si ji dvakrát by byla jen otrava.
+const HRA_POSUVNIKY = ['spot3','nadrz1','tl','sp','sila','ramp'];
+const VZHLED_POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS',
+                          'obrT','obrB','rad','imp','kor','projA','projB'];
+const POSUVNIKY = VZHLED_POSUVNIKY.concat(HRA_POSUVNIKY);
+const hraKlic = () => 'ws_jet3d_hra_' + (JE_POSTUP ? 'postup' : 'volna');
 
 function uloz(){
   const o = {};
-  for(const id of POSUVNIKY) o[id] = document.getElementById(id).value;
+  for(const id of VZHLED_POSUVNIKY) o[id] = document.getElementById(id).value;
   o._stiny = document.getElementById('stiny').checked;
   o._auto = document.getElementById('autoStrik').checked;
   o._panel = !document.getElementById('hud').hidden;
   try{ localStorage.setItem(ULOZ_KLIC, JSON.stringify(o)); }catch(e){}
+  const h = {};
+  for(const id of HRA_POSUVNIKY) h[id] = document.getElementById(id).value;
+  try{ localStorage.setItem(hraKlic(), JSON.stringify(h)); }catch(e){}
 }
 function nacti(){
+  let neco = false;
   try{
     const o = JSON.parse(localStorage.getItem(ULOZ_KLIC) || 'null');
-    if(!o) return false;
-    for(const id of POSUVNIKY) if(o[id] !== undefined) document.getElementById(id).value = o[id];
-    if(o._stiny !== undefined) document.getElementById('stiny').checked = o._stiny;
-    if(o._auto !== undefined) document.getElementById('autoStrik').checked = o._auto;
-    document.getElementById('hud').hidden = !o._panel;
-    return true;
-  }catch(e){ return false; }
+    if(o){
+      neco = true;
+      for(const id of VZHLED_POSUVNIKY) if(o[id] !== undefined) document.getElementById(id).value = o[id];
+      // Herní hodnoty ze STARÉHO společného uložení se použijí jako základ,
+      // dokud si režim nemá co načíst vlastního — jinak by se hráči po téhle
+      // změně vynulovalo, co si doladil.
+      for(const id of HRA_POSUVNIKY) if(o[id] !== undefined) document.getElementById(id).value = o[id];
+      if(o._stiny !== undefined) document.getElementById('stiny').checked = o._stiny;
+      if(o._auto !== undefined) document.getElementById('autoStrik').checked = o._auto;
+      document.getElementById('hud').hidden = !o._panel;
+    }
+    const h = JSON.parse(localStorage.getItem(hraKlic()) || 'null');
+    if(h){
+      neco = true;
+      for(const id of HRA_POSUVNIKY) if(h[id] !== undefined) document.getElementById(id).value = h[id];
+    }
+  }catch(e){ return neco; }
+  return neco;
 }
 
 const cog = document.getElementById('cog');
@@ -4106,6 +4131,10 @@ const cbRezim = document.getElementById('rezimPostup');
 cbRezim.checked = JE_POSTUP;
 document.getElementById('vRezim').textContent =
   JE_POSTUP ? '— peněženka, boosty a žebříček' : '— volná hra, nic se nepamatuje';
+// V nadpisu skupiny je vidět, KTERÉ hodnoty se právě nastavují: každý režim
+// má vlastní sadu a bez toho by se hráč divil, proč se mu jinde nezměnily.
+document.getElementById('skupinaHra').textContent =
+  JE_POSTUP ? 'výchozí hodnoty hry — postup' : 'výchozí hodnoty hry — volná hra';
 cbRezim.addEventListener('change', () => {
   try{ localStorage.setItem(REZIM_KLIC, cbRezim.checked ? 'postup' : 'volna'); }catch(e){}
   location.reload();          // boosty se čtou při startu, změna platí od nové hry
