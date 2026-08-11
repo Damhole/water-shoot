@@ -4419,6 +4419,10 @@ if(nacti()) console.log('[jet3d] nastavení obnoveno');
 if(!LADENI){
   cog.hidden = true;
   hud.hidden = true;
+  // NULOVÁNÍ JE TAKY LADĚNÍ. Hráč, který si nesmí zlehčit hru nastavením,
+  // si ji nesmí ani vymazat a začít znovu s čistou tabulkou — jinak by stačilo
+  // po každé horší hře smazat jméno a rekord a žebříček by ztratil smysl.
+  document.getElementById('vynulovat').hidden = true;
   if(cekaSeNaStart){ cekaSeNaStart = false; try{ localStorage.removeItem(START_KLIC); }catch(e){} }
 }
 if(cekaSeNaStart){
