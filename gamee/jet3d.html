@@ -1167,7 +1167,11 @@ function texturaOdlesku(){
 }
 const texOdlesk = texturaOdlesku();
 const projektily = [];
-for(let i=0;i<PROJEKTILU_MAX;i++){
+// Stavba jedné koule je vytažená do funkce, protože ji potřebuje i NÁHLED
+// v nastavení — a ten musí vypadat úplně stejně jako střela ve hře. Dvě
+// kopie téhle stavby by se dřív nebo později rozešly.
+function postavKouli(){
+
   // Toon materiál místo Basic: Basic je plochá barva bez jakéhokoli stínování,
   // takže koule vypadala jako nálepka. Toon jí dá pásmo světla a stínu ze
   // stejného světla, jaké svítí na celý bar.
@@ -1239,6 +1243,11 @@ for(let i=0;i<PROJEKTILU_MAX;i++){
   m.castShadow = true;
   m.visible = false;
   scene.add(m);
+  return { m, odlesk, mapa };
+}
+
+for(let i=0;i<PROJEKTILU_MAX;i++){
+  const { m, odlesk } = postavKouli();
   projektily.push({ m, odlesk, ziva:false, t:0, faze:0, x:0,y:0,z:0, cx:0,cy:0,cz:0, naplneno:0 });
 }
 
@@ -1298,6 +1307,33 @@ function krokZablesku(dt){
     const m = z.vel*(0.55 + 0.75*u);
     z.sp.scale.set(m, m, 1);
     z.sp.material.opacity = (1 - u)*(1 - u);
+  }
+}
+
+// ---- náhled barev v nastavení --------------------------------------------
+// Když si hráč otevře výběr barvy střely, musí VIDĚT, co dělá. Náhled jsou
+// dvě opravdové koule postavené touž funkcí jako střely, takže ukazují
+// skutečný shader — fresnel, odlesk i vlnění — a ne nakreslený kroužek,
+// který by lhal.
+// Nejsou v poolu střel: nesmí nikoho okrást ani se dát sestřelit.
+const nahledy = [postavKouli(), postavKouli()];
+let nahledDo = 0;                 // do kdy náhled svítí (ms)
+const NAHLED_PO = 2500;           // jak dlouho zůstane po poslední změně
+function ukazNahled(){ nahledDo = performance.now() + NAHLED_PO; }
+
+function krokNahledu(dt, cas){
+  const svitit = performance.now() < nahledDo;
+  for(let i=0;i<2;i++){
+    const n = nahledy[i];
+    if(!svitit){ if(n.m.visible) n.m.visible = false; continue; }
+    n.m.visible = true;
+    // Vpravo od panelu a nad sebou, ať je vidět obě barvy naráz i na mobilu,
+    // kde nastavení zabírá levou půlku obrazovky.
+    n.m.position.set(150, 380 - i*110, -400);
+    n.m.scale.setScalar(1.5);
+    n.m.material.uniforms.barva.value.set(
+      document.getElementById(i === 0 ? 'projA' : 'projB').value);
+    n.m.material.uniforms.cas.value = cas + i*1.7;
   }
 }
 
@@ -3081,6 +3117,14 @@ document.getElementById('reset').addEventListener('click', ()=>{
 for(const id of POSUVNIKY){
   document.getElementById(id).addEventListener('input', ()=>{ obnovPopisky(); uloz(); });
 }
+// Náhled se pustí při sáhnutí na kteroukoli barvu střely a chvíli po poslední
+// změně dosvítí — jinak by zmizel dřív, než hráč zvedne oči od výběru.
+for(const id of ['projA','projB']){
+  const e = document.getElementById(id);
+  e.addEventListener('input', ukazNahled);
+  e.addEventListener('focus', ukazNahled);
+  e.addEventListener('click', ukazNahled);
+}
 if(nacti()) console.log('[jet3d] nastavení obnoveno');
 function obnovPopisky(){
   // zorný úhel se propisuje rovnou do kamery — míření i pás kachniček si ho
@@ -4196,6 +4240,7 @@ function smycka(now){
     krokProjektilu(dt);
     krokZablesku(dt);
   }
+  krokNahledu(dt, now/1000);
   krokRozmazani(dt);
   krokProudu(dt, cil, !konec && (strika || cbAuto.checked));
   const kapekZivych = krokKapek(dt) + krokDrobnych(dt);
