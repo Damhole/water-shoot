@@ -3987,7 +3987,13 @@ function pustNapis(x, y, z, text, stylJm){
     g.fillStyle = s.barva;
     g.fillText(text, sx, sy);
     p.tex.needsUpdate = true;
-    p.sp.scale.set(s.mer[0], s.mer[1], 1);
+    // STEJNÁ ZDÁNLIVÁ VELIKOST BEZ OHLEDU NA HLOUBKU. Nápisy u kachniček
+    // vznikají u polic, kdežto „+25" za sestřelenou střelu tam, kde kouli
+    // hráč trefil — a ta letí až k němu. Se stálou velikostí ve světě by
+    // se blízký nápis roztáhl přes půl obrazovky (u kamery je pětkrát blíž
+    // než police) a působil jako chyba, ne jako odměna.
+    const mer = Math.max(0.35, Math.min(1.25, (KAM_ZAKLAD.z - z)/1160));
+    p.sp.scale.set(s.mer[0]*mer, s.mer[1]*mer, 1);
     p.sp.position.set(x, y, z); p.y0 = y; p.x0 = x;
     p.s = s;
     // Náhodné naklonění a náhodná fáze viklání, ať dvě citoslovce vedle sebe
