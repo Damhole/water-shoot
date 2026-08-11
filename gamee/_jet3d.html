@@ -1077,6 +1077,131 @@ const TLAK_OD = 0.06;
 // Konec hry se NEVÁŽE NA HLADINU, ale na dojetí zatmívání (viz krokTmy) —
 // to je jediné místo, kde se rozhoduje, že je dohráno.
 
+// ---- 3D mince na policích --------------------------------------------------
+// Zásah bandity hráči vysype peníze DO SCÉNY: mince vyletí z pruhu, spadnou
+// na police, kutálejí se po nich a padají z obrazu. Kdo je stihne trefit
+// proudem, ten je dostane zpátky — jako prstýnky v Sonicovi.
+//
+// Proč skutečná tělesa a ne HUD: sypání v HUD byl jen efekt, tohle je HERNÍ
+// PŘÍLEŽITOST. Hráč se musí rozhodnout, jestli honit mince, nebo držet proud
+// na kachničkách — a to jde jen tehdy, když mince leží ve stejném prostoru
+// jako všechno ostatní.
+const VYSYP_Y = 880;               // pod pruhem s penězi, tedy u horní hrany
+const MINCI_MAX = 24;
+const MINCE_R = 17, MINCE_TL = 5;
+const MINCE_ODRAZ = 0.42;          // kolik rychlosti zůstane po dopadu na desku
+const MINCE_TRENI = 0.86;          // brzdění při kutálení (za vteřinu)
+const MINCE_ZIVOT = 9;             // po téhle době zmizí, i kdyby ležela
+
+// Líc mince: zlatý kotouč s korunkou. Kreslí se do plátna, protože reliéf
+// z geometrie by na sedmnácti jednotkách stejně zanikl a stál by trojúhelníky.
+function texturaMince(){
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 40, 128);
+  gr.addColorStop(0, '#ffe07a'); gr.addColorStop(1, '#d08b1c');
+  g.fillStyle = gr; g.beginPath(); g.arc(64, 64, 62, 0, Math.PI*2); g.fill();
+  g.strokeStyle = '#a86a12'; g.lineWidth = 5;
+  g.beginPath(); g.arc(64, 64, 47, 0, Math.PI*2); g.stroke();
+  // korunka, týž tvar jako v HUD — ať je poznat, že je to táž měna
+  g.fillStyle = '#9c6210';
+  g.beginPath();
+  g.moveTo(40, 83); g.lineTo(35, 48); g.lineTo(49, 60); g.lineTo(64, 39);
+  g.lineTo(79, 60); g.lineTo(93, 48); g.lineTo(88, 83); g.closePath(); g.fill();
+  g.fillRect(38, 83, 52, 9);
+  for(const [x, y, r] of [[35, 44, 5], [64, 35, 5.4], [93, 44, 5]]){
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI*2); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
+  return t;
+}
+const texMince = texturaMince();
+// Osa válce míří po Z, tedy plochou na kameru — mince se pak točí kolem
+// svislé osy a střídavě ukazuje líc a hranu, přesně jako prstýnek v Sonicovi.
+const geoMince = new THREE.CylinderGeometry(MINCE_R, MINCE_R, MINCE_TL, 20);
+geoMince.rotateX(Math.PI/2);
+const matMinceHrana = new THREE.MeshToonMaterial({ color: 0xc98d1e, gradientMap: toonGrad });
+const matMinceLic   = new THREE.MeshToonMaterial({ map: texMince, gradientMap: toonGrad });
+const mince3d = [];
+for(let i=0;i<MINCI_MAX;i++){
+  const m = new THREE.Mesh(geoMince, [matMinceHrana, matMinceLic, matMinceLic]);
+  const obrys = new THREE.Mesh(geoMince, matObrysTelo);
+  obrys.scale.set(1.1, 1.1, 1.35);
+  m.add(obrys);
+  m.castShadow = true;
+  m.visible = false;
+  scene.add(m);
+  mince3d.push({ m, ziva:false, t:0, vx:0, vy:0, vz:0, otoc:0 });
+}
+
+// Vysypání při zásahu. Mince se odečtou hned a vyletí z místa, kde je v HUD
+// pruh s penězi — tedy shora od středu, aby bylo poznat, ODKUD hráč přišel.
+function vysypMince3d(pocet){
+  pripisMinci(-pocet);
+  let dano = 0;
+  for(const c of mince3d){
+    if(dano >= pocet) break;
+    if(c.ziva) continue;
+    c.ziva = true; c.t = 0;
+    c.m.position.set(rand(-90, 90), VYSYP_Y, POLICE_Z + rand(-30, 10));
+    c.vx = rand(-260, 260);
+    c.vy = rand(-40, 120);
+    c.vz = rand(-40, 40);
+    c.otoc = rand(4, 9)*(Math.random() < 0.5 ? -1 : 1);
+    c.m.visible = true;
+    dano++;
+  }
+}
+
+function krokMinci3d(dt){
+  for(const c of mince3d){
+    if(!c.ziva) continue;
+    c.t += dt;
+    c.vy -= G*dt;
+    const predY = c.m.position.y;
+    c.m.position.x += c.vx*dt;
+    c.m.position.y += c.vy*dt;
+    c.m.position.z += c.vz*dt;
+    c.m.rotation.y += c.otoc*dt;
+
+    // Dopad na desku police: odraz a kutálení. Testuje se PRŮCHOD horní
+    // rovinou, ne poloha — mince urazí za snímek víc, než je deska tlustá.
+    if(c.vy < 0){
+      for(const kv of DREVO){
+        if(kv.max[1] - kv.min[1] > 40) continue;                 // deska, ne stěna
+        if(predY - MINCE_R <= kv.max[1] || c.m.position.y - MINCE_R > kv.max[1]) continue;
+        if(c.m.position.x < kv.min[0] || c.m.position.x > kv.max[0]) continue;
+        if(c.m.position.z < kv.min[2] || c.m.position.z > kv.max[2]) continue;
+        c.m.position.y = kv.max[1] + MINCE_R;
+        c.vy = -c.vy*MINCE_ODRAZ;
+        if(c.vy < 60) c.vy = 0;                                  // dokutálí se
+        c.vx *= Math.pow(MINCE_TRENI, dt*60);
+        break;
+      }
+    }
+    // pryč, když spadne z obrazu nebo dožije
+    if(c.t > MINCE_ZIVOT || c.m.position.y < podlahaY - 200){
+      c.ziva = false; c.m.visible = false;
+    }
+  }
+}
+
+// Sebrání proudem: mince odletí do pruhu s penězi a připíše se.
+function narazDoMince(bod){
+  for(const c of mince3d){
+    if(!c.ziva) continue;
+    const dx = bod.x - c.m.position.x, dy = bod.y - c.m.position.y, dz = bod.z - c.m.position.z;
+    if(dx*dx + dy*dy + dz*dz < (MINCE_R*2.1)*(MINCE_R*2.1)) return c;
+  }
+  return null;
+}
+function seberMinci(c){
+  c.ziva = false; c.m.visible = false;
+  letMinci(1, c.m.position.x, c.m.position.y, c.m.position.z);
+}
+
 // ---- projektily kachniček --------------------------------------------------
 // Modrá koule, kterou po hráči vystřelí kachna s koltem namířeným do objektivu.
 // Hráč NEMÁ JAK UHNOUT — nemá pozici, nemůže se schovat — takže jediná obrana
@@ -1399,7 +1524,7 @@ function zasahHrace(){
   // STŘELA OKRÁDÁ, NEZABÍJÍ. Bandita hráči vysype část banku — hra tím
   // netrestá smrtí, ale tím, co si hráč na konci koupí.
   const kolik = Math.min(mince, Math.max(KRADEZ_MIN, Math.round(mince*KRADEZ_PODIL)));
-  if(kolik > 0) vysypMince(kolik);
+  if(kolik > 0) vysypMince3d(kolik);
   if(ZIVOTY_ZAP && zivot <= 0) konecHry('Soaked!');
 }
 
@@ -1532,26 +1657,6 @@ const VODA_ZA_KAPKU = 0.04;
 
 function letMinci(pocet, wx, wy, wz){ letPredmet('mince', pocet, wx, wy, wz); }
 
-// VYSYPÁNÍ MINCÍ PŘI ZÁSAHU. Opak doletu: mince se odečtou hned (hráč má
-// vidět, že přišel o peníze, ne čekat na animaci) a z pruhu se vysypou ven,
-// kde spadnou z obrazu. Letí po balistice v SOUŘADNICÍCH OBRAZOVKY, ne ve
-// scéně — pruh je HUD a mince z něj mají padat po obrazovce.
-function vysypMince(pocet){
-  pripisMinci(-pocet);
-  const sablona = document.querySelector('#minceRoh .mince');
-  const r = sablona.getBoundingClientRect();
-  const sx = (r.left + r.right)/2, sy = (r.top + r.bottom)/2;
-  for(let i=0;i<Math.min(pocet, 8);i++){        // víc než osm už je jen nepořádek
-    const el = sablona.cloneNode(true);
-    el.removeAttribute('class');
-    el.classList.add('letMince');
-    document.body.appendChild(el);
-    letici.push({ el, typ:'kradez', t:0,
-      x0:sx, y0:sy,
-      vx: rand(-260, 260), vy: rand(-420, -180),
-      otoc: rand(-540, 540) });
-  }
-}
 function letVody(pocet, wx, wy, wz){ letPredmet('voda', pocet, wx, wy, wz); }
 
 function letPredmet(typ, pocet, wx, wy, wz){
@@ -1578,23 +1683,10 @@ function letPredmet(typ, pocet, wx, wy, wz){
   }
 }
 
-const KRADEZ_G = 1500;        // tíže v pixelech za vteřinu na druhou
 function krokLetMinci(dt){
   for(let i=letici.length-1; i>=0; i--){
     const m = letici[i];
     m.t += dt;
-    // VYSYPANÁ MINCE: prostá balistika po obrazovce a rotace, pak zmizí.
-    // Nic se při doletu nepřipisuje — odečetlo se hned při zásahu.
-    if(m.typ === 'kradez'){
-      const x = m.x0 + m.vx*m.t;
-      const y = m.y0 + m.vy*m.t + 0.5*KRADEZ_G*m.t*m.t;
-      m.el.style.transform =
-        `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%,-50%) ` +
-        `rotate(${(m.otoc*m.t).toFixed(1)}deg) scale(0.85)`;
-      m.el.style.opacity = m.t < 0.5 ? '1' : String(Math.max(0, 1 - (m.t - 0.5)/0.35));
-      if(m.t > 0.9 || y > innerHeight + 60){ m.el.remove(); letici.splice(i, 1); }
-      continue;
-    }
     const naskok = Math.min(1, m.t/MINCE_NASKOK);
     // Houpání běží pořád ze stejné fáze, takže při odletu nepřeskočí; během
     // letu se jen utlumí k nule podle `e`.
@@ -2186,6 +2278,10 @@ function krokProudu(dt, cil, strikaJe){
     // Projektil letí PŘED vším ostatním, takže se testuje první.
     const proj = narazDoProjektilu(u.p);
     if(proj){ zasahProjektilu(proj, u); uzly.splice(i,1); continue; }
+
+    // Rozsypaná mince: stačí ji trefit a je zpátky.
+    const minc = narazDoMince(u.p);
+    if(minc){ seberMinci(minc); uzly.splice(i,1); continue; }
 
     const kach = narazDoKachny(u.p);
     if(kach){ zasahKachny(kach, u); uzly.splice(i,1); continue; }
@@ -4208,6 +4304,7 @@ function smycka(now){
     krokPostupu(dt);
     krokKachen(dt);
     krokProjektilu(dt);
+    krokMinci3d(dt);
     krokZablesku(dt);
   }
   krokNahledu(dt, now/1000);
