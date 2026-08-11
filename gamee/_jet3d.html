@@ -16,6 +16,14 @@
   canvas{display:block;width:100%;height:100%;touch-action:none}
   #tma{position:fixed;inset:0;z-index:2;pointer-events:none;
     background:#080b12;opacity:0}
+  /* Záblesk je KRÁTKÝ (0,45 s) a jde od krajů dovnitř: přes celou plochu
+     rovnoměrně by na okamžik zakryl terče, kdežto vinětace nechá střed
+     průhledný a přesto to nejde přehlédnout. */
+  #zasah{position:fixed;inset:0;z-index:2;pointer-events:none;opacity:0;
+    background:radial-gradient(ellipse at center,
+      rgba(200,20,20,0) 42%, rgba(200,20,20,.75) 100%)}
+  #zasah.bliknuti{animation:zasahBlik .45s ease-out}
+  @keyframes zasahBlik{0%{opacity:0}12%{opacity:1}100%{opacity:0}}
   /* Tlačítko nastavení je DOLE V ROHU: nahoře přebíjelo pruh života a hráč
      má nahoře koukat na stav, ne na ozubené kolo. */
   #cog{position:fixed;left:10px;bottom:calc(10px + env(safe-area-inset-bottom, 0px));
@@ -297,6 +305,8 @@
      ukazatele a kříž zůstanou čitelné — jinak by hráč přestal vidět zrovna
      to, podle čeho se má v tísni rozhodovat. -->
 <div id="tma"></div>
+<!-- Červený záblesk při zásahu projektilem. Nad ztmavením, ale pod HUD. -->
+<div id="zasah"></div>
 <!-- Směrové rozmazání. CSS filter: blur() umí jen kruhové rozostření, což
      vypadá jako rozostřená kamera. feGaussianBlur bere stdDeviation zvlášť
      pro X a Y, takže se dá rozmazat JEN VE SMĚRU POHYBU a scéna se pak maže
@@ -1051,19 +1061,139 @@ const TLAK_OD = 0.06;
 // Konec hry se NEVÁŽE NA HLADINU, ale na dojetí zatmívání (viz krokTmy) —
 // to je jediné místo, kde se rozhoduje, že je dohráno.
 
+// ---- projektily kachniček --------------------------------------------------
+// Modrá koule, kterou po hráči vystřelí kachna s koltem namířeným do objektivu.
+// Hráč NEMÁ JAK UHNOUT — nemá pozici, nemůže se schovat — takže jediná obrana
+// je sestřelit ji. Z toho plyne tvrdé pravidlo, na kterém stojí celá férovost:
+// DOBA LETU MUSÍ BÝT DELŠÍ NEŽ REAKCE PLUS DOBA POLÉVÁNÍ. Jinak zásah nejde
+// odvrátit dovedností a život ubývá bez ohledu na to, jak dobře hráč hraje.
+//
+// Druhá past je čitelnost: koule letící po ose do objektivu se po obrazovce
+// skoro nehýbe, jen roste, a hráč z toho nepozná, kolik času zbývá. Proto
+//   • nevylétá ze středu, ale od kachny, takže má i boční pohyb,
+//   • PULZ ZRYCHLUJE, jak se blíží — je to odpočet, ne ozdoba,
+//   • velikost roste perspektivou sama, protože je to skutečné těleso.
+const PROJEKTILU_MAX = 6;
+const PROJ_R = 26;                  // poloměr koule ve světě
+const PROJ_LET = 2.3;               // jak dlouho letí k hráči
+const PROJ_POTREBA = 14;            // kolik zásahů proudu ji rozprskne
+const PROJ_UBERE = 0.2;             // kolik života sebere zásah (tedy pět ran)
+const PROJ_BODY = 25;               // odměna za sestřelení
+const PROJ_BARVA_A = new THREE.Color(0x2f9fe0);
+const PROJ_BARVA_B = new THREE.Color(0xbfefff);
+const geoProj = new THREE.SphereGeometry(PROJ_R, 14, 10);
+const projektily = [];
+for(let i=0;i<PROJEKTILU_MAX;i++){
+  const m = new THREE.Mesh(geoProj, new THREE.MeshBasicMaterial({ color: 0x2f9fe0 }));
+  // obrys stejným trikem jako u lahví: obrácená slupka o kus větší
+  const obrys = new THREE.Mesh(geoProj, matObrysTelo);
+  obrys.scale.setScalar(1.16);
+  m.add(obrys);
+  m.visible = false;
+  scene.add(m);
+  projektily.push({ m, ziva:false, t:0, x:0,y:0,z:0, cx:0,cy:0,cz:0, naplneno:0 });
+}
+
+function vystrel(k){
+  const p = projektily.find(q => !q.ziva);
+  if(!p) return;
+  p.ziva = true; p.t = 0; p.naplneno = 0;
+  // start u hlavně, tedy kousek před kachničkou
+  p.x = k.skup.position.x; p.y = k.zaklY + k.stred; p.z = KACH_Z + 30;
+  // cíl je hráč: ústí trysky. Drobný rozhoz, ať dvě koule neletí týmž tunelem.
+  p.cx = USTI_ZAKLAD.x + rand(-40, 40);
+  p.cy = USTI_ZAKLAD.y + rand(-20, 30);
+  p.cz = USTI_ZAKLAD.z + 40;
+  p.m.visible = true;
+  p.m.position.set(p.x, p.y, p.z);
+  p.m.scale.setScalar(1);
+  // záblesk u hlavně, ať je odkud výstřel poznat
+  krouzek(p.x, p.y, KACH_Z + 34, 'celo', 40);
+}
+
+const _projBarva = new THREE.Color();
+function krokProjektilu(dt){
+  for(const p of projektily){
+    if(!p.ziva) continue;
+    p.t += dt;
+    const u = Math.min(1, p.t/PROJ_LET);
+    p.m.position.set(p.x + (p.cx - p.x)*u,
+                     p.y + (p.cy - p.y)*u,
+                     p.z + (p.cz - p.z)*u);
+    // PULZ JAKO ODPOČET: u startu dva kmity za vteřinu, těsně před dopadem
+    // devět. Hráč tak nemusí odhadovat vzdálenost, stačí mu poslouchat rytmus
+    // očima.
+    const f = 2 + 7*u*u;
+    const b = 0.5 + 0.5*Math.sin(p.t*f*Math.PI*2);
+    _projBarva.copy(PROJ_BARVA_A).lerp(PROJ_BARVA_B, b);
+    p.m.material.color.copy(_projBarva);
+    if(u >= 1){                                  // doletěla na hráče
+      p.ziva = false; p.m.visible = false;
+      uberZivot(PROJ_UBERE);
+      zasahHrace();
+    }
+  }
+}
+
+// Zásah proudem: koule se plní jako kachnička a po dost dlouhém polévání
+// se rozprskne. Testuje se PŘED dřevem i kachničkami, protože letí před nimi.
+function narazDoProjektilu(bod){
+  for(const p of projektily){
+    if(!p.ziva) continue;
+    const dx = bod.x - p.m.position.x, dy = bod.y - p.m.position.y, dz = bod.z - p.m.position.z;
+    if(dx*dx + dy*dy + dz*dz < (PROJ_R*1.25)*(PROJ_R*1.25)) return p;
+  }
+  return null;
+}
+
+function zasahProjektilu(p, u){
+  p.naplneno += 1;
+  _nor.set(0, 0, 1);
+  _bod.copy(p.m.position);
+  rozprsk(_bod, _nor, u.v, 3);
+  if(p.naplneno >= PROJ_POTREBA){
+    p.ziva = false; p.m.visible = false;
+    rozprsk(_bod, _nor, u.v, 16);
+    korunka(_bod, _nor, 44);
+    pripisSkore(PROJ_BODY);
+    pustPopup(_bod.x, _bod.y + PROJ_R, _bod.z, PROJ_BODY);
+  }
+}
+
 // ---- konec hry -------------------------------------------------------------
 // Dojde-li voda, je konec. Hlídá se to na jednom místě v hlavní smyčce, ne
 // v obsluze stříkání — voda může dojít i doběhem už vypuštěného proudu.
 let konec = false;
+
+// ZÁSAH HRÁČE. Kromě ubrání života musí být VIDĚT, že to schytal — jinak
+// hráč jen zjistí, že mu ubyl pruh, a neví proč. Krátký červený záblesk přes
+// celou plochu je nejlevnější způsob, jak to říct bez odvedení očí od terčů.
+const zasahEl = document.getElementById('zasah');
+function zasahHrace(){
+  zasahEl.classList.remove('bliknuti');
+  void zasahEl.offsetWidth;             // restart animace i při rychlé druhé ráně
+  zasahEl.classList.add('bliknuti');
+  if(zivot <= 0) konecHry('Soaked!');
+}
+
 function hlidejKonec(){
   // Konec padá až na konci zatmívání, ne na hladině vody. Zatmívání totiž
   // začíná ve chvíli, kdy proud UŽ NEMÁ ŠANCI na nic dosáhnout — od té chvíle
   // je to dojezd a nemá cenu ho protahovat.
   if(konec || umira < TMA_DOBA) return;
+  nastavVodu(0);            // zbytek pod prahem dorovnat, ať pruh sedí s hláškou
+  konecHry('Out of water!');
+}
+
+// Dvě různé smrti, jedna obsluha: došlá voda a rozstřílený život. Text se
+// liší, protože hráč má vědět, na co umřel — jinak neví, co dělat příště.
+function konecHry(text){
+  if(konec) return;
   konec = true;
   strika = false;
   kriz.classList.add('pryc');
-  nastavVodu(0);            // zbytek pod prahem dorovnat, ať pruh sedí s hláškou
+  for(const p of projektily){ p.ziva = false; p.m.visible = false; }
+  nastavTitulek(document.getElementById('konecNadpis'), text);
   document.getElementById('konecRoh').hidden = false;
 }
 // ZTMAVENÍ PŘI ZTRÁTĚ TLAKU. Řídí se hladinou vody, ne stříkáním — sucho je
@@ -1792,6 +1922,10 @@ function krokProudu(dt, cil, strikaJe){
     u.p.addScaledVector(u.v, dt);
 
     // Kachnička stojí PŘED policí, takže se testuje dřív než dřevo
+    // Projektil letí PŘED vším ostatním, takže se testuje první.
+    const proj = narazDoProjektilu(u.p);
+    if(proj){ zasahProjektilu(proj, u); uzly.splice(i,1); continue; }
+
     const kach = narazDoKachny(u.p);
     if(kach){ zasahKachny(kach, u); uzly.splice(i,1); continue; }
 
@@ -2849,6 +2983,15 @@ const UMIRANI_CELEK = 0.52;
 // Pro každou variantu se počítá vlastní výška středu tak, aby NEJNIŽŠÍ
 // neprůhledný pixel seděl přesně na desce (y = 0).
 const KACH_PRAZDNO_DOLE = [0.1602, 0.1152, 0.2422, 0.2441];
+// Které varianty se smějí nasadit. Geometrie i tabulka posazení zůstávají
+// pro všechny čtyři, aby indexy seděly — vybírá se jen z tohohle seznamu.
+const VARIANTY = [1, 2, 3];
+const STRELEC = 1;                 // jediná varianta s koltem do objektivu
+// Kolik kachen s koltem opravdu vystřelí a za jak dlouho po nasazení. Nápřah
+// je vidět předem, aby šlo výstřel číst; teprve po něm koule vyletí.
+const STRELCU_PODIL = 0.7;
+const STRELBA_PRVNI = [1.1, 2.4];
+const NAPRAH_T = 0.5;
 const KACH_VYSKA = KACH_R*2*BANDIT_ZOOM;
 const KACH_POSAZENI = KACH_PRAZDNO_DOLE.map(p => KACH_VYSKA*(0.5 - p));
 const geoPlane = new THREE.PlaneGeometry(1, 1);
@@ -3090,6 +3233,8 @@ function krokPostupu(dt){
     // sjede o celou sekci, vynoří se v novém patře jako „ty staré".
     smazFleky();
     for(const k of kapace) k.ziva = false;   // odkapávání patří k odjetému patru
+    // ani kouli ve vzduchu po sobě odjeté patro nechat nesmí
+    for(const p of projektily){ p.ziva = false; p.m.visible = false; }
   }
 }
 
@@ -3229,8 +3374,22 @@ function pustKachnu(){
   k.naplneno = 0;
   k.odZasahu = 9;
   k.stav = 'najizdi'; k.t = 0; k.ttl = ZIVOT_KACHNY[patroK] * rand(0.9, 1.15);
-  // jeden ze čtyř banditů — všechny vrstvy musí dostat tutéž variantu
-  const vi = (Math.random()*BANDITU)|0;
+  // STŘELEC JE VLASTNOST, NE SPRITE. Kolt do objektivu má jen varianta 1,
+  // ale ani ta nestřílí vždycky — hustota střelby se tím dá ladit nezávisle
+  // na tom, jak často ta varianta padne. `strelbaZa` je odpočet do NÁPŘAHU,
+  // ne do výstřelu: nic se nesmí objevit odnikud, takže se kachna nejdřív
+  // viditelně napřáhne.
+  k.strelec = false; k.napr = 0;
+  // JEDEN Z BANDITŮ, ale ne ze všech čtyř. Varianta 0 míří revolverem doleva,
+  // tedy mimo hráče — kachna s vytaseným koltem, která nikdy nevystřelí, je
+  // porušený slib: hráč se učí číst „zbraň = nebezpečí" a tahle ho to
+  // odnaučí. Zbývají tedy střelec (1) a dva neozbrojení (2, 3); ne každá
+  // kachna musí být smrtelný nepřítel.
+  const vi = VARIANTY[(Math.random()*VARIANTY.length)|0];
+  if(vi === STRELEC && Math.random() < STRELCU_PODIL){
+    k.strelec = true;
+    k.strelbaZa = rand(STRELBA_PRVNI[0], STRELBA_PRVNI[1]);
+  }
   const geo = GEO_BANDITA[vi];
   // …a spolu s ní i vlastní výšku, aby kachnička stála na desce a nelevitovala
   k.stred = KACH_POSAZENI[vi];
@@ -3313,6 +3472,21 @@ function krokKachen(dt){
         const d = 1 + 0.02*Math.sin(k.t*3.1);
         s.set(1/d, d, 1);
         k.skup.rotation.z = 0;
+      }
+      // STŘELBA. Odpočet běží jen střelci a zastaví se, jakmile začne nápřah.
+      // Během nápřahu kachnička drncá — je to týž pohyb jako pod proudem, jen
+      // z vlastní vůle, takže hráč pozná „něco chystá" dřív, než to přijde.
+      if(k.strelec && !konec){
+        if(k.napr > 0){
+          k.napr -= dt;
+          const w = 1 - k.napr/NAPRAH_T;
+          const c = 1 + 0.10*w*Math.sin(k.t*40);
+          s.set(s.x/c, s.y*c, 1);
+          if(k.napr <= 0){ vystrel(k); k.strelbaZa = rand(2.2, 4.0); }
+        } else {
+          k.strelbaZa -= dt;
+          if(k.strelbaZa <= 0) k.napr = NAPRAH_T;
+        }
       }
       // CHVĚNÍ POD PROUDEM. Žádné natahování ani poskakování — to patří až
       // ke zhynutí. Tryska do kachničky tluče, takže se jen rozdrncá: rychlý
@@ -3678,6 +3852,7 @@ function smycka(now){
   if(!konec){
     krokPostupu(dt);
     krokKachen(dt);
+    krokProjektilu(dt);
   }
   krokRozmazani(dt);
   krokProudu(dt, cil, !konec && (strika || cbAuto.checked));
