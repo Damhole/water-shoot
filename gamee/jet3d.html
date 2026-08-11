@@ -637,6 +637,11 @@
   <input type="range" id="spot3" min="0" max="20" step="0.1" value="3.3">
   <label>velikost nádrže <span id="vNadrz"></span></label>
   <input type="range" id="nadrz1" min="1" max="3" step="0.1" value="1">
+  <!-- Rychlost chůze kachniček. Nula = chodci stojí, takže se dá pohyb vypnout
+       bez zásahu do kódu. Táhlo dává HORNÍ hranici, každá kachnička si z ní
+       vezme 55 až 100 % — jinak by šly všechny jako po provázku. -->
+  <label>rychlost chůze kachniček <span id="vChod"></span></label>
+  <input type="range" id="chod1" min="0" max="200" step="5" value="80">
   <label>síla proudu (vyšší = plošší oblouk) <span id="vSila"></span></label>
   <input type="range" id="sila" min="900" max="4200" step="100" value="1700">
   <label>náběh a doběh trysky (s) <span id="vRamp"></span></label>
@@ -4176,7 +4181,7 @@ const ULOZ_KLIC = 'ws_jet3d_tune';
 //
 // VZHLED A LADĚNÍ ZŮSTÁVÁ SPOLEČNÉ (zorný úhel, barvy, stíny, světlo). Je to
 // jedna a tatáž hra na pohled a doladit si ji dvakrát by byla jen otrava.
-const HRA_POSUVNIKY = ['spot3','nadrz1','tl','sp','sila','ramp','imp'];
+const HRA_POSUVNIKY = ['spot3','nadrz1','chod1','tl','sp','sila','ramp','imp'];
 const VZHLED_POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS',
                           'obrT','obrB','rad','kor','projA','projB'];
 const POSUVNIKY = VZHLED_POSUVNIKY.concat(HRA_POSUVNIKY);
@@ -4290,7 +4295,7 @@ vVod.textContent = vod.value + ' %';
 const TOVARNI = { fov:53, syt:135, svx:-70, svy:110, stinS:75,
                   vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52',
                   rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100,
-                  spot3:3.3, nadrz1:1, projA:'#2ea8ff', projB:'#ff5a22' };
+                  spot3:3.3, nadrz1:1, chod1:80, projA:'#2ea8ff', projB:'#ff5a22' };
 document.getElementById('reset').addEventListener('click', ()=>{
   for(const id of POSUVNIKY) document.getElementById(id).value = TOVARNI[id];
   obnovPopisky(); uloz();
@@ -4406,6 +4411,7 @@ function obnovPopisky(){
   // Velikost nádrže se propíše rovnou do pruhu, takže je při tažení vidět,
   // s jak dlouhým zásobníkem se bude hrát. Vedle násobku stojí i to, co
   // z něj plyne — jak dlouho vydrží nepřetržitý proud.
+  vChod.textContent = +chod1.value ? chod1.value + ' j/s' : 'stojí';
   vNadrz.textContent = (+nadrz1.value).toFixed(1) + '×'
     + (+spot3.value > 0 ? '  (' + Math.round(100/(+spot3.value/NADRZ_CELKEM())) + ' s proudu)' : '');
   roztahniNadrz();
@@ -4557,7 +4563,9 @@ const STRELBA_OD = 3.0, STRELBA_ROZPTYL = 1.5;
 // do které stříká. LAHVE PŘEKÁŽKA NEJSOU, kachničky jezdí v hloubce za nimi;
 // projet za sklem je naopak to, co dělá pohyb zajímavým.
 const CHODEC_SANCE = 0.75;         // i osamělá kachnička občas jen stojí
-const CHODEC_V = [26, 54];         // jednotek za vteřinu, losuje se z rozsahu
+// Horní hranice je na posuvníku (`chod1`); každá kachnička si z ní vezme
+// 55 až 100 %, jinak by celé patro šlo jako po provázku.
+const CHODEC_PODIL = 0.55;
 const CHODEC_KRAJ = KACH_R*0.6;    // o kolik dřív se otočí, ať nevyjede z obrazu
 // OTOČKA S MRSKNUTÍM. Prosté překlopení sprite je jednosnímková výměna a oko
 // ji čte jako lupnutí, ne jako obrat. Kachnička se proto při obrátce nejdřív
@@ -5066,7 +5074,8 @@ function pustKachnu(){
   k.chodec = sameNaPolici(patroK, k) && Math.random() < CHODEC_SANCE;
   k.poziceX = x;
   k.smer = Math.random() < 0.5 ? -1 : 1;
-  k.rychlost = rand(CHODEC_V[0], CHODEC_V[1]);
+  const chodMax = +document.getElementById('chod1').value;
+  k.rychlost = rand(chodMax*CHODEC_PODIL, chodMax);
   // Kdo stojí, dívá se jako dřív (doleva); chodec se rovnou otočí, kam jde.
   k.zrcadlo = null; k.otocT = 0;
   otocKachnu(k, k.chodec && k.smer > 0 ? -1 : 1);
