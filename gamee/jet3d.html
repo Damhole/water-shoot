@@ -4968,6 +4968,21 @@ function novaKoloda(){
   }
 }
 
+// OTOČENÍ DO SMĚRU CHŮZE. Bandita je nakreslený čelem doleva, takže když jde
+// doprava, couvá — a couvající kachnička vypadá jako chyba, ne jako pohyb.
+// Zrcadlí se ZÁPORNÝM MĚŘÍTKEM vrstev, ne otočením skupiny: skupina má vlastní
+// měřítko pro mačkání a natahování při zásahu i umírání, takže by se to pralo.
+// S tělem se musí zrcadlit i terč (sedí mimo osu, na těle vpravo dole)
+// a vytočení, jinak by se kachnička dívala jinam, než kam je natočená.
+function otocKachnu(k, zrcadlo){
+  if(k.zrcadlo === zrcadlo) return;
+  k.zrcadlo = zrcadlo;
+  const w = KACH_R*2*BANDIT_ZOOM;
+  for(const v of k.vrstvy) v.scale.x = w*zrcadlo;
+  k.tercSkup.position.x = TERC_X*zrcadlo;
+  k.skup.rotation.y = k.vytoceni*zrcadlo;
+}
+
 function pustKachnu(){
   const k = kachny.find(k => k.stav === 'volna');
   if(!k) return;
@@ -5041,10 +5056,13 @@ function pustKachnu(){
   k.poziceX = x;
   k.smer = Math.random() < 0.5 ? -1 : 1;
   k.rychlost = rand(CHODEC_V[0], CHODEC_V[1]);
+  // Kdo stojí, dívá se jako dřív (doleva); chodec se rovnou otočí, kam jde.
+  k.zrcadlo = null;
+  otocKachnu(k, k.chodec && k.smer > 0 ? -1 : 1);
   k.zaklY = hraciSekce().zaklY + POLICE_Y[patroK];
   k.skup.position.set(k.zaklX, k.zaklY, KACH_Z);
   smazFlekyUKachny(k.zaklX, k.zaklY + k.stred);   // nesmí stát v mokrém fleku
-  k.skup.rotation.set(0, k.vytoceni, 0);
+  k.skup.rotation.set(0, k.vytoceni*k.zrcadlo, 0);   // vytočení se zrcadlí s tělem
   k.skup.scale.set(0.01, 0.01, 1);
   k.skup.visible = true;
 }
@@ -5100,8 +5118,8 @@ function krokKachen(dt){
       if(k.chodec){
         const mez = pasKachen() - CHODEC_KRAJ;
         k.poziceX += k.smer*k.rychlost*dt;
-        if(k.poziceX > mez){ k.poziceX = mez; k.smer = -1; }
-        else if(k.poziceX < -mez){ k.poziceX = -mez; k.smer = 1; }
+        if(k.poziceX > mez){ k.poziceX = mez; k.smer = -1; otocKachnu(k, 1); }
+        else if(k.poziceX < -mez){ k.poziceX = -mez; k.smer = 1; otocKachnu(k, -1); }
       }
       // Odpočet stojí, dokud do kachničky teče. Kdo ji drží, ten ji dostane.
       if(k.odZasahu > PAUZA_PO_ZASAHU) k.ttl -= dt;
@@ -5225,7 +5243,7 @@ function krokKachen(dt){
 // proč terč na těle je: odměnit míření, ne polévání.
 function zasahKachny(k, u){
   // vytočená kachnička má terč blíž ke středu — o kosinus natočení
-  const dx = u.p.x - (k.skup.position.x + TERC_X*Math.cos(k.vytoceni));
+  const dx = u.p.x - (k.skup.position.x + TERC_X*k.zrcadlo*Math.cos(k.vytoceni));
   const dy = u.p.y - (k.skup.position.y + k.stred + TERC_Y);
   const stred = Math.hypot(dx, dy) < KACH_R*KACH_TERC;
   k.naplneno += stred ? 2.5 : 1;
