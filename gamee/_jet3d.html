@@ -234,6 +234,14 @@
     letter-spacing:.04em;
     opacity:0;transform:scale(.75);transition:opacity .16s ease, transform .16s ease}
   #hlaska.vidno{opacity:1;transform:scale(1)}
+  /* Konec hry sedí na výšce terčů jako „Floor cleared!", jen výš a ve dvou
+     řádcích. Přes celou šířku, takže se dlouhý text nemusí zmenšovat. */
+  #konecRoh{position:fixed;left:0;right:0;top:38vh;z-index:7;text-align:center;
+    pointer-events:none}
+  #konecRoh[hidden]{display:none}
+  #konecNadpis{font-size:5.2vh;line-height:1.1;--o:0.22vh;--o2:0.30vh;--hloubka:0.42vh}
+  #konecVyzva{margin-top:1.6vh;font-size:2.4vh;line-height:1;
+    --o:0.11vh;--o2:0.16vh;--hloubka:0.17vh;letter-spacing:.03em;opacity:.9}
   #kriz{position:fixed;left:0;top:0;width:54px;height:54px;margin:-27px 0 0 -27px;
     pointer-events:none;z-index:3}
 </style>
@@ -314,6 +322,13 @@
   </svg>
 </div>
 <div id="hlaska" class="titulek"></div>
+<!-- Konec hry. Vlastní prvek, ne přepsaná „Floor cleared!" — ta se sama
+     schovává a musela by se kvůli tomu předělat; navíc konec potřebuje
+     dva řádky a zůstat svítit. -->
+<div id="konecRoh" hidden>
+  <div id="konecNadpis" class="titulek" data-text="Out of water!">Out of water!</div>
+  <div id="konecVyzva" class="titulek" data-text="tap to play again">tap to play again</div>
+</div>
 <!-- Zaměřovač podle předlohy: silnější a v týchž barvách jako text, tedy
      krémová na tmavém obrysu. Ryska PROCHÁZÍ prstencem místo aby končila
      před ním — tím vznikne ten sevřený „terčíkový" tvar. Obrys je tlustší
@@ -344,7 +359,7 @@
   <label>voda (na ladění) <span id="vVod"></span></label>
   <input type="range" id="vod" min="0" max="100" step="1" value="100">
   <label>spotřeba vody (0 = nekonečná) <span id="vSpot"></span></label>
-  <input type="range" id="spot" min="0" max="40" step="1" value="11">
+  <input type="range" id="spot" min="0" max="40" step="1" value="5">
   <label>zorný úhel (nižší = blíž) <span id="vFov"></span></label>
   <input type="range" id="fov" min="30" max="60" step="1" value="53">
   <label>sytost barev <span id="vSyt"></span></label>
@@ -969,9 +984,30 @@ function uberVodu(v){ nastavVodu(voda - v); }
 // je to poměr mezi tím, jak dlouho se stříká na kachničku, a kolik vody
 // vydá lahev. Nula = nekonečná voda (na ladění všeho ostatního).
 const SPOTREBA_VODY = () => +document.getElementById('spot').value/100;
-// Prázdný zásobník trysku NEZHASNE, jen ji srazí na poslední kapky. Bez toho
-// by se hráč bez vody nedostal k lahvím, ze kterých se voda bere.
-const SUCHO_SILA = 0.22;
+// Pod touhle hladinou začne proud slábnout tlakem. Ne skokem u nuly:
+// zkracující se čůrek je jediné varování, které hráč uvidí, aniž by musel
+// spustit oči z terčů.
+const TLAK_OD = 0.22;
+
+// ---- konec hry -------------------------------------------------------------
+// Dojde-li voda, je konec. Hlídá se to na jednom místě v hlavní smyčce, ne
+// v obsluze stříkání — voda může dojít i doběhem už vypuštěného proudu.
+let konec = false;
+function hlidejKonec(){
+  if(konec || voda > 0) return;
+  // Kapka, která je zrovna na cestě do zásobníku, se ještě počítá. Bez toho
+  // by hráč umřel dvě desetiny předtím, než mu dorazí voda, kterou si právě
+  // vystřílel — a to je přesně ten druh nespravedlnosti, co se nepromíjí.
+  for(const m of letici) if(m.typ === 'voda') return;
+  konec = true;
+  strika = false;
+  document.getElementById('konecRoh').hidden = false;
+}
+// Restart je reload: stav hry je rozprostřený v sekcích, lahvích, poolech
+// i fyzice a ruční nulování by bylo zdrojem chyb. Nastavení z ⚙ panelu
+// přežije, protože je v localStorage.
+addEventListener('pointerdown', () => { if(konec) location.reload(); });
+addEventListener('keydown', e => { if(konec && e.code === 'Space') location.reload(); });
 nastavVodu(1);
 
 // Mince. Zatím jen počítadlo bez utrácení — jedna za sestřelenou kachničku,
@@ -1676,12 +1712,15 @@ function krokProudu(dt, cil, strikaJe){
   // úplně, ale klesne na poslední kapky (SUCHO_SILA). Kdyby zhasla docela,
   // hráč bez vody by neměl jak vodu z lahví získat a hra by se zasekla —
   // tohle je jediné místo, kde se dá uváznout, tak ať nemá kudy vzniknout.
-  const sucho = voda <= 0;
   if(strikaJe && voda > 0) nastavVodu(voda - SPOTREBA_VODY()*dt);
 
-  // náběh/doběh
+  // náběh/doběh. TLAK KLESÁ S DOCHÁZEJÍCÍ VODOU: pod hladinou TLAK_OD už
+  // tryska nedává plný proud a čůrek se plynule zkracuje k nule. Je to
+  // varování, které jde vidět bez koukání na ukazatel — a zároveň to hráči
+  // dá pár vteřin, kdy ještě může trefit lahev a doplnit si.
   const rampT = Math.max(0.02, +document.getElementById('ramp').value);
-  const cilSily = strikaJe ? (sucho ? SUCHO_SILA : 1) : 0;
+  const tlak = Math.min(1, voda/TLAK_OD);
+  const cilSily = strikaJe ? tlak : 0;
   sila += (cilSily - sila) * Math.min(1, dt/rampT);
   if(!strikaJe && sila < 0.02) sila = 0;
 
@@ -2526,7 +2565,7 @@ document.getElementById('reset').addEventListener('click', ()=>{
   // seděly hned napoprvé.
   const vych = { fov:53, syt:135, svx:-70, svy:110, stinS:75,
                  vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52',
-                 rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100, spot:11 };
+                 rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100, spot:5 };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -3509,11 +3548,18 @@ function smycka(now){
   requestAnimationFrame(smycka);
   const dt = Math.min((now - t0)/1000, 0.05); t0 = now;
 
+  hlidejKonec();
   krokKamery(dt);
-  krokPostupu(dt);
+  // Po konci hry scéna DOŽÍVÁ: voda dolétne, kapky dopadnou, kachničky
+  // dostojí. Zamrznutý obraz působí jako pád hry, kdežto dozvuk jako konec.
+  // Nepřibývá ale nic nového — patro se neposouvá, kachničky se nenasazují
+  // a tryska nestříká.
+  if(!konec){
+    krokPostupu(dt);
+    krokKachen(dt);
+  }
   krokRozmazani(dt);
-  krokKachen(dt);
-  krokProudu(dt, cil, strika || cbAuto.checked);
+  krokProudu(dt, cil, !konec && (strika || cbAuto.checked));
   const kapekZivych = krokKapek(dt) + krokDrobnych(dt);
   krokPeri(dt, now/1000);
   krokPopupu(dt);
