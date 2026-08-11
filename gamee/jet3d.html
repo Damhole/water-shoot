@@ -2299,6 +2299,9 @@ const ZEBRICEK_MIST = 10;          // kolik míst se ukazuje
 const ZEBRICEK_CEKANI = 3500;      // po téhle době se server vzdá a jede se lokálně
 const ZEB_KLIC = 'ws_zebricek', ZEB_JMENO = 'ws_jmeno', ZEB_PORADI = 'ws_poradi';
 const ZEB_VERZE = 'ws_zebricek_verze';
+// Kolik řádků nejvíc pošle val (POSLAT v zebricek/valtown.ts). Podle toho se
+// pozná, jestli je vrácená tabulka celá.
+const ZEB_SERVER_MAX = 50;
 
 // VYMAZANÝ ŽEBŘÍČEK JE NOVÝ ŽEBŘÍČEK. Server u tabulky drží číslo verze, které
 // roste s každým hromadným vymazáním. Když se od minule změnilo, zapomene hra
@@ -2399,6 +2402,19 @@ if(!JE_POSTUP && ZEBRICEK_URL){
   fetch(ZEBRICEK_URL).then(o => o.json()).then(d => {
     if(hlidejVerzi(d && d.verze)) return;      // po vymazání se rekord nesrovnává
     if(!jm) return;
+    // DRUHÁ POJISTKA, nezávislá na číslování verzí: když mě v tabulce není,
+    // ačkoli je celá, tak buď byla vymazána, nebo jsem se do ní nikdy nedostal
+    // — a jméno, které nikde nefiguruje, není proč držet. „Celá" znamená míň
+    // řádků, než kolik jich server nejvíc pošle; při plné tabulce by můj řádek
+    // mohl být až za hranicí a smazat jméno by bylo špatně.
+    const t = (d && Array.isArray(d.tabulka)) ? d.tabulka : null;
+    if(t && t.length < ZEB_SERVER_MAX &&
+       !t.some(z => String(z.jmeno || '').trim().toLowerCase() === jm)){
+      zebricekVymazan = true;
+      for(const k of [ZEB_JMENO, ZEB_PORADI, ZEB_KLIC]){ try{ localStorage.removeItem(k); }catch(e){} }
+      console.log('[jet3d] v tabulce nejsem — ptám se na jméno znovu');
+      return;
+    }
     const muj = (d && Array.isArray(d.tabulka) ? d.tabulka : [])
       .find(z => String(z.jmeno || '').trim().toLowerCase() === jm);
     if(muj && +muj.skore > nactiRekord()) ulozRekord(+muj.skore);
