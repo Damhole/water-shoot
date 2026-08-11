@@ -4552,11 +4552,11 @@ const koloda = [];
 // výstřel číst.
 const NAPRAH_T = 0.5;
 // KDY SMÍ BANDITA VYSTŘELIT. Pořád jen jednou za objevení, ale kdykoli po
-// třech vteřinách od nasazení — ne až těsně před odchodem, jak to bylo dřív.
+// DVOU vteřinách od nasazení — ne až těsně před odchodem, jak to bylo dřív.
 // Tehdy se dal výstřel odhadnout podle cukání před zmizením a hráč se naučil,
 // že do té doby má klid. Náhodný rozptyl navíc znamená, že se dvě kachničky
 // nasazené naráz neozvou ve stejný okamžik.
-const STRELBA_OD = 3.0, STRELBA_ROZPTYL = 1.5;
+const STRELBA_OD = 2.0, STRELBA_ROZPTYL = 1.5;
 // CHODCI. Kachnička, která má polici sama pro sebe, se po ní za svůj život
 // projde sem a tam. Nechodí všechny: kde by cestou potkala jinou kachničku,
 // zůstane stát — dvě, které si přes sebe přejíždějí, hráč nerozliší a neví,
