@@ -2304,6 +2304,9 @@ const ZEB_VERZE = 'ws_zebricek_verze';
 // roste s každým hromadným vymazáním. Když se od minule změnilo, zapomene hra
 // jméno i zapamatované pořadí — jinak by hráči po vymazání nabídla jeho staré
 // jméno a hlásila „posun z 2. na 1. místo" proti tabulce, ve které nikdo není.
+// Platí do konce téhle stránky: po vymazání se ani v běžící hře nesmí hlásit
+// posun proti pořadí ze staré tabulky.
+let zebricekVymazan = false;
 function hlidejVerzi(verze){
   if(verze === undefined || verze === null) return false;
   const stara = localStorage.getItem(ZEB_VERZE);
@@ -2312,6 +2315,7 @@ function hlidejVerzi(verze){
   for(const k of [ZEB_JMENO, ZEB_PORADI, ZEB_KLIC]){
     try{ localStorage.removeItem(k); }catch(e){}
   }
+  zebricekVymazan = true;
   console.log('[jet3d] žebříček byl vymazán — ptám se na jméno znovu');
   return true;
 }
@@ -2439,7 +2443,9 @@ function vykresliZebricek(tab, jmeno, poradi){
 // Věta o posunu. Je to jediné, co hráči řekne, jestli se ta hra vyplatila —
 // proto se drží předchozí pořadí v localStorage i mezi spuštěními.
 function napisPosun(poradi){
-  const drive = +(localStorage.getItem(ZEB_PORADI) || 0);
+  // Po vymazání tabulky se začíná od nuly: „nové N. místo", ne posun proti
+  // pořadí, které platilo v žebříčku, co už neexistuje.
+  const drive = zebricekVymazan ? 0 : +(localStorage.getItem(ZEB_PORADI) || 0);
   if(!drive) zebPosunEl.textContent = 'nové ' + poradi + '. místo';
   else if(poradi < drive) zebPosunEl.innerHTML = '▲ posun z ' + drive + '. na <b>' + poradi + '.</b> místo';
   else if(poradi > drive) zebPosunEl.innerHTML = '<span class="dol">▼ z ' + drive + '. na ' + poradi + '. místo</span>';
