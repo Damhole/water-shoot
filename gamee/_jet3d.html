@@ -658,6 +658,7 @@
     <input id="heslo" type="password" placeholder="heslo pro publikování"
            autocomplete="off" spellcheck="false">
     <button class="btn" id="publikovat">↑ publikovat všem</button>
+    <button class="btn" id="stahnout">↓ načíst publikované</button>
   </div>
   <div id="publStav"></div>
 
@@ -4458,6 +4459,27 @@ function pouzijNastaveniZeSite(){
 const publStavEl = document.getElementById('publStav');
 const hesloEl = document.getElementById('heslo');
 hesloEl.value = localStorage.getItem(HESLO_KLIC) || '';
+// STAŽENÍ PUBLIKOVANÉ SADY I PŘI LADĚNÍ. Hráči ji hra bere sama, kdežto při
+// ladění schválně ne (jinak by si autor přepsal rozdělanou práci). Když se ale
+// dvě zařízení rozejdou, tohle je způsob, jak je srovnat na jedno kliknutí.
+document.getElementById('stahnout').addEventListener('click', () => {
+  if(!ZEBRICEK_URL){ publStavEl.className='chyba'; publStavEl.textContent='není adresa valu'; return; }
+  publStavEl.className=''; publStavEl.textContent = 'stahuji…';
+  fetch(ZEBRICEK_URL + (ZEBRICEK_URL.includes('?') ? '&' : '?') + 'co=nastaveni')
+    .then(o => o.json())
+    .then(d => {
+      const n = d && d.nastaveni;
+      if(!n){ publStavEl.className='chyba'; publStavEl.textContent='na valu zatím nic není'; return; }
+      const dej = (id, v) => { const e = document.getElementById(id); if(e && v !== undefined) e.value = v; };
+      for(const id of VZHLED_POSUVNIKY) dej(id, n.vzhled && n.vzhled[id]);
+      for(const id of HRA_POSUVNIKY)    dej(id, n.hra && n.hra[id]);
+      if(n.stiny !== undefined) document.getElementById('stiny').checked = !!n.stiny;
+      obnovPopisky(); nastavStiny(); uloz();
+      publStavEl.textContent = 'načteno — zorný úhel ' + document.getElementById('fov').value + '°';
+    })
+    .catch(() => { publStavEl.className='chyba'; publStavEl.textContent='server neodpověděl'; });
+});
+
 document.getElementById('publikovat').addEventListener('click', () => {
   const heslo = hesloEl.value.trim();
   if(!heslo){ publStavEl.textContent = 'napiš heslo'; publStavEl.className = 'chyba'; return; }
