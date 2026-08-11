@@ -1228,6 +1228,31 @@ const boostNasob = id => 1 + boostProc(id)/100;
 // jak rychle z ní ubývá — jinak by se musely přepočítat všechny prahy
 // a lahev by doplňovala pokaždé jiný kus pruhu.
 const SPOTREBA_VODY = () => (+document.getElementById('spot3').value/100) / boostNasob('nadrz');
+
+// A MUSÍ TO BÝT VIDĚT. Pomalejší ubývání samo o sobě hráč nepozná — pruh se
+// hýbe pomaleji, ale vypadá stejně. Proto se roztáhne v témž poměru, v jakém
+// klesla spotřeba. Nábojnice uvnitř mají rozteč odvozenou od VÝŠKY pruhu,
+// takže se roztažením nenafouknou; jen jich přibude, a to oko čte jako větší
+// zásobník, ne jako jiný ukazatel.
+//
+// ŠÍŘKA SE POČÍTÁ V PIXELECH, ne v procentech: pruh je zprava ukotvený a roste
+// doleva, kde na něj čeká pruh s penězi. Kolik je do něj místa, se zjistí
+// z jejich skutečných poloh — HUD se s výškou okna mění, takže odhad by na
+// jiném telefonu narazil.
+const PRUH_ZAKLAD = 0.095;          // 9.5vh, tedy táž hodnota jako v CSS
+const HUD_MEZERA = 14;
+function roztahniNadrz(){
+  const pruh = document.querySelector('#vodaRoh .pruh');
+  if(!pruh) return;
+  const zakl = innerHeight*PRUH_ZAKLAD;
+  let sirka = zakl*boostNasob('nadrz');
+  const mince = document.getElementById('minceRoh');
+  if(mince){
+    const volno = pruh.getBoundingClientRect().right - (mince.getBoundingClientRect().right + HUD_MEZERA);
+    sirka = Math.min(sirka, Math.max(zakl, volno));
+  }
+  pruh.style.width = sirka.toFixed(1) + 'px';
+}
 // Pod touhle hladinou začne proud slábnout tlakem. Ne skokem u nuly:
 // zkracující se čůrek je jediné varování, které hráč uvidí, aniž by musel
 // spustit oči z terčů.
@@ -5022,6 +5047,9 @@ function resize(){
   matDrobne.uniforms.mer.value = h*0.5*Math.min(devicePixelRatio, 2);
   matFlek.uniforms.mer.value   = h*0.5*Math.min(devicePixelRatio, 2);
   matPeri.uniforms.mer.value  = h*0.5*Math.min(devicePixelRatio, 2);
+  // Šířka nádrže se počítá z výšky okna a z místa vedle pruhu s penězi,
+  // takže se musí přepočítat pokaždé, když se okno změní (otočení telefonu).
+  roztahniNadrz();
 }
 addEventListener('resize', resize); resize();
 
