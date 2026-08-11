@@ -2248,9 +2248,9 @@ async function zapisVysledek(jmeno){
   napisPosun(v.poradi);
   zebStavEl.textContent = v.sdilene ? '' : (ZEBRICEK_URL ? 'server neodpověděl — jen tohle zařízení'
                                                          : 'žebříček jen na tomhle zařízení');
-  // Karty až po zápisu do žebříčku: pořadí je odměna za odehranou hru,
-  // boost je příprava na další. V tomhle pořadí to hráč i čte.
-  nabidniKarty();
+  // Tabulka je v sólu poslední věc, po ní se jen hraje znovu. (V postupu se
+  // sem nechodí — tam končí hra obchodem.)
+  znovuBtn.hidden = false;
 }
 
 // ---- obchod: karty, zásobník a peněženka ----------------------------------
@@ -2410,7 +2410,11 @@ async function vynulujPostup(){
   location.reload();
 }
 
+// Popisek podle režimu: v postupu se maže dobrodružství, v sólu jméno
+// a jeho řádek v tabulce. Jedno tlačítko, dvě pravdivá jména.
+const NULOVAT_TEXT = JE_POSTUP ? 'vynulovat postup' : 'vynulovat jméno a skóre';
 const vynulovatBtn = document.getElementById('vynulovat');
+vynulovatBtn.textContent = NULOVAT_TEXT;
 let vynulovatCeka = 0;
 vynulovatBtn.addEventListener('click', () => {
   if(!vynulovatCeka){
@@ -2418,7 +2422,7 @@ vynulovatBtn.addEventListener('click', () => {
     vynulovatBtn.classList.add('varovne');
     vynulovatCeka = setTimeout(() => {
       vynulovatCeka = 0;
-      vynulovatBtn.textContent = 'vynulovat postup';
+      vynulovatBtn.textContent = NULOVAT_TEXT;
       vynulovatBtn.classList.remove('varovne');
     }, 4000);
     return;
@@ -2454,23 +2458,31 @@ function konecHry(text){
   document.getElementById('konecRoh').classList.add('sZebrickem');   // nadpis nahoru, ať se panel vejde
   document.body.classList.add('konecPanel');                         // a HUD pod ním zmizí
 
-  // VOLNÁ HRA KONČÍ TADY. Žádná peněženka, žádné karty, žádný žebříček —
-  // jinak by to nebyla hra bez postupu. Zůstane výsledek a tlačítko.
-  if(!JE_POSTUP){
-    jmenoBox.hidden = true; kartyEl.hidden = true;
+  // KAŽDÝ REŽIM MÁ NA KONCI NĚCO JINÉHO:
+  //   sólo   — žebříček. Je to hra na jedno kolo a jediné, co si z ní hráč
+  //            odnese, je pořadí mezi ostatními.
+  //   postup — obchod. Tady se staví dobrodružství dál, takže výdělek a karty;
+  //            tabulka sem nepatří, protože se běhy nedají porovnávat, když
+  //            každý začíná s jinými boosty. Story přijde právě sem.
+  if(JE_POSTUP){
+    jmenoBox.hidden = true;
     zebTabEl.textContent = ''; zebPosunEl.textContent = '';
-    document.getElementById('zasobnik').hidden = true;
-    document.getElementById('vynulovat').hidden = true;
-    zebStavEl.textContent = 'volná hra — bez žebříčku a boostů';
-    znovuBtn.hidden = false;
+    zebStavEl.textContent = '';
+    // VÝDĚLEK PADÁ DO PENĚŽENKY. Mince z běhu jsou to, čím se za chvíli platí
+    // za boost; kdyby se neukládaly, nedalo by se na nic spořit a dražší karty
+    // by hráč nikdy neviděl jinak než zšedlé.
+    ulozPenize(nactiPenize() + mince);
+    vykresliZasobnik();
+    nabidniKarty();
     return;
   }
 
-  // VÝDĚLEK PADÁ DO PENĚŽENKY. Mince z běhu jsou to, čím se za chvíli platí
-  // za boost; kdyby se neukládaly, nedalo by se na nic spořit a dražší karty
-  // by hráč nikdy neviděl jinak než zšedlé.
-  ulozPenize(nactiPenize() + mince);
-  vykresliZasobnik();
+  // SÓLO: žádná peněženka, karty ani zásobník, zato tabulka.
+  kartyEl.hidden = true;
+  document.getElementById('zasobnik').hidden = true;
+  // Tlačítko je k dispozici hned: kdo se zapsat nechce, nesmí uvíznout
+  // na dotazu na jméno.
+  znovuBtn.hidden = false;
   // Jméno se ptá JEN POPRVÉ NA ZAŘÍZENÍ. Podruhé už by to byla otravná
   // překážka mezi koncem a další hrou.
   const jmeno = (localStorage.getItem(ZEB_JMENO) || '').trim();
@@ -4189,6 +4201,7 @@ if(nacti()) console.log('[jet3d] nastavení obnoveno');
 // Až tady, po obnově uloženého stavu panelu: při nastavování nového postupu
 // musí být panel otevřený, ať se má co nastavovat.
 if(cekaSeNaStart){
+  nastavTitulek(document.getElementById('startNadpis'), JE_POSTUP ? 'Nový postup' : 'Nová hra');
   startRoh.hidden = false;
   hud.hidden = false;
   document.body.classList.add('nastavuji');   // zkrátí panel, ať je na startovní obrazovku vidět
