@@ -794,6 +794,26 @@ const STANOVISTE = 150;
 camera.position.set(0, 210 + STANOVISTE, 560);
 camera.lookAt(0, 150 + STANOVISTE, -400);
 
+const TELEFON_POMER = 0.45;
+// ŠIRŠÍ DISPLEJ NESMÍ VIDĚT VÍC BARU. Kamera má svislý zorný úhel, takže na
+// výšku vidí každý stejně a do šířky tolik, kolik dovolí poměr stran — jenže
+// v téhle hře je šířka HERNÍ VÝHODA: víc lahví v záběru je víc vody a bodů.
+// Od nejužšího běžného telefonu (0,45) se proto zorný úhel dopočítává tak, aby
+// ŠÍŘKA ZÁBĚRU ZŮSTALA STEJNÁ; širší displej tím vidí míň na výšku, což je
+// levnější cena — svisle je stejně většinou jen zařízení baru.
+//
+// Posuvník „zorný úhel" zůstává tím, čím byl: platí přesně na poměru 0,45
+// a na širším displeji se z něj odvozuje užší úhel.
+function fovProPomer(fovSlider, pomer){
+  if(pomer <= TELEFON_POMER) return fovSlider;
+  const tg = Math.tan(fovSlider*Math.PI/360) * TELEFON_POMER/pomer;
+  return 2*Math.atan(tg)*180/Math.PI;
+}
+function nastavKameru(){
+  camera.fov = fovProPomer(+document.getElementById('fov').value, innerWidth/innerHeight);
+  camera.updateProjectionMatrix();
+}
+
 // ---- paralaxa -------------------------------------------------------------
 // Kamera se lehce naklání za mířením. Je to POSUN, ne otočení: kamera i bod,
 // na který se dívá, jedou o totéž, takže se scéna nezkosí a vzniká skutečná
@@ -4582,7 +4602,7 @@ function obnovPopisky(){
   // zorný úhel se propisuje rovnou do kamery — míření i pás kachniček si ho
   // čtou z camera.fov, takže se přizpůsobí samy
   vFov.textContent = fov.value + '°';
-  camera.fov = +fov.value; camera.updateProjectionMatrix();
+  nastavKameru();
   vSyt.textContent = syt.value + ' %';
   nastavSytost(+syt.value/100);
   // Světlo: vodorovně a na výšku z posuvníků, do hloubky pevně vepředu (1700).
@@ -4901,11 +4921,13 @@ const KACHEN_MIN = 2;              // pod tímhle počtem se dosypává skoro hn
 // průměrný: staré 9:16 (0,5625) je nejširší a při něm by na 20:9 kachnička
 // u kraje vyčuhovala o 6 jednotek (naměřeno). Kdo má širší displej, uvidí
 // kachničky jen blíž ke středu, a to nevadí.
-const TELEFON_POMER = 0.45;
 function pasKachen(){
   const hloubka = camera.position.z - KACH_Z;
+  // Půlšířka záběru v hloubce kachniček. Dřív se počítala z pevného poměru
+  // nejužšího telefonu; teď je šířka na všech displejích stejná, tak se bere
+  // rovnou ta skutečná.
   const svisle = Math.tan(camera.fov*Math.PI/360) * hloubka;
-  return Math.max(140, svisle*TELEFON_POMER - KACH_R*BANDIT_ZOOM);
+  return Math.max(140, svisle*(innerWidth/innerHeight) - KACH_R*BANDIT_ZOOM);
 }
 
 // ---- postup barem ---------------------------------------------------------
@@ -5836,7 +5858,8 @@ function krokPopupu(dt){
 function resize(){
   const w = innerWidth, h = innerHeight;
   renderer.setSize(w, h, false);
-  camera.aspect = w/h; camera.updateProjectionMatrix();
+  camera.aspect = w/h;
+  nastavKameru();          // úhel se řídí poměrem stran, ne jen posuvníkem
   // vlastní shader kapiček si měřítko pro sizeAttenuation nedopočítá sám
   matDrobne.uniforms.mer.value = h*0.5*Math.min(devicePixelRatio, 2);
   matFlek.uniforms.mer.value   = h*0.5*Math.min(devicePixelRatio, 2);
