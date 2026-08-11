@@ -1195,20 +1195,22 @@ function zasahyLahvi(dt){
       const bod = new CANNON.Vec3(u.p.x, u.p.y, u.p.z);
       L.telo.wakeUp();
       L.telo.applyImpulse(smer.scale(SILA_ZASAHU()), bod);
-      // PRVNÍ ZÁSAH LAHVE = +1 bod. Odměna za to, že hráč vůbec trefil sklo,
-      // ne za to, jak dlouho ho poléval — proto jen jednou za život lahve.
-      // „+1" vyskočí nad lahví, tedy tam, kde se to stalo; těleso má počátek
-      // ve STŘEDU, takže se přičítá půlka výšky a kousek navrch.
+      // PRVNÍ ZÁSAH LAHVE NĚCO DÁ — ale VŽDY JEN JEDNU VĚC. Buď je v lahvi
+      // voda a ta letí do zásobníku, nebo je prázdná a je za ni bod. Nikdy
+      // obojí: jinak by lahev s vodou byla dvojnásobná odměna a hráč by
+      // neměl důvod řešit, do které stříká.
+      // Váže se to na PRVNÍ zásah, protože odměna patří za trefu, ne za
+      // polévání. „+1" vyskočí nad lahví, tedy tam, kde se to stalo; těleso
+      // má počátek ve STŘEDU, takže se přičítá půlka výšky a kousek navrch.
       if(!L.trefena){
         L.trefena = true;
-        pripisSkore(1);
-        pustPopup(L.telo.position.x, L.telo.position.y + L.typ.h*0.5 + 18,
-                  L.telo.position.z, 1, 'skoreMale');
-        // …a co bylo v lahvi, letí do zásobníku. Váže se to na PRVNÍ zásah
-        // stejně jako bod: kapka je odměna za trefu, ne za polévání.
+        const stred = L.telo.position.y + L.typ.h*0.5;
         if(L.voda){
           L.voda = false;
-          letVody(1, L.telo.position.x, L.telo.position.y + L.typ.h*0.5, L.telo.position.z);
+          letVody(1, L.telo.position.x, stred, L.telo.position.z);
+        } else {
+          pripisSkore(1);
+          pustPopup(L.telo.position.x, stred + 18, L.telo.position.z, 1, 'skoreMale');
         }
       }
       if(Math.random() < 0.4){
