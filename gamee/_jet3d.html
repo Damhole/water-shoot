@@ -1916,17 +1916,33 @@ function poradiVTabulce(tab, jmeno){
 // Odeslání výsledku. Když je adresa vyplněná, zkusí se server; při jakékoli
 // potíži (nedostupný, pomalý, chybná odpověď) se TIŠE spadne na místní
 // tabulku — konec hry se nesmí zaseknout na tom, že není signál.
+// ČEKÁNÍ SE HLÍDÁ ZÁVODEM, NE JEN PŘERUŠENÍM POŽADAVKU. `AbortController`
+// sám o sobě nestačí: spoléhá na to, že přerušení opravdu dojde a požadavek
+// se zamítne. Když se to nestane, panel zůstane viset s prázdnou tabulkou
+// napořád — naměřeno na podstrčeném serveru, který se neozval: ani po 12 s
+// se tabulka neobjevila. Proto se odpověď závodí s budíkem a po ZEBRICEK_CEKANI
+// se jede lokálně, ať se s požadavkem stane cokoli.
+function poCase(ms){ return new Promise(r => setTimeout(() => r(null), ms)); }
+
 async function posliVysledek(zaznam){
   if(ZEBRICEK_URL){
     try{
       const stop = new AbortController();
       const budik = setTimeout(() => stop.abort(), ZEBRICEK_CEKANI);
-      const odp = await fetch(ZEBRICEK_URL, { method: 'POST', signal: stop.signal,
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(zaznam) });
+      // BEZ HLAVIČKY S JSONEM. S `Content-Type: application/json` musí
+      // prohlížeč před každým zápisem poslat na cizí adresu kontrolní dotaz
+      // navíc (preflight) — a to je celá jedna třída chyb, která se pozná až
+      // na cizím zařízení. Prostý text je „jednoduchý požadavek" a jde rovnou;
+      // server si ho přečte jako text a rozebere sám.
+      const odp = await Promise.race([
+        fetch(ZEBRICEK_URL, { method: 'POST', signal: stop.signal, body: JSON.stringify(zaznam) }),
+        poCase(ZEBRICEK_CEKANI) ]);
       clearTimeout(budik);
-      const data = await odp.json();
-      if(Array.isArray(data && data.tabulka))
-        return { tabulka: data.tabulka, poradi: data.poradi || poradiVTabulce(data.tabulka, zaznam.jmeno), sdilene: true };
+      if(odp){
+        const data = await Promise.race([odp.json(), poCase(ZEBRICEK_CEKANI)]);
+        if(data && Array.isArray(data.tabulka))
+          return { tabulka: data.tabulka, poradi: data.poradi || poradiVTabulce(data.tabulka, zaznam.jmeno), sdilene: true };
+      }
     }catch(e){ /* spadne se na místní */ }
   }
   const tab = zapisDoTabulky(nactiMistni(), zaznam);
