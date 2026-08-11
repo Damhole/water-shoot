@@ -1372,7 +1372,29 @@ const FLEK_ZASAH = 0.014;       // kolik mokra přidá jeden uzel proudu
 // a k oříznutí dojde nanejvýš okrajem. Plochu dělá SLÉVÁNÍ, ne jeden obr.
 const FLEK_MIN = 70, FLEK_MAX = 190;
 const FLEK_ALFA = 0.34;
+// Kolem kachničky se flek nedělá. Voda se o ni zastaví, takže na stěnu za ní
+// nic nedoletí — a hlavně: flek je velký kruh na zdi, takže by kachničce
+// vykoukl kolem těla a vypadalo by to, že stojí v kaluži na skle.
+// POZOR: `KACH_R` se deklaruje až o tisíc řádků níž, takže se NESMÍ použít
+// v konstantě na téhle úrovni — const v dočasné mrtvé zóně vyhodí
+// ReferenceError při načítání modulu a hra se ani nespustí. Uvnitř funkce
+// se vyhodnocuje až za běhu, tam je to v pořádku.
+function blizkoKachny(x, y){
+  const mez = KACH_R*1.35;
+  for(const k of kachny){
+    if(k.stav === 'volna') continue;
+    const dx = k.skup.position.x - x, dy = (k.zaklY + k.stred) - y;
+    if(Math.abs(dx) < mez && Math.abs(dy) < mez) return true;
+  }
+  return false;
+}
+
 function mokryFlek(x, y, z){
+  // Během přejezdu na nové patro se fleky nedělají. Bar sjede o celou sekci,
+  // kdežto flek zůstane ve svých světových souřadnicích — to, co vznikne
+  // teď, by se v novém patře objevilo jako cizí stará skvrna.
+  if(prechod > 0 || hlaska > 0) return;
+  if(blizkoKachny(x, y)) return;
   // 1) slít se sousedem — přibude mu mokro, žádný nový flek nevzniká
   for(const f of fleky){
     if(!f.ziva) continue;
@@ -1399,6 +1421,20 @@ function mokryFlek(x, y, z){
 function smazFleky(){
   for(const f of fleky) f.ziva = false;
   flekGeo.setDrawRange(0, 0);
+}
+
+// Setřít fleky pod nově nasazenou kachničkou. `blizkoKachny` hlídá jen opačný
+// směr — že flek nevznikne u stojící kachničky. Kachnička se ale objeví
+// kdykoli, klidně přesně na mokrém místě, a pak jí to kouká kolem těla.
+// Naměřeno: bez tohohle klesl odstup na 54 jednotek proti prahu 84.
+function smazFlekyUKachny(x, y){
+  const mez = KACH_R*1.35;
+  let n = 0;
+  for(const f of fleky){
+    if(!f.ziva) continue;
+    if(Math.abs(f.x - x) < mez && Math.abs(f.y - y) < mez){ f.ziva = false; n++; }
+  }
+  return n;
 }
 
 // VŠECHNO ŘÍDÍ JEDNO ČÍSLO — `mokro` (0..1). Zásah ho přidá, čas ubírá,
@@ -1440,9 +1476,14 @@ function dopadNaDrevo(u, z){
   // vypadá jako terč, ne jako mokré místo. Rozstřik jde naopak z každého,
   // ten se má slévat.
   if(Math.random() < 0.14) krouzek(_bod.x, _bod.y, _bod.z, z.osa === 1 ? 'up' : 'celo', 20 + Math.random()*16);
-  // Mokrá stopa jen na SVISLÝCH plochách (osa 1 = deska shora) — viz komentář
-  // u fleků: bod se natáčí za kamerou a na vodorovné desce by ležel ve vzduchu.
-  if(z.osa !== 1) mokryFlek(_bod.x, _bod.y, _bod.z);
+  // Mokrá stopa JEN NA ZADNÍ STĚNĚ. Dvě podmínky, obě jsou potřeba:
+  //   osa 2 = svislá plocha čelem ke kameře (na vodorovné desce by kruhový
+  //     sprite ležel ve vzduchu, protože se natáčí za kamerou),
+  //   _bod.z za rovinou polic = je to opravdu stěna, ne ČELO POLICE.
+  // Ta druhá je ta podstatná: čelo police stojí 75 jednotek PŘED lahvemi,
+  // takže flek na něm překryl lahve i sklenice stojící na polici — vypadalo
+  // to, že mokro plave před nimi ve vzduchu.
+  if(z.osa === 2 && _bod.z < POLICE_Z - 30) mokryFlek(_bod.x, _bod.y, _bod.z);
   rozprsk(_bod, _nor, u.v, 3 + (Math.random()*3|0));
   // K mlze pár VELKÝCH kapek, co se od plochy odrazí. Sama mlha je u dopadu
   // málo — podlaha jich odjakživa pouští 3 až 6 a je to ono místo, kam se
@@ -2718,6 +2759,11 @@ function krokPostupu(dt){
     patro++; zbyva = kvota(); ukazPatro();
     otresT = 0;                                  // kamera teď dobrzdí
     nastavPodlahu();                             // nad přízemím už podlaha není
+    // Setřít PODRUHÉ, na konci přejezdu. Smazání na začátku samo nestačí:
+    // hráč drží proud i během jízdy, takže mezitím vzniknou nové fleky —
+    // a protože leží v pevných světových souřadnicích, zatímco bar pod nimi
+    // sjede o celou sekci, vynoří se v novém patře jako „ty staré".
+    smazFleky();
   }
 }
 
@@ -2878,6 +2924,7 @@ function pustKachnu(){
   k.zaklX = x;
   k.zaklY = hraciSekce().zaklY + POLICE_Y[patroK];
   k.skup.position.set(k.zaklX, k.zaklY, KACH_Z);
+  smazFlekyUKachny(k.zaklX, k.zaklY + k.stred);   // nesmí stát v mokrém fleku
   k.skup.rotation.set(0, k.vytoceni, 0);
   k.skup.scale.set(0.01, 0.01, 1);
   k.skup.visible = true;
