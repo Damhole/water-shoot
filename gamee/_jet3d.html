@@ -4547,6 +4547,14 @@ const NAPRAH_T = 0.5;
 // že do té doby má klid. Náhodný rozptyl navíc znamená, že se dvě kachničky
 // nasazené naráz neozvou ve stejný okamžik.
 const STRELBA_OD = 3.0, STRELBA_ROZPTYL = 1.5;
+// CHODCI. Kachnička, která má polici sama pro sebe, se po ní za svůj život
+// projde sem a tam. Nechodí všechny: kde by cestou potkala jinou kachničku,
+// zůstane stát — dvě, které si přes sebe přejíždějí, hráč nerozliší a neví,
+// do které stříká. LAHVE PŘEKÁŽKA NEJSOU, kachničky jezdí v hloubce za nimi;
+// projet za sklem je naopak to, co dělá pohyb zajímavým.
+const CHODEC_SANCE = 0.75;         // i osamělá kachnička občas jen stojí
+const CHODEC_V = [26, 54];         // jednotek za vteřinu, losuje se z rozsahu
+const CHODEC_KRAJ = KACH_R*0.6;    // o kolik dřív se otočí, ať nevyjede z obrazu
 const KACH_VYSKA = KACH_R*2*BANDIT_ZOOM;
 const KACH_POSAZENI = KACH_PRAZDNO_DOLE.map(p => KACH_VYSKA*(0.5 - p));
 const geoPlane = new THREE.PlaneGeometry(1, 1);
@@ -4884,10 +4892,23 @@ function vykukKachny(x){
 const _vhodne = new Float32Array(32);
 let vhodnychN = 0;
 
+// Je na téhle polici někdo jiný? Chodcem smí být jen kachnička, která ji má
+// sama. `krome` je ta právě nasazovaná — v tu chvíli už má `patro` i `stav`
+// nastavené, takže by se jinak počítala sama a chodec by nevznikl NIKDY
+// (naměřeno: nula chodců za dvacet vteřin hry).
+function sameNaPolici(patro, krome){
+  for(const k of kachny)
+    if(k !== krome && k.stav !== 'volna' && k.patro === patro) return false;
+  return true;
+}
+
 // Nesmí vzniknout přes jinou kachničku — hráč pak neví, do které stříká.
+// A NA POLICI S CHODCEM SE NENASAZUJE VŮBEC: chodec si ji prochází celou,
+// takže každé místo je „v cestě" a stálá kachnička by mu jen překážela.
 function volnoOdKachen(x, patro){
   for(const k of kachny){
     if(k.stav === 'volna' || k.patro !== patro) continue;
+    if(k.chodec) return false;
     if(Math.abs(k.skup.position.x - x) < KACH_R*2.3) return false;
   }
   return true;
@@ -5013,6 +5034,13 @@ function pustKachnu(){
   // chvění pod proudem hýbe `position.x` a zhynutí `position.y` — obojí se
   // musí mít kam vrátit.
   k.zaklX = x;
+  // CHODCEM SE STÁVÁ JEN TA, KTERÁ JE NA POLICI SAMA. Kontroluje se to
+  // v okamžiku nasazení; o to, aby jí někdo nepřibyl do cesty později, se
+  // stará `volnoOdKachen` — na polici s chodcem se další kachnička nenasadí.
+  k.chodec = sameNaPolici(patroK, k) && Math.random() < CHODEC_SANCE;
+  k.poziceX = x;
+  k.smer = Math.random() < 0.5 ? -1 : 1;
+  k.rychlost = rand(CHODEC_V[0], CHODEC_V[1]);
   k.zaklY = hraciSekce().zaklY + POLICE_Y[patroK];
   k.skup.position.set(k.zaklX, k.zaklY, KACH_Z);
   smazFlekyUKachny(k.zaklX, k.zaklY + k.stred);   // nesmí stát v mokrém fleku
@@ -5065,6 +5093,16 @@ function krokKachen(dt){
       s.set(1/p, p, 1);
       if(u >= 1){ s.set(1,1,1); k.stav = 'zije'; k.t = 0; }
     } else if(k.stav === 'zije'){
+      // CHŮZE PO POLICI. Rovnoměrně sem a tam, na kraji pásu se otočí — pás
+      // je tentýž, ve kterém se kachničky nasazují, takže chodec nikdy
+      // nevyjede z obrazu. Jde jen během života; při odchodu i umírání se
+      // poloha zmrazí, aby efekty neujížděly.
+      if(k.chodec){
+        const mez = pasKachen() - CHODEC_KRAJ;
+        k.poziceX += k.smer*k.rychlost*dt;
+        if(k.poziceX > mez){ k.poziceX = mez; k.smer = -1; }
+        else if(k.poziceX < -mez){ k.poziceX = -mez; k.smer = 1; }
+      }
       // Odpočet stojí, dokud do kachničky teče. Kdo ji drží, ten ji dostane.
       if(k.odZasahu > PAUZA_PO_ZASAHU) k.ttl -= dt;
       k.matPrst.uniforms.postup.value = k.naplneno/k.potreba;
@@ -5096,7 +5134,7 @@ function krokKachen(dt){
         // ZRUŠÍ. Radši ať kachnička odejde bez rány, než aby střílela zpoza
         // lahve.
         siluetyLahvi(k.patro);
-        const vidi = koltVolny(k.zaklX);
+        const vidi = koltVolny(k.poziceX);   // u chodce se poloha mění, ne zaklX
         if(k.napr > 0){
           if(!vidi){ k.napr = 0; }            // zakryl se během nápřahu → nic
           else {
@@ -5124,9 +5162,9 @@ function krokKachen(dt){
         s.set(s.x/c, s.y*c, 1);
         // náklon se PŘIČÍTÁ, ať se nepere s cukáním ohlášeného odchodu
         k.skup.rotation.z += ZASAH_CHVENI_R*w*Math.sin(f*0.83);
-        k.skup.position.x = k.zaklX + ZASAH_CHVENI_X*w*Math.sin(f*1.17);
-      } else if(k.skup.position.x !== k.zaklX){
-        k.skup.position.x = k.zaklX;
+        k.skup.position.x = k.poziceX + ZASAH_CHVENI_X*w*Math.sin(f*1.17);
+      } else if(k.skup.position.x !== k.poziceX){
+        k.skup.position.x = k.poziceX;
       }
       if(k.ttl <= 0){
         k.stav = 'mizi'; k.t = 0; k.skup.rotation.z = 0;
@@ -5141,7 +5179,7 @@ function krokKachen(dt){
       }
     } else if(k.stav === 'mizi'){
       // netrefená kachnička se jen scvrkne a zmizí — bez peří a bez bodů
-      k.skup.position.set(k.zaklX, k.zaklY, KACH_Z);   // srovnat po chvění
+      k.skup.position.set(k.poziceX, k.zaklY, KACH_Z);   // srovnat po chvění
       const u = Math.min(1, k.t/ODJEZD);
       s.set(1 - u, 1 - u, 1);
       if(u >= 1){ k.stav = 'volna'; k.skup.visible = false; }
@@ -5150,7 +5188,7 @@ function krokKachen(dt){
       // i s povyskočením, teprve pak plácne do široka a zmizí. Samotné
       // plácnutí bylo jen půlka pohybu a působilo, že splaskla — nádech
       // před ním je to, co z toho dělá ránu.
-      k.skup.position.x = k.zaklX;      // srovnat po chvění pod proudem
+      k.skup.position.x = k.poziceX;    // srovnat po chvění pod proudem
       // NEJDŘÍV SE SMRSKNE TERČ, teprve pak kachnička. Terč je samostatný
       // objekt nalepený na kachničce, takže má vlastní měřítko a může zmizet
       // dřív — čte se to jako „sestřelen terč, a proto padá kachnička",
