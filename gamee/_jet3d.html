@@ -60,6 +60,19 @@
     font:inherit;font-size:12px;cursor:pointer}
   #hud b{color:#8fd0ff}
   #hud label{display:block;margin:7px 0 2px;color:#9fb4cc;font-size:11px}
+  /* Režim je první a jediná věc v panelu, která mění PRAVIDLA, ne vzhled —
+     proto je oddělený linkou a psaný světleji než ladicí posuvníky pod ním. */
+  #rezimRadek{display:flex;align-items:center;gap:6px;margin:0 0 9px;
+    padding-bottom:9px;border-bottom:1px solid rgba(207,224,255,.18);
+    color:#cfe0f5;font-size:12px}
+  #rezimRadek b{color:#ffe08a}
+  /* Nadpis skupiny posuvníků: panel má přes dvacet táhel a bez rozdělení
+     se v něm nedá najít, co mění hru a co jen vzhled. */
+  .skupina{margin:12px 0 2px;font-size:10px;letter-spacing:.08em;
+    text-transform:uppercase;color:#7f95ad;
+    border-top:1px solid rgba(207,224,255,.13);padding-top:8px}
+  #rezimRadek input{margin:0}
+  #vRezim{color:#9fb4cc;font-size:11px}
   /* posuvník si bere gesta sám: bez tohohle by prohlížeč šikmý tah po
      posuvníku v půlce překlopil do rolování panelu */
   #hud input[type=range]{width:100%;touch-action:none}
@@ -532,6 +545,12 @@
 </svg>
 <button id="cog" aria-label="nastavení">⚙</button>
 <div id="hud" hidden>
+  <!-- REŽIM HRY. Dvě různé hry z týchž dílů: volná je jen střelnice, postup
+       přidává peněženku, boosty a žebříček. Přepnutí hru rovnou přenačte —
+       boosty se čtou jednou při startu, takže by se změna do rozehrané hry
+       stejně nepropsala a hráč by koukal na nesouhlasící čísla. -->
+  <label id="rezimRadek"><input type="checkbox" id="rezimPostup">
+    <b>postup a boosty</b> <span id="vRezim"></span></label>
   <div class="row"><span>FPS</span><b id="fps">–</b></div>
   <div class="row"><span>trojúhelníků</span><b id="tris">–</b></div>
   <div class="row"><span>draw calls</span><b id="calls">–</b></div>
@@ -548,6 +567,9 @@
        už hra běžela, by se nová výchozí hodnota nikdy neprojevila — držela by
        se tam ta stará. Přejmenování je nejlevnější způsob, jak zahodit tuhle
        jedinou položku a zbytek doladěného panelu nechat být. -->
+  <!-- Odtud dolů jsou VÝCHOZÍ HODNOTY HRY, tedy s čím se začíná, než si hráč
+       něco koupí. Boosty se na ně násobí. -->
+  <div class="skupina">výchozí hodnoty hry</div>
   <label>spotřeba vody (0 = nekonečná) <span id="vSpot"></span></label>
   <input type="range" id="spot3" min="0" max="20" step="0.1" value="3.3">
   <!-- VÝCHOZÍ VELIKOST NÁDRŽE, tedy s čím hráč začíná, než si cokoli koupí.
@@ -556,6 +578,15 @@
        takže je vidět, s čím se bude hrát. -->
   <label>velikost nádrže <span id="vNadrz"></span></label>
   <input type="range" id="nadrz1" min="1" max="3" step="0.1" value="1">
+  <label>poloměr proudu <span id="vTl"></span></label>
+  <input type="range" id="tl" min="2" max="26" step="1" value="8">
+  <label>rychlost toku <span id="vSp"></span></label>
+  <input type="range" id="sp" min="0" max="12" step="0.25" value="3.75">
+  <label>síla proudu (vyšší = plošší oblouk) <span id="vSila"></span></label>
+  <input type="range" id="sila" min="900" max="4200" step="100" value="1700">
+  <label>náběh a doběh trysky (s) <span id="vRamp"></span></label>
+  <input type="range" id="ramp" min="0" max="1.2" step="0.05" value="0.45">
+  <div class="skupina">vzhled a ladění</div>
   <label>zorný úhel (nižší = blíž) <span id="vFov"></span></label>
   <input type="range" id="fov" min="30" max="60" step="1" value="53">
   <label>sytost barev <span id="vSyt"></span></label>
@@ -581,14 +612,6 @@
   <input type="color" id="projB" value="#ff5a22" style="width:100%;height:26px;padding:0;border:0;background:none">
   <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
     <input type="checkbox" id="autoStrik"> automatické stříkání (na ladění)</label>
-  <label>poloměr proudu <span id="vTl"></span></label>
-  <input type="range" id="tl" min="2" max="26" step="1" value="8">
-  <label>rychlost toku <span id="vSp"></span></label>
-  <input type="range" id="sp" min="0" max="12" step="0.25" value="3.75">
-  <label>síla proudu (vyšší = plošší oblouk) <span id="vSila"></span></label>
-  <input type="range" id="sila" min="900" max="4200" step="100" value="1700">
-  <label>náběh a doběh trysky (s) <span id="vRamp"></span></label>
-  <input type="range" id="ramp" min="0" max="1.2" step="0.05" value="0.45">
   <label>velikost korunky (0 = vypnuto) <span id="vKor"></span></label>
   <input type="range" id="kor" min="0" max="200" step="5" value="100">
   <label>síla zásahu do lahví <span id="vImp"></span></label>
@@ -1224,6 +1247,16 @@ const BOOSTY_KLIC = 'ws_boosty';
 // ale ne zabíjet — a spodní hranice jedné mince platí vždycky.
 const STIT_STROP = 0.8;
 
+// ---- režim hry -------------------------------------------------------------
+// Dvě různé hry z týchž dílů:
+//   VOLNÁ  — jen střelnice. Nic se nepamatuje, nekupuje ani nezapisuje.
+//   POSTUP — peněženka, boosty a žebříček.
+// Rozhoduje se to na JEDNOM místě, aby se to nemuselo hlídat na deseti.
+// Přepíná se v ⚙ panelu a přepnutí hru přenačte: boosty se čtou jednou při
+// startu, takže do rozehrané hry by se změna stejně nepropsala.
+const REZIM_KLIC = 'ws_rezim';
+const JE_POSTUP = localStorage.getItem(REZIM_KLIC) !== 'volna';
+
 // ZÁMEK PROTI ZÁPISŮM ZA BĚHU NULOVÁNÍ. Nulování čeká na server, a než se
 // dočká, může skončit hra a zapsat jméno, pořadí i peníze — ty zápisy pak
 // dorazily AŽ PO smazání a postup se tím obnovil. Naměřeno: po vynulování
@@ -1237,7 +1270,10 @@ function ulozBoosty(o){ if(nuluji) return; try{ localStorage.setItem(BOOSTY_KLIC
 // Načte se JEDNOU při startu hry. Nákup uprostřed běhu neexistuje — kupuje se
 // po smrti a hraje se po reloadu, takže se hodnota za běhu nemá jak změnit.
 const BOOST = nactiBoosty();
-const boostProc = id => Math.max(0, +BOOST[id] || 0);
+// Ve volné hře boosty NEPLATÍ, i kdyby v zásobníku ležely — jinak by „hra bez
+// progresu" nebyla bez progresu. Stačí je vypnout tady a všechna čtyři místa,
+// která z nich čtou, se srovnají sama.
+const boostProc = id => JE_POSTUP ? Math.max(0, +BOOST[id] || 0) : 0;
 const boostNasob = id => 1 + boostProc(id)/100;
 
 // VĚTŠÍ NÁDRŽ = POMALEJŠÍ UBÝVÁNÍ. Nádrž je v celé hře vedená jako podíl
@@ -2370,6 +2406,19 @@ function konecHry(text){
   document.getElementById('konecRoh').hidden = false;
   document.getElementById('konecRoh').classList.add('sZebrickem');   // nadpis nahoru, ať se panel vejde
   document.body.classList.add('konecPanel');                         // a HUD pod ním zmizí
+
+  // VOLNÁ HRA KONČÍ TADY. Žádná peněženka, žádné karty, žádný žebříček —
+  // jinak by to nebyla hra bez postupu. Zůstane výsledek a tlačítko.
+  if(!JE_POSTUP){
+    jmenoBox.hidden = true; kartyEl.hidden = true;
+    zebTabEl.textContent = ''; zebPosunEl.textContent = '';
+    document.getElementById('zasobnik').hidden = true;
+    document.getElementById('vynulovat').hidden = true;
+    zebStavEl.textContent = 'volná hra — bez žebříčku a boostů';
+    znovuBtn.hidden = false;
+    return;
+  }
+
   // VÝDĚLEK PADÁ DO PENĚŽENKY. Mince z běhu jsou to, čím se za chvíli platí
   // za boost; kdyby se neukládaly, nedalo by se na nic spořit a dražší karty
   // by hráč nikdy neviděl jinak než zšedlé.
@@ -3998,6 +4047,17 @@ cbStiny.addEventListener('change', ()=>{ nastavStiny(); uloz(); });
 // udělalo, aniž by člověk musel držet tlačítko a mířit zároveň.
 cbAuto.addEventListener('change', uloz);
 
+// PŘEPÍNAČ REŽIMU. Neukládá se mezi posuvníky (`uloz`), ale zvlášť — resetem
+// panelu na výchozí hodnoty se režim hry měnit nemá.
+const cbRezim = document.getElementById('rezimPostup');
+cbRezim.checked = JE_POSTUP;
+document.getElementById('vRezim').textContent =
+  JE_POSTUP ? '— peněženka, boosty a žebříček' : '— volná hra, nic se nepamatuje';
+cbRezim.addEventListener('change', () => {
+  try{ localStorage.setItem(REZIM_KLIC, cbRezim.checked ? 'postup' : 'volna'); }catch(e){}
+  location.reload();          // boosty se čtou při startu, změna platí od nové hry
+});
+
 // Posuvník života je čistě na ladění a ZÁMĚRNĚ se neukládá — hra musí po
 // reloadu vždycky začít s plným životem, jinak by se uložená čtvrtina tvářila
 // jako stav hry. Proto není v POSUVNIKY.
@@ -4074,7 +4134,11 @@ function obnovPopisky(){
   matObrys.color.set(obrB.value);
   vRad.textContent = rad.value;
   vTl.textContent = tl.value;  vSp.textContent = sp.value;
-  vSila.textContent = sila.value; vRamp.textContent = (+ramp.value).toFixed(2);
+  // POZOR NA `sila`: tak se jmenuje i modulová proměnná s okamžitou silou
+  // trysky (0..1), která tady přebíjí prvek z panelu. Číslo u posuvníku proto
+  // nikdy nesvítilo — `sila.value` bylo undefined. Prvek se musí vzít podle id.
+  vSila.textContent = document.getElementById('sila').value;
+  vRamp.textContent = (+ramp.value).toFixed(2);
   vImp.textContent = imp.value;
   vSpot.textContent = spot3.value + ' %/s';
   // Velikost nádrže se propíše rovnou do pruhu, takže je při tažení vidět,
