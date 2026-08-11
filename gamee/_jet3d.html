@@ -2987,6 +2987,7 @@ const KACH_PRAZDNO_DOLE = [0.1602, 0.1152, 0.2422, 0.2441];
 // pro všechny čtyři, aby indexy seděly — vybírá se jen z tohohle seznamu.
 const VARIANTY = [1, 2, 3];
 const STRELEC = 1;                 // jediná varianta s koltem do objektivu
+const NEOZBROJENI = [2, 3];        // ti smějí stát i za sklem, nemají co ukázat
 // Kolik kachen s koltem opravdu vystřelí a za jak dlouho po nasazení. Nápřah
 // je vidět předem, aby šlo výstřel číst; teprve po něm koule vyletí.
 const STRELCU_PODIL = 0.7;
@@ -3293,6 +3294,23 @@ function siluetyLahvi(patroK){
 // jeden desetijednotkový, ale vypadají jako kachnička rozřezaná na plátky.
 // Počítá se navzorkováním, ne slučováním intervalů — 24 vzorků krát pár lahví
 // je pár set porovnání, zato bez řazení a bez alokace.
+// KOLT MUSÍ BÝT VIDĚT. Kachnička se smí schovat za sklo, ale střílet zpoza
+// lahve nesmí — hráč by dostal ránu od něčeho, na čem zbraň není vidět, a to
+// je stejná nefér jako střelba z ničeho nic.
+// Revolver drží varianta 1 uprostřed těla, mírně vlevo od osy, takže stačí
+// hlídat úzký pás kolem středu siluety. Pás se testuje CELÝ: nestačí, aby
+// z něj kus koukal, musí být volný od kraje ke kraji.
+function koltVolny(x){
+  const OD = -KACH_R*0.34, DO = KACH_R*0.24;
+  for(let i=0;i<8;i++){
+    const px = x + OD + (DO - OD)*(i + 0.5)/8;
+    for(let j=0;j<_lahvN;j++){
+      if(Math.abs(px - _lahvX[j]) < _lahvR[j]) return false;
+    }
+  }
+  return true;
+}
+
 function vykukKachny(x){
   const R = KACH_R*0.9, KROK = R*2/24;
   let nej = 0, bezi = 0;
@@ -3385,7 +3403,12 @@ function pustKachnu(){
   // porušený slib: hráč se učí číst „zbraň = nebezpečí" a tahle ho to
   // odnaučí. Zbývají tedy střelec (1) a dva neozbrojení (2, 3); ne každá
   // kachna musí být smrtelný nepřítel.
-  const vi = VARIANTY[(Math.random()*VARIANTY.length)|0];
+  // Varianta se losuje AŽ PODLE MÍSTA: kdyby na vybraném x nebyl vidět kolt,
+  // střelec se tam nenasadí vůbec a stojí tam někdo neozbrojený. Řešit to
+  // hledáním jiného místa by znamenalo buď kachničku nenasadit, nebo ji
+  // strkat tam, kam se nehodí — takhle se jen změní, kdo to je.
+  let vi = VARIANTY[(Math.random()*VARIANTY.length)|0];
+  if(vi === STRELEC && !koltVolny(x)) vi = NEOZBROJENI[(Math.random()*NEOZBROJENI.length)|0];
   if(vi === STRELEC && Math.random() < STRELCU_PODIL){
     k.strelec = true;
     k.strelbaZa = rand(STRELBA_PRVNI[0], STRELBA_PRVNI[1]);
