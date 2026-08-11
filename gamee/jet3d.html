@@ -1244,8 +1244,11 @@ const PROJ_POTREBA = 14;            // kolik zásahů proudu ji rozprskne
 const PROJ_UBERE = 0.2;             // kolik života sebere zásah (platí jen se ZIVOTY_ZAP)
 // KOLIK MINCÍ VYSYPE JEDNA RÁNA. Podíl z banku, ne pevné číslo: pevné by na
 // začátku bolelo a po deseti patrech bylo k smíchu. Spodní hranice je tu
-// proto, aby zásah něco stál i s prázdnou kapsou.
-const KRADEZ_PODIL = 0.12, KRADEZ_MIN = 2;
+// proto, aby zásah něco stál i s prázdnou kapsou, horní proto, aby se z toho
+// při plné kapse nestala pohroma, po které nemá cenu pokračovat — a taky aby
+// se vysypané mince vešly do poolu (24 kusů).
+// Rána tedy sebere pětinu banku, nejmíň tři a nejvíc patnáct mincí.
+const KRADEZ_PODIL = 0.22, KRADEZ_MIN = 3, KRADEZ_MAX = 15;
 // MODRÁ A ORANŽOVÁ, ne dva odstíny modré. Dvě protilehlé barvy blikají i
 // koutkem oka, kdežto modrá do světlemodré splynula s vodou i s pozadím.
 // Toon stínování ubere na odvrácené straně, takže barvy musí být SVĚTLEJŠÍ,
@@ -1546,7 +1549,7 @@ function zasahHrace(){
   zasahEl.classList.add('bliknuti');
   // STŘELA OKRÁDÁ, NEZABÍJÍ. Bandita hráči vysype část banku — hra tím
   // netrestá smrtí, ale tím, co si hráč na konci koupí.
-  const kolik = Math.min(mince, Math.max(KRADEZ_MIN, Math.round(mince*KRADEZ_PODIL)));
+  const kolik = Math.min(mince, KRADEZ_MAX, Math.max(KRADEZ_MIN, Math.round(mince*KRADEZ_PODIL)));
   if(kolik > 0) vysypMince3d(kolik);
   if(ZIVOTY_ZAP && zivot <= 0) konecHry('Soaked!');
 }
