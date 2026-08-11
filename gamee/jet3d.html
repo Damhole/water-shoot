@@ -372,6 +372,11 @@
   .karta.draha .cn{color:#e8a48f}
   #preskocit{display:block;width:100%;margin-top:7px;font-size:12px;
     background:none;border:0;color:rgba(207,224,255,.55)}
+  /* Nulování je nevratné, tak ať nekřičí: drobné, šedé, až úplně dole.
+     Po prvním klepnutí zčervená a čeká na potvrzení. */
+  #vynulovat{display:block;width:100%;margin-top:8px;font-size:11px;
+    background:none;border:0;color:rgba(207,224,255,.38)}
+  #vynulovat.varovne{color:#ff9b8a;font-weight:700}
   #zasobnik{display:flex;align-items:center;gap:8px;margin-top:10px}
   #slotyRada{display:flex;gap:5px;flex:1}
   .slot{flex:1;min-width:0;height:38px;border-radius:7px;display:flex;
@@ -506,6 +511,7 @@
       <div id="penezenka"></div>
     </div>
     <button id="znovu" type="button" hidden>hrát</button>
+    <button id="vynulovat" type="button">vynulovat postup</button>
   </div>
 </div>
 <!-- Zaměřovač podle předlohy: silnější a v týchž barvách jako text, tedy
@@ -544,6 +550,12 @@
        jedinou položku a zbytek doladěného panelu nechat být. -->
   <label>spotřeba vody (0 = nekonečná) <span id="vSpot"></span></label>
   <input type="range" id="spot3" min="0" max="20" step="0.1" value="3.3">
+  <!-- VÝCHOZÍ VELIKOST NÁDRŽE, tedy s čím hráč začíná, než si cokoli koupí.
+       Násobek, ne procenta: boosty přidávají procenta k tomuhle základu
+       a v jedněch jednotkách by se to pletlo. Pruh se mění hned při tažení,
+       takže je vidět, s čím se bude hrát. -->
+  <label>velikost nádrže <span id="vNadrz"></span></label>
+  <input type="range" id="nadrz1" min="1" max="3" step="0.1" value="1">
   <label>zorný úhel (nižší = blíž) <span id="vFov"></span></label>
   <input type="range" id="fov" min="30" max="60" step="1" value="53">
   <label>sytost barev <span id="vSyt"></span></label>
@@ -1212,11 +1224,16 @@ const BOOSTY_KLIC = 'ws_boosty';
 // ale ne zabíjet — a spodní hranice jedné mince platí vždycky.
 const STIT_STROP = 0.8;
 
+// ZÁMEK PROTI ZÁPISŮM ZA BĚHU NULOVÁNÍ. Nulování čeká na server, a než se
+// dočká, může skončit hra a zapsat jméno, pořadí i peníze — ty zápisy pak
+// dorazily AŽ PO smazání a postup se tím obnovil. Naměřeno: po vynulování
+// zůstalo jméno „Denis" a pořadí 1. Od nastavení zámku se nesmí uložit nic.
+let nuluji = false;
 function nactiBoosty(){
   try{ const o = JSON.parse(localStorage.getItem(BOOSTY_KLIC) || '{}');
        return (o && typeof o === 'object') ? o : {}; }catch(e){ return {}; }
 }
-function ulozBoosty(o){ try{ localStorage.setItem(BOOSTY_KLIC, JSON.stringify(o)); }catch(e){} }
+function ulozBoosty(o){ if(nuluji) return; try{ localStorage.setItem(BOOSTY_KLIC, JSON.stringify(o)); }catch(e){} }
 // Načte se JEDNOU při startu hry. Nákup uprostřed běhu neexistuje — kupuje se
 // po smrti a hraje se po reloadu, takže se hodnota za běhu nemá jak změnit.
 const BOOST = nactiBoosty();
@@ -1227,7 +1244,11 @@ const boostNasob = id => 1 + boostProc(id)/100;
 // 0..1 (pruh, prahy varování, zatmívání), takže zvětšovat se dá jedině tím,
 // jak rychle z ní ubývá — jinak by se musely přepočítat všechny prahy
 // a lahev by doplňovala pokaždé jiný kus pruhu.
-const SPOTREBA_VODY = () => (+document.getElementById('spot3').value/100) / boostNasob('nadrz');
+// VELIKOST NÁDRŽE MÁ DVĚ ČÁSTI: výchozí (posuvník, s čím se začíná) a koupenou
+// (boost, procenta k základu). Násobí se, ne sčítá — boost je „o pětinu víc
+// toho, co mám", ne „o pětinu víc než jedna".
+const NADRZ_CELKEM = () => Math.max(0.2, +document.getElementById('nadrz1').value) * boostNasob('nadrz');
+const SPOTREBA_VODY = () => (+document.getElementById('spot3').value/100) / NADRZ_CELKEM();
 
 // A MUSÍ TO BÝT VIDĚT. Pomalejší ubývání samo o sobě hráč nepozná — pruh se
 // hýbe pomaleji, ale vypadá stejně. Proto se roztáhne v témž poměru, v jakém
@@ -1244,12 +1265,31 @@ const HUD_MEZERA = 14;
 function roztahniNadrz(){
   const pruh = document.querySelector('#vodaRoh .pruh');
   if(!pruh) return;
-  const zakl = innerHeight*PRUH_ZAKLAD;
-  let sirka = zakl*boostNasob('nadrz');
   const mince = document.getElementById('minceRoh');
+  // Zpátky na střed, jinak by se posuny z jednotlivých tažení posuvníku
+  // sčítaly a mince by odjely z obrazu.
+  if(mince) mince.style.transform = 'translate(-50%, -50%)';
+  const zakl = innerHeight*PRUH_ZAKLAD;
+  let sirka = zakl*NADRZ_CELKEM();
   if(mince){
-    const volno = pruh.getBoundingClientRect().right - (mince.getBoundingClientRect().right + HUD_MEZERA);
-    sirka = Math.min(sirka, Math.max(zakl, volno));
+    const pravy = pruh.getBoundingClientRect().right;
+    let volno = pravy - (mince.getBoundingClientRect().right + HUD_MEZERA);
+    if(sirka > volno){
+      // NEJDŘÍV SE UHNOU MINCE. Vlevo od nich je prázdno (pruh života je
+      // vypnutý), takže se dají posunout a nádrž dostane víc místa — bez toho
+      // se pruh zastavil na 1,6× a od té chvíle vypadala dvojnásobná nádrž
+      // stejně jako trojnásobná. Dál než k okraji se neuhýbá; kdyby se život
+      // zapnul, zastaví je jeho pruh.
+      const ziv = document.getElementById('zivotRoh');
+      const meze = (ziv && !ZIVOTY_ZAP ? Math.max(10, innerWidth*0.03)
+                                       : ziv.getBoundingClientRect().right + HUD_MEZERA);
+      const posun = Math.min(sirka - volno, Math.max(0, mince.getBoundingClientRect().left - meze));
+      if(posun > 0){
+        mince.style.transform = 'translate(calc(-50% - ' + posun.toFixed(1) + 'px), -50%)';
+        volno += posun;
+      }
+      sirka = Math.min(sirka, Math.max(zakl, volno));
+    }
   }
   pruh.style.width = sirka.toFixed(1) + 'px';
 }
@@ -2025,7 +2065,7 @@ function nactiMistni(){
   try{ const a = JSON.parse(localStorage.getItem(ZEB_KLIC) || '[]'); return Array.isArray(a) ? a : []; }
   catch(e){ return []; }
 }
-function ulozMistni(t){ try{ localStorage.setItem(ZEB_KLIC, JSON.stringify(t.slice(0, 50))); }catch(e){} }
+function ulozMistni(t){ if(nuluji) return; try{ localStorage.setItem(ZEB_KLIC, JSON.stringify(t.slice(0, 50))); }catch(e){} }
 
 // Zápis do tabulky. Vrací setříděnou tabulku; porovnává se podle jména bez
 // ohledu na velikost písmen, aby „Denis" a „denis" nebyli dva lidé.
@@ -2115,10 +2155,11 @@ function napisPosun(poradi){
   else if(poradi < drive) zebPosunEl.innerHTML = '▲ posun z ' + drive + '. na <b>' + poradi + '.</b> místo';
   else if(poradi > drive) zebPosunEl.innerHTML = '<span class="dol">▼ z ' + drive + '. na ' + poradi + '. místo</span>';
   else zebPosunEl.textContent = 'držíš ' + poradi + '. místo';
-  try{ localStorage.setItem(ZEB_PORADI, String(poradi)); }catch(e){}
+  if(!nuluji) try{ localStorage.setItem(ZEB_PORADI, String(poradi)); }catch(e){}
 }
 
 async function zapisVysledek(jmeno){
+  if(nuluji) return;
   try{ localStorage.setItem(ZEB_JMENO, jmeno); }catch(e){}
   zebStavEl.textContent = ZEBRICEK_URL ? 'posílám…' : '';
   const v = await posliVysledek({ jmeno, skore, mince });
@@ -2145,7 +2186,7 @@ async function zapisVysledek(jmeno){
 const PENIZE_KLIC = 'ws_penize';
 
 function nactiPenize(){ return Math.max(0, +(localStorage.getItem(PENIZE_KLIC) || 0) | 0); }
-function ulozPenize(n){ try{ localStorage.setItem(PENIZE_KLIC, String(Math.max(0, n|0))); }catch(e){} }
+function ulozPenize(n){ if(nuluji) return; try{ localStorage.setItem(PENIZE_KLIC, String(Math.max(0, n|0))); }catch(e){} }
 // Zásobník = mapa druh → procenta. Pořadí slotů je pořadí, v jakém si je hráč
 // pořídil, protože přesně tak si je pamatuje.
 function nactiZasobnik(){ return nactiBoosty(); }
@@ -2261,6 +2302,48 @@ function zavriKarty(){
   znovuBtn.hidden = false;
 }
 document.getElementById('preskocit').addEventListener('click', zavriKarty);
+
+// ---- vynulování postupu ----------------------------------------------------
+// Smaže všechno, co si hra o hráči pamatuje: boosty, peněženku, jméno,
+// zapamatované pořadí i místní tabulku. Zkusí smazat i řádek ve sdílené
+// tabulce — ten je jediný, co neleží na zařízení, takže na něj sám nedosáhnu
+// a musí o to požádat server.
+//
+// DVĚ KLEPNUTÍ, ne dialog. Nevratná věc si potvrzení zaslouží, ale `confirm()`
+// na mobilu překryje celou hru a v Gamee se chová nepředvídatelně.
+async function vynulujPostup(){
+  nuluji = true;               // od téhle chvíle se nesmí uložit nic
+  const jmeno = (localStorage.getItem(ZEB_JMENO) || '').trim();
+  if(ZEBRICEK_URL && jmeno){
+    try{
+      await Promise.race([
+        fetch(ZEBRICEK_URL, { method:'POST', body: JSON.stringify({ jmeno, smazat:true }) }),
+        poCase(ZEBRICEK_CEKANI) ]);
+    }catch(e){ /* na řádku ve sdílené tabulce nezáleží tolik, aby kvůli němu nulování uvázlo */ }
+  }
+  for(const k of [ZEB_KLIC, ZEB_JMENO, ZEB_PORADI, PENIZE_KLIC, BOOSTY_KLIC]){
+    try{ localStorage.removeItem(k); }catch(e){}
+  }
+  location.reload();
+}
+
+const vynulovatBtn = document.getElementById('vynulovat');
+let vynulovatCeka = 0;
+vynulovatBtn.addEventListener('click', () => {
+  if(!vynulovatCeka){
+    vynulovatBtn.textContent = 'opravdu? klepni ještě jednou';
+    vynulovatBtn.classList.add('varovne');
+    vynulovatCeka = setTimeout(() => {
+      vynulovatCeka = 0;
+      vynulovatBtn.textContent = 'vynulovat postup';
+      vynulovatBtn.classList.remove('varovne');
+    }, 4000);
+    return;
+  }
+  clearTimeout(vynulovatCeka); vynulovatCeka = 0;
+  vynulovatBtn.textContent = 'nuluji…';
+  vynulujPostup();
+});
 
 jmenoBox.addEventListener('submit', e => {
   e.preventDefault();
@@ -3870,7 +3953,7 @@ addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 // Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
 // přežijí reload, aby se doladěné nastavení neztrácelo.
 const ULOZ_KLIC = 'ws_jet3d_tune';
-const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','obrT','obrB','rad','tl','sp','sila','ramp','imp','kor','spot3','projA','projB'];
+const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','obrT','obrB','rad','tl','sp','sila','ramp','imp','kor','spot3','nadrz1','projA','projB'];
 
 function uloz(){
   const o = {};
@@ -3938,7 +4021,7 @@ document.getElementById('reset').addEventListener('click', ()=>{
   // seděly hned napoprvé.
   const vych = { fov:53, syt:135, svx:-70, svy:110, stinS:75,
                  vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52',
-                 rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100, spot3:3.3, projA:'#2ea8ff', projB:'#ff5a22' };
+                 rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100, spot3:3.3, nadrz1:1, projA:'#2ea8ff', projB:'#ff5a22' };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -3994,6 +4077,12 @@ function obnovPopisky(){
   vSila.textContent = sila.value; vRamp.textContent = (+ramp.value).toFixed(2);
   vImp.textContent = imp.value;
   vSpot.textContent = spot3.value + ' %/s';
+  // Velikost nádrže se propíše rovnou do pruhu, takže je při tažení vidět,
+  // s jak dlouhým zásobníkem se bude hrát. Vedle násobku stojí i to, co
+  // z něj plyne — jak dlouho vydrží nepřetržitý proud.
+  vNadrz.textContent = (+nadrz1.value).toFixed(1) + '×'
+    + (+spot3.value > 0 ? '  (' + Math.round(100/(+spot3.value/NADRZ_CELKEM())) + ' s proudu)' : '');
+  roztahniNadrz();
   // Barvy střely se MĚNÍ V MÍSTĚ (`set` na existující Color), ne přiřazením
   // nové instance — krokProjektilu z nich každý snímek míchá aktuální odstín
   // a s novým objektem by si držel ten starý.
