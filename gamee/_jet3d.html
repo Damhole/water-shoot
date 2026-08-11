@@ -1095,7 +1095,41 @@ const PROJ_BARVA_A = new THREE.Color(0x2ea8ff);
 // aby proti modré křičel, ale nepůsobí jako dopravní kužel. Od životové
 // červené (#dd2026) je pořád dost daleko, aby se pruh a střela nepletly.
 const PROJ_BARVA_B = new THREE.Color(0xff5a22);
-const geoProj = new THREE.SphereGeometry(PROJ_R, 14, 10);
+const geoProj = new THREE.SphereGeometry(PROJ_R, 18, 14);
+// HMOTA UVNITŘ KOULE. Textura je ZÁMĚRNĚ ŠEDÁ, ne modrá: mapa se násobí
+// s barvou materiálu, a kdyby měla vlastní odstín, přebarvila by oranžovou
+// fázi do bláta. Takhle jen zesvětluje a ztmavuje, takže hmota vypadá stejně
+// v modré i v červenooranžové.
+// Vlny jsou svislé a různě široké — na kouli se z nich po rozvinutí stanou
+// pruhy, které při posouvání obíhají kolem osy a čtou se jako převalující se
+// kapalina.
+function texturaHmoty(){
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = '#b4b4b4'; g.fillRect(0, 0, 128, 64);
+  const pruhy = [[12, 9, 0.5], [38, 14, 0.85], [66, 7, 0.35], [88, 16, 0.7], [116, 10, 0.55]];
+  for(const [x, w, a] of pruhy){
+    const gr = g.createLinearGradient(x - w, 0, x + w, 0);
+    gr.addColorStop(0,   'rgba(255,255,255,0)');
+    gr.addColorStop(0.5, 'rgba(255,255,255,' + a + ')');
+    gr.addColorStop(1,   'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(x - w, 0, w*2, 64);
+  }
+  // pár tmavších žilek, ať to není jen prosvětlování
+  for(const [x, w] of [[26, 5], [78, 6], [104, 4]]){
+    const gr = g.createLinearGradient(x - w, 0, x + w, 0);
+    gr.addColorStop(0,   'rgba(60,70,90,0)');
+    gr.addColorStop(0.5, 'rgba(60,70,90,0.45)');
+    gr.addColorStop(1,   'rgba(60,70,90,0)');
+    g.fillStyle = gr; g.fillRect(x - w, 0, w*2, 64);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
+  return t;
+}
+const texHmota = texturaHmoty();
 // ODLESK: malá světlá skvrna nahoře vlevo. Sprite se sám natáčí za kamerou,
 // takže odlesk drží polohu vůči divákovi i když koule letí napříč scénou —
 // to je přesně to, co dělá z kotouče kouli.
@@ -1123,9 +1157,14 @@ for(let i=0;i<PROJEKTILU_MAX;i++){
   // koule (ta by rozmazala obrys a v téhle hře nemá obdobu), ale vlastní
   // svit materiálu: `emissive` přičte barvu bez ohledu na světlo, takže je
   // koule sytá i ve stínu a pásmo toon stínování zůstane jen jako náznak.
+  // Každá koule má VLASTNÍ KOPII textury: sdílená by měla společný posun
+  // a všechny koule by se vlnily svorně jako metronom.
+  const mapa = texHmota.clone();
+  mapa.needsUpdate = true;
+  mapa.repeat.set(1.6, 1);
   const m = new THREE.Mesh(geoProj, new THREE.MeshToonMaterial({
     color: 0x2ea8ff, emissive: 0x2ea8ff, emissiveIntensity: 0.62,
-    gradientMap: toonGrad }));
+    map: mapa, gradientMap: toonGrad }));
   // obrys stejným trikem jako u lahví: obrácená slupka o kus větší
   const obrys = new THREE.Mesh(geoProj, matObrysTelo);
   obrys.scale.setScalar(1.16);
@@ -1145,7 +1184,7 @@ for(let i=0;i<PROJEKTILU_MAX;i++){
   m.castShadow = true;
   m.visible = false;
   scene.add(m);
-  projektily.push({ m, odlesk, ziva:false, t:0, x:0,y:0,z:0, cx:0,cy:0,cz:0, naplneno:0 });
+  projektily.push({ m, odlesk, ziva:false, t:0, faze:0, x:0,y:0,z:0, cx:0,cy:0,cz:0, naplneno:0 });
 }
 
 // ZÁBLESK Z HLAVNĚ. Kroužek, který tu byl předtím, se rozbíhá po ploše a čte
@@ -1210,7 +1249,7 @@ function krokZablesku(dt){
 function vystrel(k){
   const p = projektily.find(q => !q.ziva);
   if(!p) return;
-  p.ziva = true; p.t = 0; p.naplneno = 0;
+  p.ziva = true; p.t = 0; p.naplneno = 0; p.faze = rand(0, Math.PI*2);
   // start u hlavně, tedy kousek před kachničkou
   p.x = k.skup.position.x; p.y = k.zaklY + k.stred; p.z = KACH_Z + 30;
   // cíl je hráč: ústí trysky. Drobný rozhoz, ať dvě koule neletí týmž tunelem.
@@ -1247,6 +1286,14 @@ function krokProjektilu(dt){
     _projBarva.copy(PROJ_BARVA_A).lerp(PROJ_BARVA_B, b);
     p.m.material.color.copy(_projBarva);
     p.m.material.emissive.copy(_projBarva);   // svit jde s barvou, jinak by pulz zešedl
+    // HMOTA SE VLNÍ. Posouvá se TEXTURA, ne koule: rotací meshe by se odnesl
+    // i odlesk, který je jejím dítětem, a přestal by držet polohu vůči světlu.
+    // Dva pohyby proti sobě — obíhání kolem osy a pomalé svislé pohupování —
+    // stačí na to, aby se vzor nikdy neopakoval tak, aby to šlo přehlédnout.
+    const mapa = p.m.material.map;
+    mapa.offset.x -= dt*0.28;
+    mapa.offset.y  = Math.sin(p.t*1.7 + p.faze)*0.06;
+    mapa.rotation  = Math.sin(p.t*0.9 + p.faze)*0.25;
     if(u >= 1){                                  // doletěla na hráče
       p.ziva = false; p.m.visible = false;
       uberZivot(PROJ_UBERE);
