@@ -1350,7 +1350,12 @@ const REZIM_NES = 'ws_rezimNes';
 let rezimUlozeny = localStorage.getItem(REZIM_KLIC);
 if(sessionStorage.getItem(REZIM_NES) === '1'){
   sessionStorage.removeItem(REZIM_NES);
-} else if(rezimUlozeny !== 'volna'){
+} else if(rezimUlozeny !== 'volna' && !/[?&]ladeni=1(&|$)/.test(location.search)
+          && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
+  // PŘI LADĚNÍ SE REŽIM NEPŘEPÍNÁ. Hráči má hra vždycky začít v sólu, ale komu
+  // se panel ukazuje, ten si režim vybral schválně — a když mu ho každé
+  // přenačtení přehodilo zpátky, vypadalo to, jako by hra měla dvě nastavení
+  // a sama mezi nimi přepínala (herní hodnoty jsou totiž pro každý režim jiné).
   rezimUlozeny = 'volna';
   try{ localStorage.setItem(REZIM_KLIC, 'volna'); }catch(e){}
 }
