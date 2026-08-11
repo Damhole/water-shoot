@@ -998,20 +998,28 @@ const SPOTREBA_VODY = () => +document.getElementById('spotr').value/100;
 // Pod touhle hladinou začne proud slábnout tlakem. Ne skokem u nuly:
 // zkracující se čůrek je jediné varování, které hráč uvidí, aniž by musel
 // spustit oči z terčů.
-const TLAK_OD = 0.22;
+// S 22 % ale proud dotékal DLOUHO — čtvrtina nádrže se odehrála v pomalu
+// slábnoucím čůrku a hra v té době už byla jen dojezd. Slábnutí patří na
+// poslední procenta: se 6 % a spotřebou 2 %/s to jsou tři vteřiny.
+const TLAK_OD = 0.06;
+// A konec přijde JEŠTĚ BĚHEM slábnutí, ne až na dně. V okamžiku konce má
+// tryska 2,5/6 síly, takže hráč vidí, jak mu proud umírá pod rukama —
+// kdežto čekat na absolutní nulu znamenalo hrát ještě vteřinu s ničím.
+const KONEC_PRI = 0.025;
 
 // ---- konec hry -------------------------------------------------------------
 // Dojde-li voda, je konec. Hlídá se to na jednom místě v hlavní smyčce, ne
 // v obsluze stříkání — voda může dojít i doběhem už vypuštěného proudu.
 let konec = false;
 function hlidejKonec(){
-  if(konec || voda > 0) return;
+  if(konec || voda > KONEC_PRI) return;
   // Kapka, která je zrovna na cestě do zásobníku, se ještě počítá. Bez toho
   // by hráč umřel dvě desetiny předtím, než mu dorazí voda, kterou si právě
   // vystřílel — a to je přesně ten druh nespravedlnosti, co se nepromíjí.
   for(const m of letici) if(m.typ === 'voda') return;
   konec = true;
   strika = false;
+  nastavVodu(0);            // zbytek pod prahem dorovnat, ať pruh sedí s hláškou
   document.getElementById('konecRoh').hidden = false;
 }
 // Restart je reload: stav hry je rozprostřený v sekcích, lahvích, poolech
