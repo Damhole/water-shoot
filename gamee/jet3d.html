@@ -247,18 +247,26 @@
     opacity:0;transform:translateY(-4px);
     transition:opacity .18s ease, transform .18s ease}
   #vodaMalo.vidno{opacity:1;transform:translateY(0)}
-  /* PULZUJE OBRYS DO ČERVENA, ne velikost. Zvětšování pruhu bylo vidět, ale
-     hýbalo celým rohem obrazovky; barva obrysu křičí stejně nahlas a přitom
-     nic neposkakuje. Červená je navíc jediná barva, kterou hráč v téhle hře
-     jinde nepotká — voda je modrá, život tmavě rudý, dřevo hnědé. */
-  #vodaRoh.malo .pruh{animation:pulzObrys .75s ease-in-out infinite}
-  #vodaRoh.malo .kapka path{animation:pulzObrysKapka .75s ease-in-out infinite}
+  /* PULZUJE OBOJÍ: velikost i obrys do červena, ve stejném rytmu 0,8 s.
+     Samotná barva se totiž koutkem oka skoro ztratí — pohyb je to, co
+     periferie zachytí první, a barva až řekne, o co jde.
+     Červená je schválně TLUMENÁ (#a3372c, ne sytá #ff2f21): obrys je tenký
+     a syté červené na černém podkladu na něm bliká jako alarm, kdežto
+     tlumená čte jako varování.
+     Pulz velikosti MUSÍ zachovat translateY(-50%), jinak pruh při každém
+     kmitu poskočí o půl své výšky. */
+  #vodaRoh.malo{animation:pulzVoda .8s ease-in-out infinite}
+  #vodaRoh.malo .pruh{animation:pulzObrys .8s ease-in-out infinite}
+  #vodaRoh.malo .kapka path{animation:pulzObrysKapka .8s ease-in-out infinite}
+  @keyframes pulzVoda{
+    0%,100%{transform:translateY(-50%) scale(1)}
+    50%{transform:translateY(-50%) scale(1.06)}}
   @keyframes pulzObrys{
     0%,100%{border-color:#000}
-    50%{border-color:#ff2f21}}
+    50%{border-color:#a3372c}}
   @keyframes pulzObrysKapka{
     0%,100%{stroke:#000}
-    50%{stroke:#ff2f21}}
+    50%{stroke:#a3372c}}
   #konecRoh{position:fixed;left:0;right:0;top:38vh;z-index:7;text-align:center;
     pointer-events:none}
   #konecRoh[hidden]{display:none}
