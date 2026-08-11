@@ -1296,18 +1296,23 @@ const flekUhel = new Float32Array(FLEKU_MAX);
 const fleky = [];
 for(let i=0;i<FLEKU_MAX;i++) fleky.push({ ziva:false, x:0,y:0,z:0, r:0, rCil:0, t:0, zivot:0, uhel:0 });
 
-// Nepravidelná skvrna, ne kolečko: pár překrytých kruhů. Kolečko čte jako
-// airbrush, kdežto tohle jako louže.
+// Nepravidelná MĚKKÁ skvrna. Napoprvé to byly malé kruhy s poměrně ostrým
+// spádem a výsledek vypadal jako zásahy od kulometu — samostatné puntíky
+// v řadě. Voda nedělá puntíky: nechává rozpité mokro s neurčitým okrajem.
+// Proto velké plátno (128), krajní kruhy jen v desetinách krytí a spád
+// natažený až k nule.
 function texturaFleku(){
   const c = document.createElement('canvas');
-  c.width = c.height = 64;
+  c.width = c.height = 128;
   const g = c.getContext('2d');
-  const kruhy = [[32,32,20],[22,27,13],[42,26,12],[27,42,12],[41,41,11],[32,20,10]];
+  const kruhy = [[64,64,46],[46,52,34],[82,50,32],[52,82,33],[80,80,30],
+                 [64,40,26],[38,70,24],[90,66,25]];
   for(const [x,y,r] of kruhy){
-    const gr = g.createRadialGradient(x, y, r*0.15, x, y, r);
-    gr.addColorStop(0, 'rgba(255,255,255,0.95)');
-    gr.addColorStop(0.6, 'rgba(255,255,255,0.55)');
-    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    const gr = g.createRadialGradient(x, y, r*0.05, x, y, r);
+    gr.addColorStop(0,    'rgba(255,255,255,0.85)');
+    gr.addColorStop(0.45, 'rgba(255,255,255,0.52)');
+    gr.addColorStop(0.75, 'rgba(255,255,255,0.20)');
+    gr.addColorStop(1,    'rgba(255,255,255,0)');
     g.fillStyle = gr;
     g.beginPath(); g.arc(x, y, r, 0, Math.PI*2); g.fill();
   }
@@ -1357,17 +1362,17 @@ const flekMesh = new THREE.Points(flekGeo, matFlek);
 flekMesh.frustumCulled = false;
 scene.add(flekMesh);
 
-const FLEK_SLITI = 46;          // jak blízko se zásah přilepí ke stávajícímu fleku
+const FLEK_SLITI = 72;          // jak blízko se zásah přilepí ke stávajícímu fleku
 const FLEK_ZIVOT = 5.5;         // jak dlouho schne
 const FLEK_NAMOCENI = 0.18;     // jak rychle se objeví
-const FLEK_MAXR = 74;
+const FLEK_MAXR = 330;          // POZOR: velikost je PRŮMĚR ve světě, ne poloměr
 function mokryFlek(x, y, z){
   // 1) slít se sousedem
   for(const f of fleky){
     if(!f.ziva) continue;
     const dx = f.x - x, dy = f.y - y, dz = f.z - z;
     if(dx*dx + dy*dy + dz*dz < FLEK_SLITI*FLEK_SLITI){
-      f.rCil = Math.min(FLEK_MAXR, f.rCil + 2.4);
+      f.rCil = Math.min(FLEK_MAXR, f.rCil + 1.2);
       f.t = Math.min(f.t, FLEK_NAMOCENI);      // znovu namočený neschne
       return;
     }
@@ -1380,7 +1385,7 @@ function mokryFlek(x, y, z){
   }
   cil.ziva = true; cil.t = 0; cil.zivot = FLEK_ZIVOT*rand(0.8, 1.25);
   cil.x = x; cil.y = y; cil.z = z;
-  cil.r = 0; cil.rCil = rand(26, 38);
+  cil.r = 0; cil.rCil = rand(90, 130);
   cil.uhel = rand(0, Math.PI*2);
 }
 
@@ -1397,7 +1402,7 @@ function krokFleku(dt){
     f.r = f.rCil*nam*(1 - 0.75*schne*schne);
     flekPos[n*3] = f.x; flekPos[n*3+1] = f.y; flekPos[n*3+2] = f.z;
     flekVel[n] = f.r;
-    flekKryti[n] = 0.34*nam*(1 - schne*schne);
+    flekKryti[n] = 0.26*nam*(1 - schne*schne);
     flekUhel[n] = f.uhel;
     n++;
   }
