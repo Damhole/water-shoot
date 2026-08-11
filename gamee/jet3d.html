@@ -1079,19 +1079,58 @@ const PROJ_LET = 2.3;               // jak dlouho letí k hráči
 const PROJ_POTREBA = 14;            // kolik zásahů proudu ji rozprskne
 const PROJ_UBERE = 0.2;             // kolik života sebere zásah (tedy pět ran)
 const PROJ_BODY = 25;               // odměna za sestřelení
-const PROJ_BARVA_A = new THREE.Color(0x2f9fe0);
-const PROJ_BARVA_B = new THREE.Color(0xbfefff);
+// MODRÁ A ORANŽOVÁ, ne dva odstíny modré. Dvě protilehlé barvy blikají i
+// koutkem oka, kdežto modrá do světlemodré splynula s vodou i s pozadím.
+// Toon stínování ubere na odvrácené straně, takže barvy musí být SVĚTLEJŠÍ,
+// než by člověk zvolil na papíře — s tmavší modrou vyšla koule jako šedivý
+// kámen a oranžová jako bláto.
+const PROJ_BARVA_A = new THREE.Color(0x49c2ff);
+const PROJ_BARVA_B = new THREE.Color(0xffa32e);
 const geoProj = new THREE.SphereGeometry(PROJ_R, 14, 10);
+// ODLESK: malá světlá skvrna nahoře vlevo. Sprite se sám natáčí za kamerou,
+// takže odlesk drží polohu vůči divákovi i když koule letí napříč scénou —
+// to je přesně to, co dělá z kotouče kouli.
+function texturaOdlesku(){
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(32, 32, 1, 32, 32, 30);
+  gr.addColorStop(0,   'rgba(255,255,255,0.95)');
+  gr.addColorStop(0.45,'rgba(255,255,255,0.35)');
+  gr.addColorStop(1,   'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.beginPath(); g.arc(32, 32, 30, 0, Math.PI*2); g.fill();
+  const t = new THREE.CanvasTexture(c);
+  t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
+  return t;
+}
+const texOdlesk = texturaOdlesku();
 const projektily = [];
 for(let i=0;i<PROJEKTILU_MAX;i++){
-  const m = new THREE.Mesh(geoProj, new THREE.MeshBasicMaterial({ color: 0x2f9fe0 }));
+  // Toon materiál místo Basic: Basic je plochá barva bez jakéhokoli stínování,
+  // takže koule vypadala jako nálepka. Toon jí dá pásmo světla a stínu ze
+  // stejného světla, jaké svítí na celý bar.
+  const m = new THREE.Mesh(geoProj, new THREE.MeshToonMaterial({
+    color: 0x49c2ff, gradientMap: toonGrad }));
   // obrys stejným trikem jako u lahví: obrácená slupka o kus větší
   const obrys = new THREE.Mesh(geoProj, matObrysTelo);
   obrys.scale.setScalar(1.16);
   m.add(obrys);
+  // odlesk jako dítě koule — veze se s ní a nemusí se dopočítávat
+  const odlesk = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texOdlesk, transparent: true, depthWrite: false, opacity: 0.9 }));
+  odlesk.scale.setScalar(PROJ_R*0.7);
+  // POZOR NA HLOUBKU: napoprvé jsem odlesk posadil na z = 0,72 poloměru, což
+  // je i s posunem do strany PŘED střed, ale POŘÁD UVNITŘ koule (23 proti
+  // poloměru 26) — a koule si ho tím zakryla. Musí ležet vně, tedy dál než
+  // poloměr.
+  odlesk.position.set(-PROJ_R*0.32, PROJ_R*0.36, PROJ_R*1.02);
+  m.add(odlesk);
+  // Stín na police, přes které koule letí. Kouli to teprve posadí do prostoru
+  // — bez něj se vznáší v ničem.
+  m.castShadow = true;
   m.visible = false;
   scene.add(m);
-  projektily.push({ m, ziva:false, t:0, x:0,y:0,z:0, cx:0,cy:0,cz:0, naplneno:0 });
+  projektily.push({ m, odlesk, ziva:false, t:0, x:0,y:0,z:0, cx:0,cy:0,cz:0, naplneno:0 });
 }
 
 // ZÁBLESK Z HLAVNĚ. Kroužek, který tu byl předtím, se rozbíhá po ploše a čte
@@ -3048,10 +3087,14 @@ const KACH_PRAZDNO_DOLE = [0.1602, 0.1152, 0.2422, 0.2441];
 const VARIANTY = [1, 2, 3];
 const STRELEC = 1;                 // jediná varianta s koltem do objektivu
 const NEOZBROJENI = [2, 3];        // ti smějí stát i za sklem, nemají co ukázat
-// Kolik kachen s koltem opravdu vystřelí. Kdy vystřelí, se neurčuje časem od
-// nasazení, ale zbývajícím životem terče — viz krokKachen: rána padne těsně
-// před odchodem. Nápřah je vidět předem, aby šel výstřel číst.
-const STRELCU_PODIL = 0.7;
+// Balíček druhů pro rozehrané patro. Deklarovaný TADY, ne u novaKoloda():
+// první balíček se rozdává hned při startu hry, tedy o tisíc řádků výš, než
+// kde funkce leží — a `const` v dočasné mrtvé zóně by hru shodila.
+const koloda = [];
+// Kdy střelec vystřelí, se neurčuje časem od nasazení, ale zbývajícím životem
+// terče — viz krokKachen: rána padne těsně před odchodem. Kolik jich na patře
+// je, určuje balíček (novaKoloda), ne náhoda. Nápřah je vidět předem, aby šel
+// výstřel číst.
 const NAPRAH_T = 0.5;
 const KACH_VYSKA = KACH_R*2*BANDIT_ZOOM;
 const KACH_POSAZENI = KACH_PRAZDNO_DOLE.map(p => KACH_VYSKA*(0.5 - p));
@@ -3220,7 +3263,7 @@ function ukazPatro(){
   // anglicky, ať to ladí s „Floor cleared!"
   if(patroEl) nastavTitulek(patroEl, 'floor ' + patro + ' · ' + zbyva + ' left');
 }
-zbyva = kvota(); ukazPatro(); nastavPodlahu();
+zbyva = kvota(); novaKoloda(); ukazPatro(); nastavPodlahu();
 
 // Vyčištěno → nejdřív hláška, teprve po ní se bar hne. Posunout se ve stejném
 // snímku, ve kterém padla poslední kachnička, znamená, že hráč nestihne
@@ -3285,7 +3328,7 @@ function krokPostupu(dt){
     for(const s of sekce) nastavSekci(s, s.slot*SEKCE_V);
     nastavSekci(podpatri, 0);            // podpatří zpátky pod novou hrací sekci
     prestavLahve(dole);                  // odjetá sekce se přestaví a čeká nahoře
-    patro++; zbyva = kvota(); ukazPatro();
+    patro++; zbyva = kvota(); novaKoloda(); ukazPatro();
     otresT = 0;                                  // kamera teď dobrzdí
     nastavPodlahu();                             // nad přízemím už podlaha není
     // Setřít PODRUHÉ, na konci přejezdu. Smazání na začátku samo nestačí:
@@ -3399,7 +3442,7 @@ function volnoOdKachen(x, patro){
   return true;
 }
 
-function najdiMisto(patro){
+function najdiMisto(patro, potrebaKolt){
   const pas = pasKachen();
   siluetyLahvi(patro);
   // PROČ NE NÁHODNÉ POKUSY. Dřív se losovalo čtrnáct x a bral se první volný.
@@ -3414,6 +3457,11 @@ function najdiMisto(patro){
   for(let i=0;i<KROKU;i++){
     const x = -pas + (2*pas)*(i + 0.5)/KROKU + rand(-6, 6);
     if(!volnoOdKachen(x, patro)) continue;
+    // Střelci se nesmí schovat kolt, takže se místa bez volné hlavně
+    // rovnou vyhazují — a když nezbude žádné, kachnička se radši nenasadí
+    // vůbec a zkusí to za chvíli znovu. Dřív se místo toho měnil DRUH
+    // kachničky, jenže to bortí složení patra.
+    if(potrebaKolt && !koltVolny(x)) continue;
     const v = vykukKachny(x);
     if(v >= VYKUK_MIN){ if(vhodnychN < KROKU) _vhodne[vhodnychN++] = x; }
     else if(v > nejVykuk){ nejVykuk = v; nejX = x; }
@@ -3421,7 +3469,31 @@ function najdiMisto(patro){
   // Když nevyhovuje ani jedno místo, pořád je lepší postavit kachničku tam,
   // kde je z ní vidět nejvíc, než ji nepostavit vůbec (dřív se vracelo null).
   if(vhodnychN > 0) return _vhodne[(Math.random()*vhodnychN)|0];
-  return nejX;
+  return nejX;   // u střelce může být i tohle null, a je to tak správně
+}
+
+// SLOŽENÍ PATRA JE DANÉ DOPŘEDU, NE LOSOVANÉ PŘI KAŽDÉM NASAZENÍ. S losováním
+// se nedal dělat level design: patro mohlo vyjít bez jediného střelce nebo
+// naopak samý střelec, a hlavně se odcházející kachnička nahrazovala jiným
+// druhem, takže hráč nemohl vědět, co ho čeká.
+//
+// Patro dostane balíček druhů o velikosti kvóty a kachničky se z něj berou po
+// jedné. Zabitá druh spotřebuje, ODEŠLÁ HO VRÁTÍ ZPĚT — patro se tím nedá
+// „přečkat": co uteklo, přijde znovu jako totéž.
+// Platí tedy: balíček + živé kachničky = kolik ještě zbývá sestřelit.
+function novaKoloda(){
+  koloda.length = 0;
+  const n = kvota();
+  // Střelců přibývá s patrem, ale nikdy ne všichni — vždy zůstane aspoň jedna
+  // neozbrojená, jinak by patro bylo jen o uhýbání.
+  const strelcu = Math.max(1, Math.min(n - 1, Math.floor((patro + 1)/2)));
+  for(let i=0;i<n;i++)
+    koloda.push(i < strelcu ? STRELEC : NEOZBROJENI[(Math.random()*NEOZBROJENI.length)|0]);
+  // zamíchat, ať střelci nechodí vždycky první
+  for(let i=koloda.length-1;i>0;i--){
+    const j = (Math.random()*(i+1))|0;
+    const q = koloda[i]; koloda[i] = koloda[j]; koloda[j] = q;
+  }
 }
 
 function pustKachnu(){
@@ -3436,8 +3508,14 @@ function pustKachnu(){
   // `patroK` = police v sekci (0–2). Nezaměňovat s `patro`, což je pořadí
   // patra baru, ve kterém se hraje.
   const patroK = volna[(Math.random()*volna.length)|0];
-  const x = najdiMisto(patroK);
+  // Druh je daný balíčkem patra, ne losem. Vezme se AŽ POTÉ, co se najde
+  // místo — kdyby se místo nenašlo (u střelce třeba proto, že by měl zakrytý
+  // kolt), balíček se nesmí zkrátit.
+  const druh = koloda[0];
+  if(druh === undefined) return;             // patro je rozdané, čeká se na dohrání
+  const x = najdiMisto(patroK, druh === STRELEC);
   if(x === null) return;
+  koloda.shift();
   k.patro = patroK;
   k.hodnota = HODNOTY[patroK];
   // Kolik vody kachnička spolkne, roste s hodnotou — dražší terč stojí víc
@@ -3463,13 +3541,9 @@ function pustKachnu(){
   // porušený slib: hráč se učí číst „zbraň = nebezpečí" a tahle ho to
   // odnaučí. Zbývají tedy střelec (1) a dva neozbrojení (2, 3); ne každá
   // kachna musí být smrtelný nepřítel.
-  // Varianta se losuje AŽ PODLE MÍSTA: kdyby na vybraném x nebyl vidět kolt,
-  // střelec se tam nenasadí vůbec a stojí tam někdo neozbrojený. Řešit to
-  // hledáním jiného místa by znamenalo buď kachničku nenasadit, nebo ji
-  // strkat tam, kam se nehodí — takhle se jen změní, kdo to je.
-  let vi = VARIANTY[(Math.random()*VARIANTY.length)|0];
-  if(vi === STRELEC && !koltVolny(x)) vi = NEOZBROJENI[(Math.random()*NEOZBROJENI.length)|0];
-  if(vi === STRELEC && Math.random() < STRELCU_PODIL) k.strelec = true;
+  const vi = druh;
+  k.druh = druh;
+  k.strelec = (druh === STRELEC);   // kdo je v balíčku střelec, ten střílí
   const geo = GEO_BANDITA[vi];
   // …a spolu s ní i vlastní výšku, aby kachnička stála na desce a nelevitovala
   k.stred = KACH_POSAZENI[vi];
@@ -3591,6 +3665,9 @@ function krokKachen(dt){
       }
       if(k.ttl <= 0){
         k.stav = 'mizi'; k.t = 0; k.skup.rotation.z = 0;
+        // Co uteklo, vrátí se do balíčku jako TÝŽ druh. Patro se tím nedá
+        // přečkat a složení, které level design určil, zůstane platit.
+        koloda.push(k.druh);
         // Kachnička, která hráči utekla, se mu ještě vysměje. Jen občas —
         // kdyby to udělala pokaždé, je z toho tik, ne vtip.
         if(Math.random() < CITOSLOVCE_SANCE)
