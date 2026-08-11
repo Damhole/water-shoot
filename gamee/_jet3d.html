@@ -1390,10 +1390,10 @@ function blizkoKachny(x, y){
 }
 
 function mokryFlek(x, y, z){
-  // Během přejezdu na nové patro se fleky nedělají. Bar sjede o celou sekci,
-  // kdežto flek zůstane ve svých světových souřadnicích — to, co vznikne
-  // teď, by se v novém patře objevilo jako cizí stará skvrna.
-  if(prechod > 0 || hlaska > 0) return;
+  // Během přejezdu se fleky dělat SMÍ — jedou dolů s barem jako všechno
+  // ostatní a na konci přejezdu se stejně setřou. Dřív se tu vznik zakazoval,
+  // protože fleky zůstávaly stát na místě a v novém patře se vynořily jako
+  // cizí skvrny; to řeší posun v krokPostupu.
   if(blizkoKachny(x, y)) return;
   // 1) slít se sousedem — přibude mu mokro, žádný nový flek nevzniká
   for(const f of fleky){
@@ -2711,11 +2711,10 @@ function spustPrechod(){
   // pojistka: se stropem podle `zbyva` už tu nikdo stát nemá, ale kdyby ano,
   // ať neodjede na polici pryč ze scény
   for(const k of kachny) if(k.stav === 'zije' || k.stav === 'najizdi'){ k.stav = 'mizi'; k.t = 0; }
-  // Mokré fleky se do nového patra NEPŘENÁŠEJÍ. Jsou to body v pevných
-  // světových souřadnicích, kdežto bar pod nimi sjede o celou sekci — zůstaly
-  // by viset ve vzduchu na cizí stěně. A i kdyby se posunuly s ní, nové patro
-  // má být čisté: hráč ho ještě nepolil.
-  smazFleky();
+  // Fleky se tu ZÁMĚRNĚ NEMAŽOU. Sjedou dolů spolu s barem (viz krokPostupu)
+  // a setřou se až na konci přejezdu, kdy se sekce přeřadí a nové patro má
+  // být čisté. Mazání na začátku vypadalo tak, že mokro zmizí vteřinu předtím,
+  // než se scéna vůbec hne.
 }
 
 function krokPostupu(dt){
@@ -2743,6 +2742,9 @@ function krokPostupu(dt){
     L.telo.position.y += dY;
     L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
   }
+  // Mokré fleky jedou s nábytkem. Jsou nalepené na stěně, takže se musí
+  // posouvat úplně stejně jako ona — jinak by po nich scéna „projela".
+  for(const f of fleky) if(f.ziva) f.y += dY;
   if(prechod <= 0){
     prechod = 0; posun = 0;
     // `posun` se vrací z −620 na 0, ale scéna se nepohnula — sekce se jen
