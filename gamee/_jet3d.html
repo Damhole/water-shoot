@@ -663,6 +663,10 @@
          jen dohrát a hrát znovu, a tlačítko, které maže postup, se tam plete
          pod prst. -->
     <button class="btn" id="vynulovat">vynulovat můj postup</button>
+    <!-- Jméno se ptá jen poprvé na zařízení, takže bez tohohle by se nedalo
+         přejmenovat, aniž by se mazal celý postup. Starý řádek v tabulce
+         zůstane — od téhle chvíle se prostě hraje pod novým jménem. -->
+    <button class="btn" id="zmenitJmeno">změnit jméno hráče</button>
   </div>
   <div id="publStav"></div>
 
@@ -2294,6 +2298,23 @@ const ZEBRICEK_URL = 'https://damhole--0e5f126495a211f1b5ce1607ee4eb77e.web.val.
 const ZEBRICEK_MIST = 10;          // kolik míst se ukazuje
 const ZEBRICEK_CEKANI = 3500;      // po téhle době se server vzdá a jede se lokálně
 const ZEB_KLIC = 'ws_zebricek', ZEB_JMENO = 'ws_jmeno', ZEB_PORADI = 'ws_poradi';
+const ZEB_VERZE = 'ws_zebricek_verze';
+
+// VYMAZANÝ ŽEBŘÍČEK JE NOVÝ ŽEBŘÍČEK. Server u tabulky drží číslo verze, které
+// roste s každým hromadným vymazáním. Když se od minule změnilo, zapomene hra
+// jméno i zapamatované pořadí — jinak by hráči po vymazání nabídla jeho staré
+// jméno a hlásila „posun z 2. na 1. místo" proti tabulce, ve které nikdo není.
+function hlidejVerzi(verze){
+  if(verze === undefined || verze === null) return false;
+  const stara = localStorage.getItem(ZEB_VERZE);
+  try{ localStorage.setItem(ZEB_VERZE, String(verze)); }catch(e){}
+  if(stara === null || stara === String(verze)) return false;
+  for(const k of [ZEB_JMENO, ZEB_PORADI, ZEB_KLIC]){
+    try{ localStorage.removeItem(k); }catch(e){}
+  }
+  console.log('[jet3d] žebříček byl vymazán — ptám se na jméno znovu');
+  return true;
+}
 
 function nactiMistni(){
   try{ const a = JSON.parse(localStorage.getItem(ZEB_KLIC) || '[]'); return Array.isArray(a) ? a : []; }
@@ -2345,6 +2366,7 @@ async function posliVysledek(zaznam){
       if(odp){
         const data = await Promise.race([odp.json(), poCase(ZEBRICEK_CEKANI)]);
         if(data && Array.isArray(data.tabulka)){
+          hlidejVerzi(data.verze);
           // ÚSPĚŠNÁ ODPOVĚĎ PŘEPÍŠE MÍSTNÍ KOPII. Bez toho v zařízení leží
           // tabulka z doby, kdy hráč hrál naposledy offline — a při prvním
           // výpadku serveru se vynoří jako „starý seznam se skóre", kterému
@@ -2370,7 +2392,9 @@ async function posliVysledek(zaznam){
 // zůstane platit místní rekord a hra o tom neví.
 if(!JE_POSTUP && ZEBRICEK_URL){
   const jm = (localStorage.getItem(ZEB_JMENO) || '').trim().toLowerCase();
-  if(jm) fetch(ZEBRICEK_URL).then(o => o.json()).then(d => {
+  fetch(ZEBRICEK_URL).then(o => o.json()).then(d => {
+    if(hlidejVerzi(d && d.verze)) return;      // po vymazání se rekord nesrovnává
+    if(!jm) return;
     const muj = (d && Array.isArray(d.tabulka) ? d.tabulka : [])
       .find(z => String(z.jmeno || '').trim().toLowerCase() === jm);
     if(muj && +muj.skore > nactiRekord()) ulozRekord(+muj.skore);
@@ -4486,6 +4510,13 @@ hesloEl.value = localStorage.getItem(HESLO_KLIC) || '';
 // VYMAZÁNÍ CELÉ TABULKY. Vlastní řádek si smaže každý sám tlačítkem
 // „vynulovat"; tohle sebere výsledky VŠEM, takže chce heslo i dvě klepnutí —
 // nevratná věc se nesmí stát omylem a `confirm()` na mobilu překryje celou hru.
+document.getElementById('zmenitJmeno').addEventListener('click', (e) => {
+  for(const k of [ZEB_JMENO, ZEB_PORADI]){ try{ localStorage.removeItem(k); }catch(e){} }
+  const b = e.currentTarget, puvodni = b.textContent;
+  b.textContent = '✓ zeptá se po dohrání';
+  setTimeout(() => { b.textContent = puvodni; }, 1800);
+});
+
 const smazatVseBtn = document.getElementById('smazatVse');
 let smazatCeka = 0;
 smazatVseBtn.addEventListener('click', () => {
