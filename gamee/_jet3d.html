@@ -73,6 +73,12 @@
     border-top:1px solid rgba(207,224,255,.13);padding-top:8px}
   #rezimRadek input{margin:0}
   #vRezim{color:#9fb4cc;font-size:11px}
+  /* Dvě tlačítka vedle sebe: „vrátit se" vlevo, „uložit" vpravo — v tomhle
+     pořadí se po nich sahá častěji zleva. */
+  #vychRada{display:flex;gap:6px;margin-bottom:2px}
+  #vychRada .btn{margin-top:0;font-size:11px;padding:6px 4px}
+  #vychRada #ulozVych{background:rgba(255,214,102,.16);
+    border-color:rgba(255,214,102,.4);color:#ffe08a}
   /* posuvník si bere gesta sám: bez tohohle by prohlížeč šikmý tah po
      posuvníku v půlce překlopil do rolování panelu */
   #hud input[type=range]{width:100%;touch-action:none}
@@ -584,6 +590,15 @@
   <label id="rezimRadek"><input type="checkbox" id="rezimPostup">
     <b>postup a boosty</b> <span id="vRezim"></span></label>
 
+  <!-- VLASTNÍ VÝCHOZÍ NASTAVENÍ. Hned nahoře, protože je to to první, co
+       člověk hledá, když si chce nastavení uložit nebo se k němu vrátit.
+       „Tovární hodnoty" zůstaly dole u ostatního ladění — sahá se po nich
+       jednou za čas, kdežto po těchhle dvou pořád. -->
+  <div id="vychRada">
+    <button class="btn" id="naVych">↺ výchozí nastavení</button>
+    <button class="btn" id="ulozVych">uložit jako výchozí</button>
+  </div>
+
   <!-- CO MĚNÍ HRU je nahoře a má každý režim vlastní; co mění jen vzhled,
        je níž a je společné. Dřív bylo obojí promíchané a hledalo se to. -->
   <div class="skupina" id="skupinaHra">výchozí hodnoty hry</div>
@@ -652,7 +667,7 @@
   <input type="range" id="vod" min="0" max="100" step="1" value="100">
   <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
     <input type="checkbox" id="autoStrik"> automatické stříkání (na ladění)</label>
-  <button class="btn" id="reset">↺ výchozí hodnoty</button>
+  <button class="btn" id="reset">↺ tovární hodnoty</button>
 </div>
 <!-- Popis ovládání odsud zmizel: byl to text pro první seznámení s prototypem
      a v hratelné verzi jen ukrajoval spodní třetinu obrazu. -->
@@ -4195,17 +4210,62 @@ vod.addEventListener('input', ()=>{
 vZiv.textContent = ziv.value + ' %';
 vVod.textContent = vod.value + ' %';
 
+// TOVÁRNÍ HODNOTY = to, co si uživatel doladil na telefonu (10. 8. 2026).
+// Proti mému původnímu odhadu se změnily čtyři: zorný úhel 48 → 53, poloměr
+// proudu 9 → 8, rychlost toku 5 → 3,75 a síla proudu 2600 → 1700 (nižší síla
+// = vyklenutější oblouk). Barva vody, obrys ani svítivost se neměnily, ty
+// seděly hned napoprvé.
+const TOVARNI = { fov:53, syt:135, svx:-70, svy:110, stinS:75,
+                  vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52',
+                  rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100,
+                  spot3:3.3, nadrz1:1, projA:'#2ea8ff', projB:'#ff5a22' };
 document.getElementById('reset').addEventListener('click', ()=>{
-  // VÝCHOZÍ HODNOTY = to, co si uživatel doladil na telefonu (10. 8. 2026).
-  // Proti mému původnímu odhadu se změnily čtyři: zorný úhel 48 → 53, poloměr
-  // proudu 9 → 8, rychlost toku 5 → 3,75 a síla proudu 2600 → 1700 (nižší síla
-  // = vyklenutější oblouk). Barva vody, obrys ani svítivost se neměnily, ty
-  // seděly hned napoprvé.
-  const vych = { fov:53, syt:135, svx:-70, svy:110, stinS:75,
-                 vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52',
-                 rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100, spot3:3.3, nadrz1:1, projA:'#2ea8ff', projB:'#ff5a22' };
-  for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
+  for(const id of POSUVNIKY) document.getElementById(id).value = TOVARNI[id];
   obnovPopisky(); uloz();
+});
+
+// ---- vlastní výchozí nastavení ---------------------------------------------
+// TŘI ÚROVNĚ, každá má svůj smysl:
+//   • co je právě na posuvnících — mění se pořád a ukládá se samo,
+//   • VLASTNÍ VÝCHOZÍ — snímek, který si hráč sám uložil a kdykoli se k němu
+//     vrátí; tohle je to, s čím chce začínat nové hry,
+//   • TOVÁRNÍ — poslední záchrana, když si člověk nastavení rozhází.
+// Herní hodnoty se drží zvlášť pro každý režim (stejně jako to, co je právě
+// nastavené), vzhled je jeden pro obě hry.
+const VYCH_VZHLED_KLIC = 'ws_jet3d_vych_vzhled';
+const vychHraKlic = () => 'ws_jet3d_vych_hra_' + (JE_POSTUP ? 'postup' : 'volna');
+
+function bliknutiTlacitka(el, text){
+  const puvodni = el.textContent;
+  el.textContent = text;
+  setTimeout(() => { el.textContent = puvodni; }, 1400);
+}
+
+const ulozVychBtn = document.getElementById('ulozVych');
+const naVychBtn = document.getElementById('naVych');
+
+ulozVychBtn.addEventListener('click', () => {
+  const h = {}, v = {};
+  for(const id of HRA_POSUVNIKY) h[id] = document.getElementById(id).value;
+  for(const id of VZHLED_POSUVNIKY) v[id] = document.getElementById(id).value;
+  try{
+    localStorage.setItem(vychHraKlic(), JSON.stringify(h));
+    localStorage.setItem(VYCH_VZHLED_KLIC, JSON.stringify(v));
+  }catch(e){}
+  bliknutiTlacitka(ulozVychBtn, '✓ uloženo');
+});
+
+naVychBtn.addEventListener('click', () => {
+  // Co si hráč uložil, má přednost; co si neuložil, spadne na tovární.
+  let h = null, v = null;
+  try{ h = JSON.parse(localStorage.getItem(vychHraKlic()) || 'null'); }catch(e){}
+  try{ v = JSON.parse(localStorage.getItem(VYCH_VZHLED_KLIC) || 'null'); }catch(e){}
+  for(const id of HRA_POSUVNIKY)
+    document.getElementById(id).value = (h && h[id] !== undefined) ? h[id] : TOVARNI[id];
+  for(const id of VZHLED_POSUVNIKY)
+    document.getElementById(id).value = (v && v[id] !== undefined) ? v[id] : TOVARNI[id];
+  obnovPopisky(); uloz();
+  bliknutiTlacitka(naVychBtn, h || v ? '✓ obnoveno' : '✓ tovární');
 });
 
 for(const id of POSUVNIKY){
