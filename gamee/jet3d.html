@@ -343,6 +343,8 @@
   <input type="range" id="ziv" min="0" max="100" step="1" value="100">
   <label>voda (na ladění) <span id="vVod"></span></label>
   <input type="range" id="vod" min="0" max="100" step="1" value="100">
+  <label>spotřeba vody (0 = nekonečná) <span id="vSpot"></span></label>
+  <input type="range" id="spot" min="0" max="40" step="1" value="11">
   <label>zorný úhel (nižší = blíž) <span id="vFov"></span></label>
   <input type="range" id="fov" min="30" max="60" step="1" value="53">
   <label>sytost barev <span id="vSyt"></span></label>
@@ -963,6 +965,13 @@ function nastavVodu(v){
   vodaEl.style.width = (voda*100).toFixed(1) + '%';
 }
 function uberVodu(v){ nastavVodu(voda - v); }
+// Spotřeba je na posuvníku, protože správnou hodnotu pozná jedině hraní:
+// je to poměr mezi tím, jak dlouho se stříká na kachničku, a kolik vody
+// vydá lahev. Nula = nekonečná voda (na ladění všeho ostatního).
+const SPOTREBA_VODY = () => +document.getElementById('spot').value/100;
+// Prázdný zásobník trysku NEZHASNE, jen ji srazí na poslední kapky. Bez toho
+// by se hráč bez vody nedostal k lahvím, ze kterých se voda bere.
+const SUCHO_SILA = 0.22;
 nastavVodu(1);
 
 // Mince. Zatím jen počítadlo bez utrácení — jedna za sestřelenou kachničku,
@@ -1663,9 +1672,17 @@ function krokProudu(dt, cil, strikaJe){
   if(strikaJe && !strikaloMinule) generace++;
   strikaloMinule = strikaJe;
 
+  // SPOTŘEBA VODY. Stříkání ubírá ze zásobníku; když dojde, tryska nezhasne
+  // úplně, ale klesne na poslední kapky (SUCHO_SILA). Kdyby zhasla docela,
+  // hráč bez vody by neměl jak vodu z lahví získat a hra by se zasekla —
+  // tohle je jediné místo, kde se dá uváznout, tak ať nemá kudy vzniknout.
+  const sucho = voda <= 0;
+  if(strikaJe && voda > 0) nastavVodu(voda - SPOTREBA_VODY()*dt);
+
   // náběh/doběh
   const rampT = Math.max(0.02, +document.getElementById('ramp').value);
-  sila += ((strikaJe ? 1 : 0) - sila) * Math.min(1, dt/rampT);
+  const cilSily = strikaJe ? (sucho ? SUCHO_SILA : 1) : 0;
+  sila += (cilSily - sila) * Math.min(1, dt/rampT);
   if(!strikaJe && sila < 0.02) sila = 0;
 
   if(strikaJe || sila > 0.02){
@@ -2441,7 +2458,7 @@ addEventListener('keydown', e => { if(e.code === 'Space') strika = !strika; });
 // Stejně jako ⚙ HUD v samotné hře: panel zavazí, takže je schovaný, a hodnoty
 // přežijí reload, aby se doladěné nastavení neztrácelo.
 const ULOZ_KLIC = 'ws_jet3d_tune';
-const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','obrT','obrB','rad','tl','sp','sila','ramp','imp','kor'];
+const POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS','obrT','obrB','rad','tl','sp','sila','ramp','imp','kor','spot'];
 
 function uloz(){
   const o = {};
@@ -2509,7 +2526,7 @@ document.getElementById('reset').addEventListener('click', ()=>{
   // seděly hned napoprvé.
   const vych = { fov:53, syt:135, svx:-70, svy:110, stinS:75,
                  vodaB:'#4aa9dd', vodaA:94, vodaS:75, obrT:122, obrB:'#123a52',
-                 rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100 };
+                 rad:8, tl:8, sp:3.75, sila:1700, ramp:0.45, imp:34, kor:100, spot:11 };
   for(const id of POSUVNIKY) document.getElementById(id).value = vych[id];
   obnovPopisky(); uloz();
 });
@@ -2556,6 +2573,7 @@ function obnovPopisky(){
   vTl.textContent = tl.value;  vSp.textContent = sp.value;
   vSila.textContent = sila.value; vRamp.textContent = (+ramp.value).toFixed(2);
   vImp.textContent = imp.value;
+  vSpot.textContent = spot.value + ' %/s';
   korunkaMer = +kor.value/100;
   vKor.textContent = kor.value + ' %';
 }
