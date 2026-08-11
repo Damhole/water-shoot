@@ -1309,9 +1309,9 @@ function texturaFleku(){
                  [64,40,26],[38,70,24],[90,66,25]];
   for(const [x,y,r] of kruhy){
     const gr = g.createRadialGradient(x, y, r*0.05, x, y, r);
-    gr.addColorStop(0,    'rgba(255,255,255,0.85)');
-    gr.addColorStop(0.45, 'rgba(255,255,255,0.52)');
-    gr.addColorStop(0.75, 'rgba(255,255,255,0.20)');
+    gr.addColorStop(0,    'rgba(255,255,255,0.95)');
+    gr.addColorStop(0.55, 'rgba(255,255,255,0.86)');
+    gr.addColorStop(0.85, 'rgba(255,255,255,0.40)');
     gr.addColorStop(1,    'rgba(255,255,255,0)');
     g.fillStyle = gr;
     g.beginPath(); g.arc(x, y, r, 0, Math.PI*2); g.fill();
@@ -1362,17 +1362,17 @@ const flekMesh = new THREE.Points(flekGeo, matFlek);
 flekMesh.frustumCulled = false;
 scene.add(flekMesh);
 
-const FLEK_SLITI = 72;          // jak blízko se zásah přilepí ke stávajícímu fleku
+const FLEK_SLITI = 95;          // jak blízko se zásah přilepí ke stávajícímu fleku
 const FLEK_ZIVOT = 5.5;         // jak dlouho schne
 const FLEK_NAMOCENI = 0.18;     // jak rychle se objeví
-const FLEK_MAXR = 330;          // POZOR: velikost je PRŮMĚR ve světě, ne poloměr
+const FLEK_MAXR = 460;          // POZOR: velikost je PRŮMĚR ve světě, ne poloměr
 function mokryFlek(x, y, z){
   // 1) slít se sousedem
   for(const f of fleky){
     if(!f.ziva) continue;
     const dx = f.x - x, dy = f.y - y, dz = f.z - z;
     if(dx*dx + dy*dy + dz*dz < FLEK_SLITI*FLEK_SLITI){
-      f.rCil = Math.min(FLEK_MAXR, f.rCil + 1.2);
+      f.rCil = Math.min(FLEK_MAXR, f.rCil + 3.0);
       f.t = Math.min(f.t, FLEK_NAMOCENI);      // znovu namočený neschne
       return;
     }
@@ -1385,8 +1385,14 @@ function mokryFlek(x, y, z){
   }
   cil.ziva = true; cil.t = 0; cil.zivot = FLEK_ZIVOT*rand(0.8, 1.25);
   cil.x = x; cil.y = y; cil.z = z;
-  cil.r = 0; cil.rCil = rand(90, 130);
+  cil.r = 0; cil.rCil = rand(130, 190);
   cil.uhel = rand(0, Math.PI*2);
+}
+
+// Setřít všechno naráz. Volá se při přejezdu na nové patro.
+function smazFleky(){
+  for(const f of fleky) f.ziva = false;
+  flekGeo.setDrawRange(0, 0);
 }
 
 function krokFleku(dt){
@@ -1402,7 +1408,7 @@ function krokFleku(dt){
     f.r = f.rCil*nam*(1 - 0.75*schne*schne);
     flekPos[n*3] = f.x; flekPos[n*3+1] = f.y; flekPos[n*3+2] = f.z;
     flekVel[n] = f.r;
-    flekKryti[n] = 0.26*nam*(1 - schne*schne);
+    flekKryti[n] = 0.32*nam*(1 - schne*schne);
     flekUhel[n] = f.uhel;
     n++;
   }
@@ -2655,6 +2661,11 @@ function spustPrechod(){
   // pojistka: se stropem podle `zbyva` už tu nikdo stát nemá, ale kdyby ano,
   // ať neodjede na polici pryč ze scény
   for(const k of kachny) if(k.stav === 'zije' || k.stav === 'najizdi'){ k.stav = 'mizi'; k.t = 0; }
+  // Mokré fleky se do nového patra NEPŘENÁŠEJÍ. Jsou to body v pevných
+  // světových souřadnicích, kdežto bar pod nimi sjede o celou sekci — zůstaly
+  // by viset ve vzduchu na cizí stěně. A i kdyby se posunuly s ní, nové patro
+  // má být čisté: hráč ho ještě nepolil.
+  smazFleky();
 }
 
 function krokPostupu(dt){
