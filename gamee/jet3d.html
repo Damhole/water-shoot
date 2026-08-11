@@ -988,6 +988,9 @@ function prestavLahve(sek){
     L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
     L.telo.wakeUp();
   }
+  // Peníze se rozestaví AŽ TEĎ, když lahve stojí na nových místech — místo
+  // pro minci se hledá právě podle nich.
+  rozmistiMincePolice(sek);
 }
 
 // TŘI SEKCE, ne dvě. Se dvěma vznikala při přejezdu díra: v hloubce baru je
@@ -1284,6 +1287,150 @@ function narazDoMince(bod){
 function seberMinci(c){
   zamirDoBaru(c);            // odsud už letí stejně jako mince z kachničky
 }
+
+// ---- mince stojící na policích ---------------------------------------------
+// Mezi lahvemi občas stojí a točí se mince. NENÍ TO TERČ, který by se musel
+// polévat jako lahev — stačí přes ni PŘEJET proudem a je hráčova, jako prstýnek
+// v Sonicovi. Rozdíl proti rozsypaným mincím je v tom, že tyhle neutíkají:
+// leží mimo okno kachničky, takže hráč musí sám chtít a na chvíli odtáhnout
+// proud od terče. To je celá jejich herní cena — malé rozhodnutí zadarmo.
+const MINCEP_POOL = 3;             // nejvíc mincí na jednu sekci baru (kvůli draw callům)
+const MINCEP_SANCE = 0.5;          // s jakou pravděpodobností dostane police minci
+const MINCEP_HODNOTA = 1;          // co je vidět, to hráč dostane — jedna mince, jedna do banku
+const MINCEP_Z = 40;               // PŘED lahvemi (ty stojí v POLICE_Z ±16), ať není za sklem
+// Kamera na telefonním poměru ukáže z police jen ±230 (viz KOMPOZICE_SIR),
+// takže dál od středu by mince stála mimo obraz a nešla by sebrat.
+const MINCEP_KRAJ = 230;
+const MINCEP_OD_LAHVE = 52;        // nejširší lahev má 27, ať mince nestojí v ní
+// OKNO PRO KACHNIČKU SE MUSÍ NECHAT VOLNÉ. Mince stojí před lahvemi, takže by
+// v okně zakryla to jediné, kvůli čemu okno vzniklo — kouknutí kachničky přes
+// sklenici. Střed okna je poloha sklenice (index 0 na polici), okno samo je
+// nejvýš OKNO_MAX široké.
+const MINCEP_OD_OKNA = 115;
+const MINCEP_DOSAH = MINCE_R*1.9;  // jak blízko musí uzel proudu projít
+const mincePolice = [];
+
+function postavMincePolice(sek){
+  sek.minceP = [];
+  for(let i=0;i<MINCEP_POOL;i++){
+    const m = new THREE.Mesh(geoMince, [matMinceHrana, matMinceLic, matMinceLic]);
+    const obrys = new THREE.Mesh(geoMince, matObrysTelo);
+    obrys.scale.set(1.1, 1.1, 1.35);
+    m.add(obrys);
+    // Stín schválně NEVRHÁ. Deska police stín stejně nechytá (viz novaSekce)
+    // a na vzdálenou stěnu by tak malý předmět hodil jen šum — za průchod
+    // stínovou mapou navíc to nestojí.
+    m.visible = false;
+    // DÍTĚ SEKCE, ne scény: bar jezdí nahoru a dolů a mince tím jede s ním
+    // sama, bez druhé sady souřadnic, která by se při první úpravě rozešla.
+    sek.skupina.add(m);
+    const c = { m, sek, ziva:false, otoc:0 };
+    sek.minceP.push(c);
+    mincePolice.push(c);
+  }
+}
+
+// Volné místo mezi lahvemi. Z pásu <−KRAJ, KRAJ> se vyříznou lahve i okno
+// kachničky a mince se postaví do některé z mezer, co zbudou.
+//
+// Nejdřív to losovalo polohu a zkoušelo, jestli se trefí do volna. To je slepá
+// ulička: na polici se šesti lahvemi a oknem uprostřed zbývá tak málo místa,
+// že se to netrefilo ani v polovině případů a sekce dostala v průměru 0,78
+// mince — dvě patra z pěti byla úplně bez peněz, aniž by to tak bylo myšlené.
+// Se spočítanými mezerami vyjde na sekci 1,5 mince a bez peněz zůstane patro
+// jen tehdy, když si to losování druhu opravdu vybere.
+const _prekazky = [], _mezery = [];
+const MINCEP_MEZERA = 10;          // užší škvíru za mezeru nepovažovat
+function mistoProMinci(sek, police){
+  _prekazky.length = 0;
+  for(const L of sek.lahve){
+    if(L.police !== police) continue;
+    const mez = L.i === 0 ? MINCEP_OD_OKNA : MINCEP_OD_LAHVE;   // index 0 = sklenice v okně
+    _prekazky.push([L.zaklX - mez, L.zaklX + mez]);
+  }
+  _prekazky.sort((a, b) => a[0] - b[0]);
+
+  _mezery.length = 0;
+  let od = -MINCEP_KRAJ, volnoCelkem = 0;
+  for(const p of _prekazky){
+    if(p[0] > od){
+      const doK = Math.min(p[0], MINCEP_KRAJ);
+      if(doK - od >= MINCEP_MEZERA){ _mezery.push([od, doK]); volnoCelkem += doK - od; }
+    }
+    if(p[1] > od) od = p[1];
+    if(od >= MINCEP_KRAJ) break;
+  }
+  if(MINCEP_KRAJ - od >= MINCEP_MEZERA){ _mezery.push([od, MINCEP_KRAJ]); volnoCelkem += MINCEP_KRAJ - od; }
+  if(!_mezery.length) return null;
+
+  // Losuje se PODLE ŠÍŘKY mezery, ne rovnoměrně mezi nimi — jinak by mince
+  // nejčastěji stála v té nejtěsnější škvíře, tedy nalepená na lahvi.
+  let los = Math.random()*volnoCelkem;
+  for(const m of _mezery){
+    const s = m[1] - m[0];
+    if(los < s) return m[0] + los;
+    los -= s;
+  }
+  return _mezery[0][0];
+}
+
+// Rozestavení. Volá se při stavbě i s každým novým patrem, aby sekce, která
+// vyjede nahoru, měla peníze jinde než ta, kterou hráč právě vybral.
+// Poloha se bere z `zaklX`, tedy ze ZÁKLADNÍHO rozestavění lahví — v tu chvíli
+// je právě přestavěné a žádná lahev ještě neleží převrácená jinde.
+function rozmistiMincePolice(sek){
+  for(const c of sek.minceP){ c.ziva = false; c.m.visible = false; }
+  let dano = 0;
+  for(let p=0; p<POLIC && dano < sek.minceP.length; p++){
+    if(Math.random() >= MINCEP_SANCE) continue;
+    const x = mistoProMinci(sek, p);
+    if(x === null) continue;
+    const c = sek.minceP[dano++];
+    c.ziva = true;
+    // Deska police končí přesně na POLICE_Y, mince na ní stojí na hraně.
+    c.m.position.set(x, POLICE_Y[p] + MINCE_R, POLICE_Z + MINCEP_Z);
+    // Vlastní fáze i rychlost otáčení: se společnou by se všechny mince
+    // v baru točily svorně jako metronom a bylo by vidět, že je to jeden kód.
+    c.m.rotation.y = rand(0, Math.PI*2);
+    c.otoc = rand(2.6, 4.2)*(Math.random() < 0.5 ? -1 : 1);
+    c.m.visible = true;
+  }
+}
+
+function krokMincePolice(dt){
+  for(const c of mincePolice){
+    if(!c.ziva) continue;
+    c.m.rotation.y += c.otoc*dt;
+  }
+}
+
+// Poloha je LOKÁLNÍ vůči sekci, proto se k výšce musí přičíst, kde sekce
+// zrovna je. V ose x a z sekce nikdy nejezdí, tam se přepočítávat nemusí.
+function narazDoMincePolice(bod){
+  for(const c of mincePolice){
+    if(!c.ziva) continue;
+    const dx = bod.x - c.m.position.x;
+    const dy = bod.y - (c.sek.skupina.position.y + c.m.position.y);
+    const dz = bod.z - c.m.position.z;
+    if(dx*dx + dy*dy + dz*dz < MINCEP_DOSAH*MINCEP_DOSAH) return c;
+  }
+  return null;
+}
+
+function seberMinciPolice(c){
+  c.ziva = false; c.m.visible = false;
+  const y = c.sek.skupina.position.y + c.m.position.y;
+  zablesk(c.m.position.x, y, c.m.position.z + 20, MINCE_R*4);
+  // Odsud dál je to táž mince jako z kachničky: vyloupne se, chvíli visí
+  // a odletí do pruhu, kde se teprve připíše.
+  mince3dZKachny(MINCEP_HODNOTA, c.m.position.x, y, c.m.position.z);
+}
+
+// Sekce baru stojí od začátku načítání, ale mince potřebují geometrii, která
+// vzniká až tady — proto se do hotových sekcí dosazují dodatečně. Kdyby si je
+// stavěla `novaSekce` sama, sáhla by si při načtení na konstanty deklarované
+// o dvě stě řádků níž a hra by spadla ještě před prvním snímkem.
+for(const s of sekce){ postavMincePolice(s); rozmistiMincePolice(s); }
 
 // ---- projektily kachniček --------------------------------------------------
 // Modrá koule, kterou po hráči vystřelí kachna s koltem namířeným do objektivu.
@@ -2394,6 +2541,11 @@ function krokProudu(dt, cil, strikaJe){
     // Rozsypaná mince: stačí ji trefit a je zpátky.
     const minc = narazDoMince(u.p);
     if(minc){ seberMinci(minc); uzly.splice(i,1); continue; }
+
+    // Mince stojící na polici: stačí přes ni přejet. Testuje se PŘED dřevem,
+    // protože stojí na desce a čelo police je až o padesát jednotek blíž.
+    const minP = narazDoMincePolice(u.p);
+    if(minP){ seberMinciPolice(minP); uzly.splice(i,1); continue; }
 
     const kach = narazDoKachny(u.p);
     if(kach){ zasahKachny(kach, u); uzly.splice(i,1); continue; }
@@ -4417,6 +4569,7 @@ function smycka(now){
     krokKachen(dt);
     krokProjektilu(dt);
     krokMinci3d(dt);
+    krokMincePolice(dt);
     krokZablesku(dt);
   }
   krokNahledu(dt, now/1000);
