@@ -1085,7 +1085,6 @@ const PROJ_R = 26;                  // poloměr koule ve světě
 const PROJ_LET = 2.3;               // jak dlouho letí k hráči
 const PROJ_POTREBA = 14;            // kolik zásahů proudu ji rozprskne
 const PROJ_UBERE = 0.2;             // kolik života sebere zásah (tedy pět ran)
-const PROJ_BODY = 25;               // odměna za sestřelení
 // MODRÁ A ORANŽOVÁ, ne dva odstíny modré. Dvě protilehlé barvy blikají i
 // koutkem oka, kdežto modrá do světlemodré splynula s vodou i s pozadím.
 // Toon stínování ubere na odvrácené straně, takže barvy musí být SVĚTLEJŠÍ,
@@ -1274,10 +1273,11 @@ function zasahProjektilu(p, u){
   rozprsk(_bod, _nor, u.v, 3);
   if(p.naplneno >= PROJ_POTREBA){
     p.ziva = false; p.m.visible = false;
+    // ŽÁDNÁ ODMĚNA. Sestřelení střely je obrana, ne kořist — hráč tím
+    // nezískává, jen nepřichází o život. Odměnou je samo rozprsknutí:
+    // pořádný rozstřik a korunka, ať je poznat, že to vyšlo.
     rozprsk(_bod, _nor, u.v, 16);
     korunka(_bod, _nor, 44);
-    pripisSkore(PROJ_BODY);
-    pustPopup(_bod.x, _bod.y + PROJ_R, _bod.z, PROJ_BODY);
   }
 }
 
