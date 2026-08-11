@@ -90,6 +90,8 @@
   #heslo::placeholder{color:rgba(207,224,255,.45)}
   #publRada .btn{width:100%;margin-top:6px;font-size:12px;padding:7px}
   #publStav{font-size:10px;line-height:1.4;color:#9fb4cc;min-height:1.4em;margin-top:3px}
+  #smazatVse{color:#e8a48f}
+  #smazatVse.varovne{color:#ff9b8a;font-weight:700;border-color:rgba(255,155,138,.5)}
   #publStav.chyba{color:#ff9b8a}
   /* posuvník si bere gesta sám: bez tohohle by prohlížeč šikmý tah po
      posuvníku v půlce překlopil do rolování panelu */
@@ -460,11 +462,9 @@
   .karta.draha .cn{color:#e8a48f}
   #preskocit{display:block;width:100%;margin-top:7px;font-size:12px;
     background:none;border:0;color:rgba(207,224,255,.55)}
-  /* Nulování je nevratné, tak ať nekřičí: drobné, šedé, až úplně dole.
-     Po prvním klepnutí zčervená a čeká na potvrzení. */
-  #vynulovat{display:block;width:100%;margin-top:8px;font-size:11px;
-    background:none;border:0;color:rgba(207,224,255,.38)}
-  #vynulovat.varovne{color:#ff9b8a;font-weight:700}
+  /* Nulování je nevratné, tak ať nekřičí — a po prvním klepnutí zčervená. */
+  #vynulovat{color:rgba(207,224,255,.6)}
+  #vynulovat.varovne{color:#ff9b8a;font-weight:700;border-color:rgba(255,155,138,.5)}
   /* Záložní pole pro ruční kopii — ukáže se jen tehdy, když schránka selže
      (na telefonu se to stává, když stránka neběží přes https). */
   #kopieText{width:100%;box-sizing:border-box;height:74px;margin-top:6px;
@@ -616,7 +616,6 @@
       <div id="penezenka"></div>
     </div>
     <button id="znovu" type="button" hidden>hrát</button>
-    <button id="vynulovat" type="button">vynulovat postup</button>
   </div>
 </div>
 <!-- Zaměřovač podle předlohy: silnější a v týchž barvách jako text, tedy
@@ -659,6 +658,11 @@
            autocomplete="off" spellcheck="false">
     <button class="btn" id="publikovat">↑ publikovat všem</button>
     <button class="btn" id="stahnout">↓ načíst publikované</button>
+    <button class="btn" id="smazatVse">🗑 vymazat celý žebříček</button>
+    <!-- Nulování VLASTNÍHO postupu. Do panelu konce hry nepatří: tam má hráč
+         jen dohrát a hrát znovu, a tlačítko, které maže postup, se tam plete
+         pod prst. -->
+    <button class="btn" id="vynulovat">vynulovat můj postup</button>
   </div>
   <div id="publStav"></div>
 
@@ -2593,7 +2597,7 @@ async function vynulujPostup(){
 
 // Popisek podle režimu: v postupu se maže dobrodružství, v sólu jméno
 // a jeho řádek v tabulce. Jedno tlačítko, dvě pravdivá jména.
-const NULOVAT_TEXT = JE_POSTUP ? 'vynulovat postup' : 'vynulovat jméno a skóre';
+const NULOVAT_TEXT = JE_POSTUP ? 'vynulovat můj postup' : 'vynulovat mé jméno a skóre';
 const vynulovatBtn = document.getElementById('vynulovat');
 vynulovatBtn.textContent = NULOVAT_TEXT;
 let vynulovatCeka = 0;
@@ -4479,6 +4483,40 @@ function pouzijNastaveniZeSite(){
 const publStavEl = document.getElementById('publStav');
 const hesloEl = document.getElementById('heslo');
 hesloEl.value = localStorage.getItem(HESLO_KLIC) || '';
+// VYMAZÁNÍ CELÉ TABULKY. Vlastní řádek si smaže každý sám tlačítkem
+// „vynulovat"; tohle sebere výsledky VŠEM, takže chce heslo i dvě klepnutí —
+// nevratná věc se nesmí stát omylem a `confirm()` na mobilu překryje celou hru.
+const smazatVseBtn = document.getElementById('smazatVse');
+let smazatCeka = 0;
+smazatVseBtn.addEventListener('click', () => {
+  const heslo = hesloEl.value.trim();
+  if(!heslo){ publStavEl.className='chyba'; publStavEl.textContent='napiš heslo'; return; }
+  if(!smazatCeka){
+    smazatVseBtn.textContent = 'opravdu smazat všem? klepni znovu';
+    smazatVseBtn.classList.add('varovne');
+    smazatCeka = setTimeout(() => {
+      smazatCeka = 0;
+      smazatVseBtn.textContent = '🗑 vymazat celý žebříček';
+      smazatVseBtn.classList.remove('varovne');
+    }, 4000);
+    return;
+  }
+  clearTimeout(smazatCeka); smazatCeka = 0;
+  smazatVseBtn.textContent = '🗑 vymazat celý žebříček';
+  smazatVseBtn.classList.remove('varovne');
+  try{ localStorage.setItem(HESLO_KLIC, heslo); }catch(e){}
+  publStavEl.className=''; publStavEl.textContent = 'mažu…';
+  fetch(ZEBRICEK_URL, { method:'POST', body: JSON.stringify({ smazatVse:true, heslo }) })
+    .then(o => o.json().then(d => ({ ok:o.ok, d })))
+    .then(({ ok, d }) => {
+      publStavEl.className = ok ? '' : 'chyba';
+      publStavEl.textContent = ok ? 'žebříček je prázdný'
+                                  : (d && d.chyba ? 'nepovedlo se: ' + d.chyba : 'nepovedlo se');
+      if(ok){ try{ localStorage.removeItem(ZEB_KLIC); }catch(e){} }
+    })
+    .catch(() => { publStavEl.className='chyba'; publStavEl.textContent='server neodpověděl'; });
+});
+
 // STAŽENÍ PUBLIKOVANÉ SADY I PŘI LADĚNÍ. Hráči ji hra bere sama, kdežto při
 // ladění schválně ne (jinak by si autor přepsal rozdělanou práci). Když se ale
 // dvě zařízení rozejdou, tohle je způsob, jak je srovnat na jedno kliknutí.
@@ -4586,10 +4624,8 @@ nastaveniZeSite();          // čerstvá verze se stáhne na pozadí pro příš
 if(!LADENI){
   cog.hidden = true;
   hud.hidden = true;
-  // NULOVÁNÍ JE TAKY LADĚNÍ. Hráč, který si nesmí zlehčit hru nastavením,
-  // si ji nesmí ani vymazat a začít znovu s čistou tabulkou — jinak by stačilo
-  // po každé horší hře smazat jméno a rekord a žebříček by ztratil smysl.
-  document.getElementById('vynulovat').hidden = true;
+  // Nulování je od v247 v ⚙ panelu, a ten je pro hráče celý skrytý — takže
+  // se tu nic zvlášť schovávat nemusí.
   if(cekaSeNaStart){ cekaSeNaStart = false; try{ localStorage.removeItem(START_KLIC); }catch(e){} }
 }
 if(cekaSeNaStart){
