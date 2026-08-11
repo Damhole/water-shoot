@@ -580,11 +580,65 @@
 <button id="cog" aria-label="nastavení">⚙</button>
 <div id="hud" hidden>
   <!-- REŽIM HRY. Dvě různé hry z týchž dílů: volná je jen střelnice, postup
-       přidává peněženku, boosty a žebříček. Přepnutí hru rovnou přenačte —
-       boosty se čtou jednou při startu, takže by se změna do rozehrané hry
-       stejně nepropsala a hráč by koukal na nesouhlasící čísla. -->
+       přidává peněženku, boosty a žebříček. Přepnutí hru rovnou přenačte. -->
   <label id="rezimRadek"><input type="checkbox" id="rezimPostup">
     <b>postup a boosty</b> <span id="vRezim"></span></label>
+
+  <!-- CO MĚNÍ HRU je nahoře a má každý režim vlastní; co mění jen vzhled,
+       je níž a je společné. Dřív bylo obojí promíchané a hledalo se to. -->
+  <div class="skupina" id="skupinaHra">výchozí hodnoty hry</div>
+  <label>spotřeba vody (0 = nekonečná) <span id="vSpot"></span></label>
+  <input type="range" id="spot3" min="0" max="20" step="0.1" value="3.3">
+  <label>velikost nádrže <span id="vNadrz"></span></label>
+  <input type="range" id="nadrz1" min="1" max="3" step="0.1" value="1">
+  <label>síla proudu (vyšší = plošší oblouk) <span id="vSila"></span></label>
+  <input type="range" id="sila" min="900" max="4200" step="100" value="1700">
+  <label>náběh a doběh trysky (s) <span id="vRamp"></span></label>
+  <input type="range" id="ramp" min="0" max="1.2" step="0.05" value="0.45">
+  <label>poloměr proudu <span id="vTl"></span></label>
+  <input type="range" id="tl" min="2" max="26" step="1" value="8">
+  <label>rychlost toku <span id="vSp"></span></label>
+  <input type="range" id="sp" min="0" max="12" step="0.25" value="3.75">
+  <label>síla zásahu do lahví <span id="vImp"></span></label>
+  <input type="range" id="imp" min="1" max="120" step="1" value="34">
+
+  <div class="skupina">voda — vzhled</div>
+  <label>barva vody</label>
+  <input type="color" id="vodaB" value="#4aa9dd" style="width:100%;height:26px;padding:0;border:0;background:none">
+  <label>průhlednost vody <span id="vVodaA"></span></label>
+  <input type="range" id="vodaA" min="30" max="100" step="2" value="94">
+  <label>svítivost vody <span id="vVodaS"></span></label>
+  <input type="range" id="vodaS" min="0" max="160" step="5" value="75">
+  <label>obrys vody – tloušťka <span id="vObrT"></span></label>
+  <input type="range" id="obrT" min="100" max="160" step="2" value="122">
+  <label>obrys vody – barva</label>
+  <input type="color" id="obrB" value="#123a52" style="width:100%;height:26px;padding:0;border:0;background:none">
+  <label>hran po obvodu <span id="vRad"></span></label>
+  <input type="range" id="rad" min="3" max="16" step="1" value="8">
+  <label>velikost korunky (0 = vypnuto) <span id="vKor"></span></label>
+  <input type="range" id="kor" min="0" max="200" step="5" value="100">
+
+  <div class="skupina">střela banditů</div>
+  <label>střela – barva 1</label>
+  <input type="color" id="projA" value="#2ea8ff" style="width:100%;height:26px;padding:0;border:0;background:none">
+  <label>střela – barva 2</label>
+  <input type="color" id="projB" value="#ff5a22" style="width:100%;height:26px;padding:0;border:0;background:none">
+
+  <div class="skupina">scéna a světlo</div>
+  <label>zorný úhel (nižší = blíž) <span id="vFov"></span></label>
+  <input type="range" id="fov" min="30" max="60" step="1" value="53">
+  <label>sytost barev <span id="vSyt"></span></label>
+  <input type="range" id="syt" min="100" max="200" step="5" value="135">
+  <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
+    <input type="checkbox" id="stiny" checked> stíny</label>
+  <label>světlo vlevo/vpravo <span id="vSvX"></span></label>
+  <input type="range" id="svx" min="-120" max="120" step="5" value="-70">
+  <label>světlo výška <span id="vSvY"></span></label>
+  <input type="range" id="svy" min="10" max="200" step="5" value="110">
+  <label>síla stínu <span id="vStin"></span></label>
+  <input type="range" id="stinS" min="0" max="100" step="5" value="75">
+
+  <div class="skupina">ladění</div>
   <div class="row"><span>FPS</span><b id="fps">–</b></div>
   <div class="row"><span>trojúhelníků</span><b id="tris">–</b></div>
   <div class="row"><span>draw calls</span><b id="calls">–</b></div>
@@ -596,68 +650,8 @@
   <input type="range" id="ziv" min="0" max="100" step="1" value="100">
   <label>voda (na ladění) <span id="vVod"></span></label>
   <input type="range" id="vod" min="0" max="100" step="1" value="100">
-  <!-- ID SE MĚNÍ S KAŽDOU ZMĚNOU VÝCHOZÍ HODNOTY (spot → spotr → spot3).
-       Posuvníky se ukládají do localStorage podle id, takže na zařízení, kde
-       už hra běžela, by se nová výchozí hodnota nikdy neprojevila — držela by
-       se tam ta stará. Přejmenování je nejlevnější způsob, jak zahodit tuhle
-       jedinou položku a zbytek doladěného panelu nechat být. -->
-  <!-- Odtud dolů jsou VÝCHOZÍ HODNOTY HRY, tedy s čím se začíná, než si hráč
-       něco koupí. Boosty se na ně násobí. -->
-  <div class="skupina" id="skupinaHra">výchozí hodnoty hry</div>
-  <label>spotřeba vody (0 = nekonečná) <span id="vSpot"></span></label>
-  <input type="range" id="spot3" min="0" max="20" step="0.1" value="3.3">
-  <!-- VÝCHOZÍ VELIKOST NÁDRŽE, tedy s čím hráč začíná, než si cokoli koupí.
-       Násobek, ne procenta: boosty přidávají procenta k tomuhle základu
-       a v jedněch jednotkách by se to pletlo. Pruh se mění hned při tažení,
-       takže je vidět, s čím se bude hrát. -->
-  <label>velikost nádrže <span id="vNadrz"></span></label>
-  <input type="range" id="nadrz1" min="1" max="3" step="0.1" value="1">
-  <label>poloměr proudu <span id="vTl"></span></label>
-  <input type="range" id="tl" min="2" max="26" step="1" value="8">
-  <label>rychlost toku <span id="vSp"></span></label>
-  <input type="range" id="sp" min="0" max="12" step="0.25" value="3.75">
-  <label>síla proudu (vyšší = plošší oblouk) <span id="vSila"></span></label>
-  <input type="range" id="sila" min="900" max="4200" step="100" value="1700">
-  <label>náběh a doběh trysky (s) <span id="vRamp"></span></label>
-  <input type="range" id="ramp" min="0" max="1.2" step="0.05" value="0.45">
-  <div class="skupina">vzhled a ladění</div>
-  <label>zorný úhel (nižší = blíž) <span id="vFov"></span></label>
-  <input type="range" id="fov" min="30" max="60" step="1" value="53">
-  <label>sytost barev <span id="vSyt"></span></label>
-  <input type="range" id="syt" min="100" max="200" step="5" value="135">
-  <label>hran po obvodu <span id="vRad"></span></label>
-  <input type="range" id="rad" min="3" max="16" step="1" value="8">
-  <label>barva vody</label>
-  <input type="color" id="vodaB" value="#4aa9dd" style="width:100%;height:26px;padding:0;border:0;background:none">
-  <label>průhlednost vody <span id="vVodaA"></span></label>
-  <input type="range" id="vodaA" min="30" max="100" step="2" value="94">
-  <label>svítivost vody <span id="vVodaS"></span></label>
-  <input type="range" id="vodaS" min="0" max="160" step="5" value="75">
-  <label>obrys vody – tloušťka <span id="vObrT"></span></label>
-  <input type="range" id="obrT" min="100" max="160" step="2" value="122">
-  <label>obrys vody – barva</label>
-  <input type="color" id="obrB" value="#123a52" style="width:100%;height:26px;padding:0;border:0;background:none">
-  <!-- Střela poblikává mezi DVĚMA barvami, takže se nastavují obě. Pozor při
-       ladění: čím blíž jsou si barvy, tím míň je blikání vidět — smysl to dává
-       s dvojicí, která si je vzdálená (proto modrá a červenooranžová). -->
-  <label>střela – barva 1</label>
-  <input type="color" id="projA" value="#2ea8ff" style="width:100%;height:26px;padding:0;border:0;background:none">
-  <label>střela – barva 2</label>
-  <input type="color" id="projB" value="#ff5a22" style="width:100%;height:26px;padding:0;border:0;background:none">
   <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
     <input type="checkbox" id="autoStrik"> automatické stříkání (na ladění)</label>
-  <label>velikost korunky (0 = vypnuto) <span id="vKor"></span></label>
-  <input type="range" id="kor" min="0" max="200" step="5" value="100">
-  <label>síla zásahu do lahví <span id="vImp"></span></label>
-  <input type="range" id="imp" min="1" max="120" step="1" value="34">
-  <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
-    <input type="checkbox" id="stiny" checked> stíny</label>
-  <label>světlo vlevo/vpravo <span id="vSvX"></span></label>
-  <input type="range" id="svx" min="-120" max="120" step="5" value="-70">
-  <label>světlo výška <span id="vSvY"></span></label>
-  <input type="range" id="svy" min="10" max="200" step="5" value="110">
-  <label>síla stínu <span id="vStin"></span></label>
-  <input type="range" id="stinS" min="0" max="100" step="5" value="75">
   <button class="btn" id="reset">↺ výchozí hodnoty</button>
 </div>
 <!-- Popis ovládání odsud zmizel: byl to text pro první seznámení s prototypem
@@ -4061,9 +4055,9 @@ const ULOZ_KLIC = 'ws_jet3d_tune';
 //
 // VZHLED A LADĚNÍ ZŮSTÁVÁ SPOLEČNÉ (zorný úhel, barvy, stíny, světlo). Je to
 // jedna a tatáž hra na pohled a doladit si ji dvakrát by byla jen otrava.
-const HRA_POSUVNIKY = ['spot3','nadrz1','tl','sp','sila','ramp'];
+const HRA_POSUVNIKY = ['spot3','nadrz1','tl','sp','sila','ramp','imp'];
 const VZHLED_POSUVNIKY = ['fov','syt','svx','svy','stinS','vodaB','vodaA','vodaS',
-                          'obrT','obrB','rad','imp','kor','projA','projB'];
+                          'obrT','obrB','rad','kor','projA','projB'];
 const POSUVNIKY = VZHLED_POSUVNIKY.concat(HRA_POSUVNIKY);
 const hraKlic = () => 'ws_jet3d_hra_' + (JE_POSTUP ? 'postup' : 'volna');
 
