@@ -1449,7 +1449,14 @@ const SPOTREBA_VODY = () => (+document.getElementById('spot3').value/100) / NADR
 // doleva, kde na něj čeká pruh s penězi. Kolik je do něj místa, se zjistí
 // z jejich skutečných poloh — HUD se s výškou okna mění, takže odhad by na
 // jiném telefonu narazil.
-const PRUH_ZAKLAD = 0.095;          // 9.5vh, tedy táž hodnota jako v CSS
+// ŠÍŘKA SE ODVOZUJE OD VÝŠKY PRUHU, ne od `innerHeight`. Nábojnice uvnitř mají
+// rozteč z `--vys` (2,7 vh), kdežto šířka se dřív počítala z `innerHeight` —
+// a to jsou na MOBILU DVĚ RŮZNÁ ČÍSLA: `vh` je „velký" viewport bez lišt
+// prohlížeče, `innerHeight` ten aktuální s lištami. Pruh tak vyšel o pár
+// procent užší, než na kolik byly nábojnice počítané, a na telefonu z něj
+// zmizel jeden dílek proti počítači. Poměr 9,5/2,7 je táž devítka a půl vh
+// jako v CSS, jen vyjádřená přes něco, co se měří ve stejné jednotce.
+const PRUH_POMER = 9.5/2.7;
 const HUD_MEZERA = 14;
 function roztahniNadrz(){
   const pruh = document.querySelector('#vodaRoh .pruh');
@@ -1458,7 +1465,9 @@ function roztahniNadrz(){
   // Zpátky na střed, jinak by se posuny z jednotlivých tažení posuvníku
   // sčítaly a mince by odjely z obrazu.
   if(mince) mince.style.transform = 'translate(-50%, -50%)';
-  const zakl = innerHeight*PRUH_ZAKLAD;
+  // Výška pruhu je `--vys` v pixelech — jediné místo, kde se dá vh spolehlivě
+  // změřit i na mobilu.
+  const zakl = pruh.getBoundingClientRect().height * PRUH_POMER;
   let sirka = zakl*NADRZ_CELKEM();
   if(mince){
     const pravy = pruh.getBoundingClientRect().right;
