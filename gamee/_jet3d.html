@@ -1294,7 +1294,7 @@ const flekVel = new Float32Array(FLEKU_MAX);
 const flekKryti = new Float32Array(FLEKU_MAX);
 const flekUhel = new Float32Array(FLEKU_MAX);
 const fleky = [];
-for(let i=0;i<FLEKU_MAX;i++) fleky.push({ ziva:false, x:0,y:0,z:0, r:0, rCil:0, t:0, zivot:0, uhel:0 });
+for(let i=0;i<FLEKU_MAX;i++) fleky.push({ ziva:false, x:0,y:0,z:0, mokro:0, uhel:0 });
 
 // Nepravidelná MĚKKÁ skvrna. Napoprvé to byly malé kruhy s poměrně ostrým
 // spádem a výsledek vypadal jako zásahy od kulometu — samostatné puntíky
@@ -1363,29 +1363,35 @@ flekMesh.frustumCulled = false;
 scene.add(flekMesh);
 
 const FLEK_SLITI = 95;          // jak blízko se zásah přilepí ke stávajícímu fleku
-const FLEK_ZIVOT = 5.5;         // jak dlouho schne
-const FLEK_NAMOCENI = 0.18;     // jak rychle se objeví
-const FLEK_MAXR = 460;          // POZOR: velikost je PRŮMĚR ve světě, ne poloměr
+const FLEK_SCHNUTI = 5.0;       // z plného mokra do sucha
+const FLEK_ZASAH = 0.014;       // kolik mokra přidá jeden uzel proudu
+// PROČ JE STROP JEN 190. Flek leží na zadní stěně, jenže deska police stojí
+// 135 jednotek PŘED ní — a co je před ním, to ho zakryje. Velký flek se pak
+// o desku ořízne rovnou vodorovnou hranou a vypadá to, že se nedokreslil.
+// Mezera mezi policemi je 185, takže s tímhle stropem se flek mezi ně vejde
+// a k oříznutí dojde nanejvýš okrajem. Plochu dělá SLÉVÁNÍ, ne jeden obr.
+const FLEK_MIN = 70, FLEK_MAX = 190;
+const FLEK_ALFA = 0.34;
 function mokryFlek(x, y, z){
-  // 1) slít se sousedem
+  // 1) slít se sousedem — přibude mu mokro, žádný nový flek nevzniká
   for(const f of fleky){
     if(!f.ziva) continue;
     const dx = f.x - x, dy = f.y - y, dz = f.z - z;
     if(dx*dx + dy*dy + dz*dz < FLEK_SLITI*FLEK_SLITI){
-      f.rCil = Math.min(FLEK_MAXR, f.rCil + 3.0);
-      f.t = Math.min(f.t, FLEK_NAMOCENI);      // znovu namočený neschne
+      f.mokro = Math.min(1, f.mokro + FLEK_ZASAH);
       return;
     }
   }
-  // 2) nový; když není místo, přepíše se ten nejstarší
+  // 2) nový; když není místo, přepíše se ten nejsušší
   let cil = fleky.find(f => !f.ziva);
   if(!cil){
     cil = fleky[0];
-    for(const f of fleky) if(f.t > cil.t) cil = f;
+    for(const f of fleky) if(f.mokro < cil.mokro) cil = f;
   }
-  cil.ziva = true; cil.t = 0; cil.zivot = FLEK_ZIVOT*rand(0.8, 1.25);
+  cil.ziva = true;
   cil.x = x; cil.y = y; cil.z = z;
-  cil.r = 0; cil.rCil = rand(130, 190);
+  // Začíná sotva znatelně: hned po prvním uzlu tam nemá být louže.
+  cil.mokro = 0.10;
   cil.uhel = rand(0, Math.PI*2);
 }
 
@@ -1395,20 +1401,23 @@ function smazFleky(){
   flekGeo.setDrawRange(0, 0);
 }
 
+// VŠECHNO ŘÍDÍ JEDNO ČÍSLO — `mokro` (0..1). Zásah ho přidá, čas ubírá,
+// a velikost i tmavost se z něj obě počítají. Tím je zaručeno, co uživatel
+// chtěl: čím víc vody, tím větší A tmavší flek, a schne přesně opačně —
+// couvá po téže křivce, po které narostl. Se dvěma nezávislými časovači
+// (jeden na velikost, druhý na krytí) to nikdy nesedělo.
 function krokFleku(dt){
   let n = 0;
   for(const f of fleky){
     if(!f.ziva) continue;
-    f.t += dt;
-    if(f.t >= f.zivot){ f.ziva = false; continue; }
-    const u = f.t/f.zivot;
-    // namočení → schnutí: nejdřív doroste, pak se zmenšuje a bledne
-    const nam = Math.min(1, f.t/FLEK_NAMOCENI);
-    const schne = u < 0.35 ? 0 : (u - 0.35)/0.65;
-    f.r = f.rCil*nam*(1 - 0.75*schne*schne);
+    f.mokro -= dt/FLEK_SCHNUTI;
+    if(f.mokro <= 0){ f.ziva = false; continue; }
+    // odmocnina: prvních pár kapek je znát víc než poslední, jinak by flek
+    // dlouho nebyl vidět vůbec a pak by naskočil
+    const m = Math.sqrt(f.mokro);
     flekPos[n*3] = f.x; flekPos[n*3+1] = f.y; flekPos[n*3+2] = f.z;
-    flekVel[n] = f.r;
-    flekKryti[n] = 0.32*nam*(1 - schne*schne);
+    flekVel[n] = FLEK_MIN + (FLEK_MAX - FLEK_MIN)*m;
+    flekKryti[n] = FLEK_ALFA*m;
     flekUhel[n] = f.uhel;
     n++;
   }
