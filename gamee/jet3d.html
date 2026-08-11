@@ -290,6 +290,47 @@
     --o:0.22vh;--o2:0.30vh;--hloubka:0.42vh}
   #konecVyzva{position:relative;margin-top:1.6vh;font-size:2.4vh;line-height:1;
     --o:0.11vh;--o2:0.16vh;--hloubka:0.17vh;letter-spacing:.03em;opacity:.9}
+  /* ŽEBŘÍČEK. Jediné místo ve hře, kam se opravdu KLEPÁ (pole na jméno,
+     tlačítko) — proto si musí pointer-events zapnout zpátky; #konecRoh je má
+     vypnuté, aby nadpis nechytal doteky mířené do hry pod ním. */
+  #zebricek{position:relative;pointer-events:auto;margin:2.2vh auto 0;
+    width:min(86vw, 330px);box-sizing:border-box;
+    background:rgba(8,14,24,.92);border:1px solid rgba(207,224,255,.18);
+    border-radius:12px;padding:11px 12px 12px;text-align:left;
+    /* Na nízkém displeji se panel i s klávesnicí nevejde, tak ať jde rolovat.
+       100svh, ne 100vh — viz past u ⚙ panelu. */
+    max-height:calc(100svh - 46vh);overflow-y:auto;
+    touch-action:pan-y;overscroll-behavior:contain}
+  #zebricekPosun{font-size:13px;line-height:1.35;margin-bottom:7px;color:#ffe08a;
+    min-height:1.35em}
+  #zebricekPosun .dol{color:#e8a48f}
+  #zebricekTab{list-style:none;margin:0;padding:0;font-size:14px}
+  #zebricekTab li{display:flex;gap:7px;align-items:baseline;
+    padding:3px 6px;border-radius:6px}
+  /* Vlastní řádek je zvýrazněný, ne tučný — v tabulce o osmi řádcích se
+     tučné písmo ztratí, kdežto podklad najde oko na první pohled. */
+  #zebricekTab li.ja{background:rgba(255,214,102,.17);color:#ffe08a}
+  #zebricekTab .poradi{width:2em;text-align:right;opacity:.6;
+    font-variant-numeric:tabular-nums}
+  #zebricekTab .jm{flex:1;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  #zebricekTab .sk{font-variant-numeric:tabular-nums;font-weight:700}
+  #zebricekTab .mn{opacity:.62;font-size:12px;font-variant-numeric:tabular-nums}
+  #zebricekStav{font-size:12px;opacity:.6;margin-top:6px;min-height:1.2em}
+  #jmenoBox{display:flex;gap:6px;margin-bottom:9px}
+  #jmenoVstup{flex:1;min-width:0;box-sizing:border-box;padding:8px 9px;
+    border-radius:7px;border:1px solid rgba(207,224,255,.3);
+    background:rgba(255,255,255,.08);color:#eaf2ff;font:inherit;font-size:15px;
+    -webkit-user-select:text;user-select:text}
+  #jmenoVstup::placeholder{color:rgba(207,224,255,.45)}
+  #zebricek button{padding:8px 12px;border-radius:7px;font:inherit;font-size:14px;
+    border:1px solid rgba(207,224,255,.3);background:rgba(255,255,255,.12);
+    color:#eaf2ff;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  #zebricek button:active{transform:translateY(1px)}
+  #znovu{display:block;width:100%;margin-top:10px;padding:10px;
+    background:rgba(255,214,102,.18);border-color:rgba(255,214,102,.45);
+    color:#ffe08a;font-weight:700}
+  #zebricek [hidden]{display:none}
   /* Zaměřovač po konci hry ZMIZÍ. Zvažoval jsem nechat ho zamrznout pod
      přehozem, ale kříž visící nad mrtvou scénou svádí k míření a odvádí oko
      od hlášky — přitom jediné, co má hráč udělat, je klepnout kamkoli.
@@ -392,7 +433,18 @@
 <div id="vodaMalo" class="titulek" data-text="Low water!">Low water!</div>
 <div id="konecRoh" hidden>
   <div id="konecNadpis" class="titulek" data-text="Out of water!">Out of water!</div>
-  <div id="konecVyzva" class="titulek" data-text="tap to play again">tap to play again</div>
+  <div id="konecVyzva" class="titulek" data-text="score 0">score 0</div>
+  <div id="zebricek">
+    <form id="jmenoBox" hidden>
+      <input id="jmenoVstup" maxlength="12" placeholder="tvé jméno"
+             autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+      <button type="submit">OK</button>
+    </form>
+    <div id="zebricekPosun"></div>
+    <ol id="zebricekTab"></ol>
+    <div id="zebricekStav"></div>
+    <button id="znovu" type="button">hrát znovu</button>
+  </div>
 </div>
 <!-- Zaměřovač podle předlohy: silnější a v týchž barvách jako text, tedy
      krémová na tmavém obrysu. Ryska PROCHÁZÍ prstencem místo aby končila
@@ -1032,7 +1084,12 @@ const skoreEl = document.getElementById('skoreRoh');
 // kterého kreslí ::after tmavou kopii pod ním. Kdyby se zapomnělo, zůstane
 // pod novým textem viset stará hloubka.
 function nastavTitulek(el, text){ el.textContent = text; el.dataset.text = text; }
+// PO KONCI HRY SE UŽ NEPŘIPISUJE. Scéna po smrti dožívá, takže voda ve
+// vzduchu ještě dolétne a rozbije lahev — číslo v HUD pak rostlo dál a
+// nesouhlasilo s výsledkem, který si žebříček uložil v okamžik smrti
+// (naměřeno: v panelu „score 100", v pruhu 200). Výsledek musí být jeden.
 function pripisSkore(n){
+  if(konec) return;
   skore += n;
   nastavTitulek(skoreEl, skore);
 }
@@ -1814,6 +1871,126 @@ function hlidejKonec(){
   konecHry('Out of water!');
 }
 
+// ---- žebříček --------------------------------------------------------------
+// Tabulka nejlepších na konci hry. Hráč se do ní zapíše jménem (jen jednou na
+// zařízení, pak si ho hra pamatuje) a při každém dalším konci vidí, kam se
+// posunul.
+//
+// JEDEN ŘÁDEK NA JMÉNO, a to ten NEJLEPŠÍ. Kdyby se zapisovala každá hra,
+// tabulku by po půl hodině zaplnil jeden člověk deseti pokusy a věta „posunul
+// ses ze sedmého na čtvrté" by ztratila smysl — posouvat se dá jen tehdy,
+// když má člověk v tabulce právě jedno místo.
+//
+// SDÍLENÍ MEZI ZAŘÍZENÍMI. `localStorage` je vždycky jen pro jeden prohlížeč
+// na jednom zařízení, takže sdílená tabulka potřebuje adresu, kam se posílá.
+// Dokud je ZEBRICEK_URL prázdná, hra počítá žebříček u sebe a všechno ostatní
+// (zápis jména, pořadí, posun) funguje úplně stejně — vyplněním adresy se
+// z toho stane společná tabulka, aniž by se sáhlo na cokoli dalšího.
+const ZEBRICEK_URL = '';           // sem přijde adresa sdíleného žebříčku
+const ZEBRICEK_MIST = 8;           // kolik míst se ukazuje
+const ZEBRICEK_CEKANI = 3500;      // po téhle době se server vzdá a jede se lokálně
+const ZEB_KLIC = 'ws_zebricek', ZEB_JMENO = 'ws_jmeno', ZEB_PORADI = 'ws_poradi';
+
+function nactiMistni(){
+  try{ const a = JSON.parse(localStorage.getItem(ZEB_KLIC) || '[]'); return Array.isArray(a) ? a : []; }
+  catch(e){ return []; }
+}
+function ulozMistni(t){ try{ localStorage.setItem(ZEB_KLIC, JSON.stringify(t.slice(0, 50))); }catch(e){} }
+
+// Zápis do tabulky. Vrací setříděnou tabulku; porovnává se podle jména bez
+// ohledu na velikost písmen, aby „Denis" a „denis" nebyli dva lidé.
+function zapisDoTabulky(tab, zaznam){
+  const klic = zaznam.jmeno.trim().toLowerCase();
+  const stary = tab.find(z => (z.jmeno || '').trim().toLowerCase() === klic);
+  if(stary){
+    if(zaznam.skore > stary.skore){ stary.skore = zaznam.skore; stary.mince = zaznam.mince; }
+  } else tab.push({ jmeno: zaznam.jmeno, skore: zaznam.skore, mince: zaznam.mince });
+  tab.sort((a, b) => b.skore - a.skore);
+  return tab;
+}
+function poradiVTabulce(tab, jmeno){
+  const klic = jmeno.trim().toLowerCase();
+  return tab.findIndex(z => (z.jmeno || '').trim().toLowerCase() === klic) + 1;
+}
+
+// Odeslání výsledku. Když je adresa vyplněná, zkusí se server; při jakékoli
+// potíži (nedostupný, pomalý, chybná odpověď) se TIŠE spadne na místní
+// tabulku — konec hry se nesmí zaseknout na tom, že není signál.
+async function posliVysledek(zaznam){
+  if(ZEBRICEK_URL){
+    try{
+      const stop = new AbortController();
+      const budik = setTimeout(() => stop.abort(), ZEBRICEK_CEKANI);
+      const odp = await fetch(ZEBRICEK_URL, { method: 'POST', signal: stop.signal,
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(zaznam) });
+      clearTimeout(budik);
+      const data = await odp.json();
+      if(Array.isArray(data && data.tabulka))
+        return { tabulka: data.tabulka, poradi: data.poradi || poradiVTabulce(data.tabulka, zaznam.jmeno), sdilene: true };
+    }catch(e){ /* spadne se na místní */ }
+  }
+  const tab = zapisDoTabulky(nactiMistni(), zaznam);
+  ulozMistni(tab);
+  return { tabulka: tab, poradi: poradiVTabulce(tab, zaznam.jmeno), sdilene: false };
+}
+
+const zebTabEl = document.getElementById('zebricekTab');
+const zebPosunEl = document.getElementById('zebricekPosun');
+const zebStavEl = document.getElementById('zebricekStav');
+const jmenoBox = document.getElementById('jmenoBox');
+const jmenoVstup = document.getElementById('jmenoVstup');
+
+// Vykreslení. Když hráč skončí mimo zobrazená místa, přidá se jeho řádek
+// zvlášť pod tabulkou — jinak by se dozvěděl „jsi 24." a neviděl se.
+function vykresliZebricek(tab, jmeno, poradi){
+  zebTabEl.textContent = '';
+  const radek = (z, i) => {
+    const li = document.createElement('li');
+    if(i + 1 === poradi) li.className = 'ja';
+    const p = document.createElement('span'); p.className = 'poradi'; p.textContent = (i + 1) + '.';
+    const j = document.createElement('span'); j.className = 'jm'; j.textContent = z.jmeno;
+    const s = document.createElement('span'); s.className = 'sk'; s.textContent = z.skore;
+    const m = document.createElement('span'); m.className = 'mn'; m.textContent = '◆' + (z.mince || 0);
+    li.append(p, j, s, m);
+    return li;
+  };
+  tab.slice(0, ZEBRICEK_MIST).forEach((z, i) => zebTabEl.append(radek(z, i)));
+  if(poradi > ZEBRICEK_MIST && tab[poradi - 1]) zebTabEl.append(radek(tab[poradi - 1], poradi - 1));
+}
+
+// Věta o posunu. Je to jediné, co hráči řekne, jestli se ta hra vyplatila —
+// proto se drží předchozí pořadí v localStorage i mezi spuštěními.
+function napisPosun(poradi){
+  const drive = +(localStorage.getItem(ZEB_PORADI) || 0);
+  if(!drive) zebPosunEl.textContent = 'nové ' + poradi + '. místo';
+  else if(poradi < drive) zebPosunEl.innerHTML = '▲ posun z ' + drive + '. na <b>' + poradi + '.</b> místo';
+  else if(poradi > drive) zebPosunEl.innerHTML = '<span class="dol">▼ z ' + drive + '. na ' + poradi + '. místo</span>';
+  else zebPosunEl.textContent = 'držíš ' + poradi + '. místo';
+  try{ localStorage.setItem(ZEB_PORADI, String(poradi)); }catch(e){}
+}
+
+async function zapisVysledek(jmeno){
+  try{ localStorage.setItem(ZEB_JMENO, jmeno); }catch(e){}
+  zebStavEl.textContent = ZEBRICEK_URL ? 'posílám…' : '';
+  const v = await posliVysledek({ jmeno, skore, mince });
+  vykresliZebricek(v.tabulka, jmeno, v.poradi);
+  napisPosun(v.poradi);
+  zebStavEl.textContent = v.sdilene ? '' : (ZEBRICEK_URL ? 'server neodpověděl — jen tohle zařízení'
+                                                         : 'žebříček jen na tomhle zařízení');
+}
+
+jmenoBox.addEventListener('submit', e => {
+  e.preventDefault();
+  const jm = jmenoVstup.value.trim().slice(0, 12);
+  if(!jm) return;
+  jmenoBox.hidden = true;
+  zapisVysledek(jm);
+});
+// Klepnutí do panelu nesmí propadnout do hry pod ním — a hlavně nesmí
+// spustit restart, který visí na klepnutí kamkoli jinam.
+document.getElementById('zebricek').addEventListener('pointerdown', e => e.stopPropagation());
+document.getElementById('znovu').addEventListener('click', () => location.reload());
+
 // Dvě různé smrti, jedna obsluha: došlá voda a rozstřílený život. Text se
 // liší, protože hráč má vědět, na co umřel — jinak neví, co dělat příště.
 function konecHry(text){
@@ -1823,7 +2000,13 @@ function konecHry(text){
   kriz.classList.add('pryc');
   for(const p of projektily){ p.ziva = false; p.m.visible = false; }
   nastavTitulek(document.getElementById('konecNadpis'), text);
+  nastavTitulek(document.getElementById('konecVyzva'), 'score ' + skore);
   document.getElementById('konecRoh').hidden = false;
+  // Jméno se ptá JEN POPRVÉ NA ZAŘÍZENÍ. Podruhé už by to byla otravná
+  // překážka mezi koncem a další hrou.
+  const jmeno = (localStorage.getItem(ZEB_JMENO) || '').trim();
+  if(jmeno){ jmenoBox.hidden = true; zapisVysledek(jmeno); }
+  else { jmenoBox.hidden = false; zebPosunEl.textContent = 'zapiš se do žebříčku'; }
 }
 // ZTMAVENÍ PŘI ZTRÁTĚ TLAKU. Řídí se hladinou vody, ne stříkáním — sucho je
 // stav, ne akce, a hráč o něm má vědět i v pauze mezi proudy. Náběh se
@@ -1878,8 +2061,14 @@ function krokTmy(dt){
 // Restart je reload: stav hry je rozprostřený v sekcích, lahvích, poolech
 // i fyzice a ruční nulování by bylo zdrojem chyb. Nastavení z ⚙ panelu
 // přežije, protože je v localStorage.
-addEventListener('pointerdown', () => { if(konec) location.reload(); });
-addEventListener('keydown', e => { if(konec && e.code === 'Space') location.reload(); });
+// RESTART UŽ NEVISÍ NA KLEPNUTÍ KAMKOLI, jen na tlačítku „hrát znovu".
+// S žebříčkem by to jinak nešlo dohromady: hráč si chce tabulku přečíst
+// a napsat do ní jméno, kdežto dřív mu první dotek začal novou hru.
+// Mezerník zůstal jako zkratka na počítači, ale jen když se zrovna nepíše
+// jméno — jinak by se hra restartovala uprostřed psaní.
+addEventListener('keydown', e => {
+  if(konec && e.code === 'Space' && document.activeElement !== jmenoVstup) location.reload();
+});
 nastavVodu(1);
 
 // Mince. Zatím jen počítadlo bez utrácení — jedna za sestřelenou kachničku,
@@ -1887,6 +2076,7 @@ nastavVodu(1);
 let mince = 0;
 const minceEl = document.getElementById('minceCislo');
 function pripisMinci(n){
+  if(konec) return;               // po smrti se nepřipisuje, viz pripisSkore
   mince = Math.max(0, mince + n);
   minceEl.textContent = mince;
 }
