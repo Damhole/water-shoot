@@ -1066,7 +1066,10 @@ const LETY = {
   voda:  { sablona: '#vodaRoh .kapka',  cil: '#vodaRoh .kapka',
            trida: 'letVoda',  pruzna: true,  dorazil: () => nastavVodu(voda + VODA_ZA_KAPKU) },
 };
-const VODA_ZA_KAPKU = 0.10;
+// Kolik zásoby přinese jedna kapka z lahve. Lahve mají jen PŘILEPŠOVAT, ne
+// být hlavním zdrojem — od toho budou truhly s pořádnou dávkou. S desetinou
+// pokryla lahev skoro dvě vteřiny stříkání a zásobník se sám držel nahoře.
+const VODA_ZA_KAPKU = 0.04;
 
 function letMinci(pocet, wx, wy, wz){ letPredmet('mince', pocet, wx, wy, wz); }
 function letVody(pocet, wx, wy, wz){ letPredmet('voda', pocet, wx, wy, wz); }
