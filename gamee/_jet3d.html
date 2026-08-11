@@ -1094,6 +1094,65 @@ for(let i=0;i<PROJEKTILU_MAX;i++){
   projektily.push({ m, ziva:false, t:0, x:0,y:0,z:0, cx:0,cy:0,cz:0, naplneno:0 });
 }
 
+// ZÁBLESK Z HLAVNĚ. Kroužek, který tu byl předtím, se rozbíhá po ploše a čte
+// se jako vlnka na vodě, ne jako výstřel — záblesk musí být krátký, ostrý
+// a hned zhasnout. Textura je hvězdice s bílým jádrem, aby to nebyla jen
+// koule světla; sprite je natočený za kamerou, takže je vidět ze všech stran.
+const ZABLESKU = 3;
+const ZABLESK_T = 0.13;
+function texturaZablesku(){
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(32, 32, 1, 32, 32, 26);
+  gr.addColorStop(0,    'rgba(255,255,255,1)');
+  gr.addColorStop(0.28, 'rgba(255,244,190,0.95)');
+  gr.addColorStop(0.65, 'rgba(255,190,60,0.45)');
+  gr.addColorStop(1,    'rgba(255,150,30,0)');
+  g.fillStyle = gr;
+  g.beginPath(); g.arc(32, 32, 26, 0, Math.PI*2); g.fill();
+  // paprsky: čtyři delší do kříže a čtyři kratší do úhlopříček
+  g.strokeStyle = 'rgba(255,248,214,0.95)';
+  g.lineCap = 'round';
+  for(let i=0;i<8;i++){
+    const a = i*Math.PI/4, d = (i%2 ? 16 : 30);
+    g.lineWidth = (i%2 ? 3 : 5);
+    g.beginPath(); g.moveTo(32, 32);
+    g.lineTo(32 + Math.cos(a)*d, 32 + Math.sin(a)*d); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
+  return t;
+}
+const texZablesk = texturaZablesku();
+const zablesky = [];
+for(let i=0;i<ZABLESKU;i++){
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texZablesk, transparent: true, depthTest: false, opacity: 0 }));
+  sp.visible = false;
+  scene.add(sp);
+  zablesky.push({ sp, t: 0, ziva: false, vel: 0 });
+}
+function zablesk(x, y, z, vel){
+  const z1 = zablesky.find(q => !q.ziva) || zablesky[0];
+  z1.ziva = true; z1.t = 0; z1.vel = vel;
+  z1.sp.position.set(x, y, z);
+  z1.sp.material.rotation = rand(0, Math.PI*2);   // ať dva výstřely nejsou stejné
+  z1.sp.visible = true;
+}
+function krokZablesku(dt){
+  for(const z of zablesky){
+    if(!z.ziva) continue;
+    z.t += dt;
+    const u = z.t/ZABLESK_T;
+    if(u >= 1){ z.ziva = false; z.sp.visible = false; continue; }
+    // rychle vyskočí a hned pohasne — vrchol je hned na začátku
+    const m = z.vel*(0.55 + 0.75*u);
+    z.sp.scale.set(m, m, 1);
+    z.sp.material.opacity = (1 - u)*(1 - u);
+  }
+}
+
 function vystrel(k){
   const p = projektily.find(q => !q.ziva);
   if(!p) return;
@@ -1107,8 +1166,9 @@ function vystrel(k){
   p.m.visible = true;
   p.m.position.set(p.x, p.y, p.z);
   p.m.scale.setScalar(1);
-  // záblesk u hlavně, ať je odkud výstřel poznat
-  krouzek(p.x, p.y, KACH_Z + 34, 'celo', 40);
+  // záblesk PŘÍMO Z HLAVNĚ, ne obecně u kachničky: kolt drží varianta 1 kousek
+  // vlevo od osy a v úrovni těla.
+  zablesk(p.x - KACH_R*0.05, p.y - KACH_R*0.06, KACH_Z + 40, KACH_R*1.5);
 }
 
 const _projBarva = new THREE.Color();
@@ -2988,10 +3048,10 @@ const KACH_PRAZDNO_DOLE = [0.1602, 0.1152, 0.2422, 0.2441];
 const VARIANTY = [1, 2, 3];
 const STRELEC = 1;                 // jediná varianta s koltem do objektivu
 const NEOZBROJENI = [2, 3];        // ti smějí stát i za sklem, nemají co ukázat
-// Kolik kachen s koltem opravdu vystřelí a za jak dlouho po nasazení. Nápřah
-// je vidět předem, aby šlo výstřel číst; teprve po něm koule vyletí.
+// Kolik kachen s koltem opravdu vystřelí. Kdy vystřelí, se neurčuje časem od
+// nasazení, ale zbývajícím životem terče — viz krokKachen: rána padne těsně
+// před odchodem. Nápřah je vidět předem, aby šel výstřel číst.
 const STRELCU_PODIL = 0.7;
-const STRELBA_PRVNI = [1.1, 2.4];
 const NAPRAH_T = 0.5;
 const KACH_VYSKA = KACH_R*2*BANDIT_ZOOM;
 const KACH_POSAZENI = KACH_PRAZDNO_DOLE.map(p => KACH_VYSKA*(0.5 - p));
@@ -3397,7 +3457,7 @@ function pustKachnu(){
   // na tom, jak často ta varianta padne. `strelbaZa` je odpočet do NÁPŘAHU,
   // ne do výstřelu: nic se nesmí objevit odnikud, takže se kachna nejdřív
   // viditelně napřáhne.
-  k.strelec = false; k.napr = 0;
+  k.strelec = false; k.napr = 0; k.vystrelil = false;
   // JEDEN Z BANDITŮ, ale ne ze všech čtyř. Varianta 0 míří revolverem doleva,
   // tedy mimo hráče — kachna s vytaseným koltem, která nikdy nevystřelí, je
   // porušený slib: hráč se učí číst „zbraň = nebezpečí" a tahle ho to
@@ -3409,10 +3469,7 @@ function pustKachnu(){
   // strkat tam, kam se nehodí — takhle se jen změní, kdo to je.
   let vi = VARIANTY[(Math.random()*VARIANTY.length)|0];
   if(vi === STRELEC && !koltVolny(x)) vi = NEOZBROJENI[(Math.random()*NEOZBROJENI.length)|0];
-  if(vi === STRELEC && Math.random() < STRELCU_PODIL){
-    k.strelec = true;
-    k.strelbaZa = rand(STRELBA_PRVNI[0], STRELBA_PRVNI[1]);
-  }
+  if(vi === STRELEC && Math.random() < STRELCU_PODIL) k.strelec = true;
   const geo = GEO_BANDITA[vi];
   // …a spolu s ní i vlastní výšku, aby kachnička stála na desce a nelevitovala
   k.stred = KACH_POSAZENI[vi];
@@ -3499,16 +3556,21 @@ function krokKachen(dt){
       // STŘELBA. Odpočet běží jen střelci a zastaví se, jakmile začne nápřah.
       // Během nápřahu kachnička drncá — je to týž pohyb jako pod proudem, jen
       // z vlastní vůle, takže hráč pozná „něco chystá" dřív, než to přijde.
-      if(k.strelec && !konec){
+      // STŘELÍ JEDNOU, TĚSNĚ PŘED ODCHODEM. Dřív střílela opakovaně od nasazení,
+      // takže se z terče stal kulomet a hráč neměl důvod ji sestřelit dřív —
+      // stejně by dostal další ránu. Takhle je to jasná pobídka: kdo ji
+      // nesestřelí včas, tomu na rozloučenou vystřelí.
+      // Nápřah začíná tak, aby výstřel padl přesně na začátek cukání před
+      // odchodem — kachnička se tedy po výstřelu roztřepe a zmizí.
+      if(k.strelec && !k.vystrelil && !konec){
         if(k.napr > 0){
           k.napr -= dt;
           const w = 1 - k.napr/NAPRAH_T;
           const c = 1 + 0.10*w*Math.sin(k.t*40);
           s.set(s.x/c, s.y*c, 1);
-          if(k.napr <= 0){ vystrel(k); k.strelbaZa = rand(2.2, 4.0); }
-        } else {
-          k.strelbaZa -= dt;
-          if(k.strelbaZa <= 0) k.napr = NAPRAH_T;
+          if(k.napr <= 0){ vystrel(k); k.vystrelil = true; }
+        } else if(k.ttl <= VAROVANI + NAPRAH_T){
+          k.napr = NAPRAH_T;
         }
       }
       // CHVĚNÍ POD PROUDEM. Žádné natahování ani poskakování — to patří až
@@ -3876,6 +3938,7 @@ function smycka(now){
     krokPostupu(dt);
     krokKachen(dt);
     krokProjektilu(dt);
+    krokZablesku(dt);
   }
   krokRozmazani(dt);
   krokProudu(dt, cil, !konec && (strika || cbAuto.checked));
