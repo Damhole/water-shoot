@@ -329,7 +329,10 @@
   #zebricekTab .jm{flex:1;min-width:0;overflow:hidden;
     text-overflow:ellipsis;white-space:nowrap}
   #zebricekTab .sk{font-variant-numeric:tabular-nums;font-weight:700}
-  #zebricekTab .mn{opacity:.62;font-size:12px;font-variant-numeric:tabular-nums}
+  #zebricekTab .mn{opacity:.75;font-size:12px;font-variant-numeric:tabular-nums}
+  /* Mince se řídí velikostí písma řádku, ve kterém stojí — v tabulce je pak
+     menší než v peněžence a nikde nevytlačí řádek do výšky. */
+  .minceIk{width:1.05em;height:1.05em;vertical-align:-.17em;margin-right:.22em}
   #zebricekStav{font-size:12px;opacity:.6;margin-top:6px;min-height:1.2em}
   #jmenoBox{display:flex;gap:6px;margin-bottom:9px}
   #jmenoVstup{flex:1;min-width:0;box-sizing:border-box;padding:8px 9px;
@@ -2068,8 +2071,7 @@ function vykresliZebricek(tab, jmeno, poradi){
     const p = document.createElement('span'); p.className = 'poradi'; p.textContent = (i + 1) + '.';
     const j = document.createElement('span'); j.className = 'jm'; j.textContent = z.jmeno;
     const s = document.createElement('span'); s.className = 'sk'; s.textContent = z.skore;
-    const m = document.createElement('span'); m.className = 'mn'; m.textContent = '◆' + (z.mince || 0);
-    li.append(p, j, s, m);
+    li.append(p, j, s, sMinci(z.mince || 0, 'mn'));
     return li;
   };
   tab.slice(0, ZEBRICEK_MIST).forEach((z, i) => zebTabEl.append(radek(z, i)));
@@ -2124,6 +2126,30 @@ function ulozPenize(n){ try{ localStorage.setItem(PENIZE_KLIC, String(Math.max(0
 function nactiZasobnik(){ return nactiBoosty(); }
 function pocetSlotu(o){ return Object.keys(o).length; }
 
+// MINCE S KORUNKOU MÍSTO KOSOČTVERCE. ◆ byl jen zástupný znak a hráč z něj
+// nepozná, že jde o tytéž peníze jako v pruhu nahoře — to udělá jedině táž
+// ražba. Je to zmenšenina mince z HUD, jen bez přechodu a bez odlesku:
+// na dvanácti pixelech z nich zbyde šmouha a stálo by to dva uzly navíc.
+// Vlastní `id` gradientu tu proto být nemusí, a nemůže se tedy ani srazit
+// s tím v pruhu.
+const MINCE_SVG =
+  '<svg class="minceIk" viewBox="0 0 64 64" aria-hidden="true">' +
+  '<circle cx="32" cy="32" r="26" fill="#f0b429" stroke="#000" stroke-width="5"/>' +
+  '<circle cx="32" cy="32" r="19.5" fill="none" stroke="#a86a12" stroke-width="2.6" opacity=".6"/>' +
+  '<g fill="#9c6210" transform="translate(32 32) scale(.8) translate(-32 -32)">' +
+  '<path d="M20 41.5 17.4 24l7.1 6.2L32 19.6l7.5 10.6 7.1-6.2L44 41.5z"/>' +
+  '<rect x="19" y="41.5" width="26" height="4.6" rx="2"/>' +
+  '<circle cx="17.4" cy="22" r="2.5"/><circle cx="32" cy="17.6" r="2.7"/>' +
+  '<circle cx="46.6" cy="22" r="2.5"/></g></svg>';
+// Vrací prvek „mince + číslo", ať se to nemusí skládat na pěti místech zvlášť.
+function sMinci(cislo, trida){
+  const s = document.createElement('span');
+  s.className = trida || '';
+  s.innerHTML = MINCE_SVG;
+  s.append(String(cislo));
+  return s;
+}
+
 const kartyEl = document.getElementById('karty');
 const kartyRadaEl = document.getElementById('kartyRada');
 const slotyRadaEl = document.getElementById('slotyRada');
@@ -2148,7 +2174,8 @@ function vykresliZasobnik(){
     }
     slotyRadaEl.append(d);
   }
-  penezenkaEl.textContent = '◆ ' + nactiPenize();
+  penezenkaEl.textContent = '';
+  penezenkaEl.append(sMinci(nactiPenize()));
 }
 
 // Nabídka. Tři různé boosty a JEDEN Z NICH VŽDYCKY ZADARMO — kdyby vyšly tři
@@ -2176,8 +2203,8 @@ function nabidniKarty(){
     // Kdo druh už má, vidí rovnou, kam se dostane — „+20 %" samo o sobě
     // neřekne, jestli je to jeho první, nebo pátá nádrž.
     if(zas[b.id]) pr.textContent += ' → ' + (zas[b.id] + b.proc) + '%';
-    const cn = document.createElement('div'); cn.className = 'cn';
-    cn.textContent = cena === 0 ? 'zdarma' : '◆ ' + cena;
+    const cn = cena === 0 ? document.createElement('div') : sMinci(cena, 'cn');
+    if(cena === 0){ cn.className = 'cn'; cn.textContent = 'zdarma'; }
     k.append(ik, nm, pr, cn);
     k.addEventListener('click', () => vezmiBoost(b, cena));
     kartyRadaEl.append(k);
@@ -2193,7 +2220,7 @@ function vezmiBoost(b, cena){
     return;
   }
   const penize = nactiPenize();
-  if(cena > penize){ zebStavEl.textContent = 'na tohle nemáš — chybí ' + (cena - penize) + '◆'; return; }
+  if(cena > penize){ zebStavEl.textContent = 'na tohle nemáš — chybí ' + (cena - penize) + ' mincí'; return; }
   ulozPenize(penize - cena);
   const uz = +zas[b.id] || 0;
   zas[b.id] = uz + b.proc;
