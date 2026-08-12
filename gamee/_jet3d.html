@@ -895,7 +895,12 @@ slunce.shadow.normalBias = 5;
 // registrují i s původní barvou, takže jde sytost přepočítat kdykoli — a je
 // proto na posuvníku v ⚙ panelu.
 const barevne = [];
+// Vícebarevné sloučené geometrie (korbel). Barvy nesedí v materiálu, ale ve
+// vrcholech, takže se sytost musí přepočítat do atributu — jinak by korbel
+// jako jediná věc ve scéně posuvník ignoroval.
+const barevneGeo = [];
 const _hsl = { h:0, s:0, l:0 };
+const _barvaP = new THREE.Color();
 function barevny(mat, hex){ barevne.push({ mat, zaklad: new THREE.Color(hex) }); return mat; }
 function nastavSytost(k){
   for(const b of barevne){
@@ -903,6 +908,19 @@ function nastavSytost(k){
     // tomu, co člověk vidí
     b.zaklad.getHSL(_hsl, THREE.SRGBColorSpace);
     b.mat.color.setHSL(_hsl.h, Math.min(1, _hsl.s*k), _hsl.l, THREE.SRGBColorSpace);
+  }
+  for(const geo of barevneGeo){
+    const pole = geo.attributes.color.array;
+    for(const u of geo.useky){
+      _barvaP.setHex(u.hex, THREE.SRGBColorSpace).getHSL(_hsl, THREE.SRGBColorSpace);
+      _barvaP.setHSL(_hsl.h, Math.min(1, _hsl.s*k), _hsl.l, THREE.SRGBColorSpace);
+      // Atribut barvy se čte v pracovním (lineárním) prostoru, kdežto HSL
+      // musí v sRGB — proto ta cesta tam a zpátky.
+      for(let i=u.od; i<u.od+u.pocet; i++){
+        pole[i*3] = _barvaP.r; pole[i*3+1] = _barvaP.g; pole[i*3+2] = _barvaP.b;
+      }
+    }
+    geo.attributes.color.needsUpdate = true;
   }
 }
 
@@ -978,6 +996,76 @@ function lathe(profil, segmentu){
 const GEO_LAHEV    = lathe(PROFIL_LAHEV, 14);
 const GEO_SKLENICE = lathe(PROFIL_SKLENICE, 14);
 
+// ---- pivní korbel ----------------------------------------------------------
+// Pátý druh skla. Fyzikálně je to obyčejná lahev (týž válec, táž hmotnost,
+// tytéž body i voda), jen se nedá poskládat z jednoho rotačního tělesa: pivo,
+// pěna a skleněné ucho musí mít každé svou barvu, jinak to není korbel, ale
+// jantarový váleček. Tři meshe by ale stály tři draw cally na KAŽDÝ korbel,
+// a těch stojí na polici až šest — proto je z toho JEDNA sloučená geometrie
+// a barvy sedí ve vrcholech. Cena je pak stejná jako u lahve: tělo + obrys.
+const KORBEL_W = 27, KORBEL_H = 64;
+// Sklenice v okně (index 0) má w 26 a rozestup ve skupině je 62, takže širší
+// korbel by se se sousedy pral. 27 je strop, který ještě projde.
+const PROFIL_PIVO = [
+  [0.00,0.00],[0.95,0.00],[1.00,0.05],[0.98,0.70],[0.00,0.76],
+];
+// Pěna PŘETÉKÁ přes okraj (1,07 proti 0,98 těla) — bez toho vypadá jako víčko.
+// Spodní disk v 0,68 zakrývá kužel, kterým se uzavírá pivo, takže dovnitř
+// není vidět a nemusí se kreslit hladina.
+const PROFIL_PENA = [
+  [0.00,0.68],[1.03,0.68],[1.07,0.76],[1.03,0.86],[0.78,0.94],[0.42,0.99],[0.00,1.00],
+];
+// UCHO. Torus leží v rovině XY a mezera v oblouku musí mířit K OSE korbelu,
+// jinak by C bylo otočené ven. Mesh se škáluje NEROVNOMĚRNĚ (w × h), takže by
+// se z kruhu stala vysoká elipsa — proto se ucho předem zmáčkne v ose Y
+// poměrem w/h a po vynásobení výškou vyjde zase kulaté.
+const UCHO_R = 0.46, UCHO_T = 0.125, UCHO_OBLOUK = Math.PI*1.28;
+const geoUcho = new THREE.TorusGeometry(UCHO_R, UCHO_T, 5, 9, UCHO_OBLOUK);
+geoUcho.rotateZ(-UCHO_OBLOUK/2);
+geoUcho.scale(1, KORBEL_W/KORBEL_H, 1);
+geoUcho.translate(0.88, 0.40, 0);
+
+// Sloučení geometrií do jedné, s barvou zapsanou do vrcholů. Kusy se převádějí
+// na neindexované, protože skládat indexy tří různých těles je zbytečná práce
+// pro pár set trojúhelníků, které vzniknou jednou za celý běh.
+function slucBarevne(kusy){
+  const gs = kusy.map(k => k.geo.index ? k.geo.toNonIndexed() : k.geo);
+  let n = 0;
+  for(const g of gs) n += g.attributes.position.count;
+  const pos = new Float32Array(n*3), nor = new Float32Array(n*3);
+  const useky = [];
+  let od = 0;
+  gs.forEach((g, i) => {
+    pos.set(g.attributes.position.array, od*3);
+    nor.set(g.attributes.normal.array, od*3);
+    useky.push({ od, pocet: g.attributes.position.count, hex: kusy[i].barva });
+    od += g.attributes.position.count;
+  });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n*3), 3));
+  geo.useky = useky;
+  barevneGeo.push(geo);       // ať se na něj dostane posuvník sytosti
+  // Základní obarvení TEĎ. Bez toho by korbel zůstal černý až do chvíle, kdy
+  // někdo hne posuvníkem sytosti — atribut vzniká vynulovaný.
+  const pole = geo.attributes.color.array;
+  for(const u of useky){
+    _barvaP.setHex(u.hex, THREE.SRGBColorSpace);
+    for(let i=u.od; i<u.od+u.pocet; i++){
+      pole[i*3] = _barvaP.r; pole[i*3+1] = _barvaP.g; pole[i*3+2] = _barvaP.b;
+    }
+  }
+  return geo;
+}
+const GEO_KORBEL = slucBarevne([
+  { geo: lathe(PROFIL_PIVO, 12), barva: 0xe8a52b },
+  { geo: lathe(PROFIL_PENA, 12), barva: 0xf7eddb },
+  { geo: geoUcho,                barva: 0xa8ccdd },
+]);
+// Jeden materiál pro všechny korbely — barvu nese geometrie, ne materiál.
+const matKorbel = new THREE.MeshToonMaterial({ gradientMap: toonGrad, vertexColors: true });
+
 const SKLA = [
   { geo:GEO_LAHEV,    barva:0x4d7a3f, w:26, h:118 },
   // Hnědá 0x8a5f2c splývala se stěnou (0x8a5c33) — je to prakticky tatáž
@@ -985,6 +1073,7 @@ const SKLA = [
   { geo:GEO_LAHEV,    barva:0xc9762a, w:27, h:126 },
   { geo:GEO_LAHEV,    barva:0x3f5d7a, w:25, h:104 },
   { geo:GEO_SKLENICE, barva:0xa8ccdd, w:26, h:52  },
+  { geo:GEO_KORBEL,   mat:matKorbel,  w:KORBEL_W, h:KORBEL_H, ucho:true },
 ];
 
 // dřevo polic a zadní stěna baru
@@ -1167,9 +1256,21 @@ function rozlozPolici(n){
 // přestavění se mění jen pozice), takže „nultá je vždycky sklenice" stačí
 // zařídit jednou tady a v okně pak stojí sklenice i po přestavění.
 const TYP_SKLENICE = 3;
+// Jak se sklo postaví na polici. Lahev je rotační těleso, takže je jí natočení
+// jedno; KORBEL ale musí ukázat ucho. Kolmo do stran by zajíždělo do souseda
+// (ucho sahá 1,46 poloměru, kdežto rozestup ve skupině dává 31), a přímo na
+// kameru by se schovalo za tělo — proto šikmo, 40 až 76 stupňů od boční osy,
+// napravo i nalevo.
+function uhelSkla(typ){
+  if(!typ.ucho) return Math.random()*Math.PI*2;
+  const u = (Math.PI*0.22 + Math.random()*Math.PI*0.20) * (Math.random() < 0.5 ? 1 : -1);
+  return u + (Math.random() < 0.5 ? Math.PI : 0);
+}
 function novaLahev(sek, police, i, xPozice, typVynuceny){
   const typ = SKLA[typVynuceny !== undefined ? typVynuceny : (Math.random()*SKLA.length)|0];
-  const m = new THREE.Mesh(typ.geo, barevny(new THREE.MeshToonMaterial({
+  // Korbel má barvy ve vrcholech a jeden společný materiál; ostatní sklo
+  // dostává vlastní materiál se svou barvou.
+  const m = new THREE.Mesh(typ.geo, typ.mat || barevny(new THREE.MeshToonMaterial({
     color: typ.barva, gradientMap: toonGrad }), typ.barva));
   // model má počátek ve SPODKU (profil 0..1), fyzikální válec ve STŘEDU —
   // proto se mesh posouvá o půl výšky dolů proti tělesu
@@ -1188,7 +1289,7 @@ function novaLahev(sek, police, i, xPozice, typVynuceny){
     linearDamping: 0.12, angularDamping: 0.25,
     sleepSpeedLimit: 6, sleepTimeLimit: 0.4,
   });
-  telo.quaternion.setFromEuler(0, Math.random()*Math.PI*2, 0);
+  telo.quaternion.setFromEuler(0, uhelSkla(typ), 0);
   world.addBody(telo);
 
   // Zhruba třetina lahví v sobě má vodu do zásoby. Losuje se při stavbě police
@@ -1277,7 +1378,7 @@ function prestavLahve(sek){
     L.voda = Math.random() < 0.32; L.m.visible = true;
     L.zaklX = xsPodle[L.police][L.i];
     L.telo.position.set(L.zaklX, sek.zaklY + POLICE_Y[L.police] + L.typ.h/2, POLICE_Z + rand(-16, 16));
-    L.telo.quaternion.setFromEuler(0, Math.random()*Math.PI*2, 0);
+    L.telo.quaternion.setFromEuler(0, uhelSkla(L.typ), 0);
     L.telo.velocity.setZero(); L.telo.angularVelocity.setZero();
     L.telo.wakeUp();
   }
@@ -1590,7 +1691,7 @@ for(let i=0;i<MINCI_MAX;i++){
   m.visible = false;
   scene.add(m);
   mince3d.push({ m, ziva:false, rezim:'pada', t:0, vx:0, vy:0, vz:0, otoc:0,
-                 cx:0, cy:0, cz:0, zx:0, zy:0, zz:0 });
+                 cx:0, cy:0, cz:0, zx:0, zy:0, zz:0, vDreve:null, pY:0 });
 }
 
 // Vysypání při zásahu. Mince se odečtou hned a vyletí z místa, kde je v HUD
@@ -1635,6 +1736,10 @@ function vysypMince3d(pocet){
     c.m.scale.setScalar(1);
     // přesně z ikony mince v pruhu, jen s drobným rozhozem, ať nevyletí komínem
     c.m.position.set(_zdroj.x + rand(-10, 10), _zdroj.y + rand(-8, 8), _zdroj.z + rand(-20, 10));
+    // Výchozí bod pro hlídání průchodu deskou. Bez tohohle by první snímek
+    // porovnával novou polohu s tou, kde mince dožila minule — tedy s dráhou
+    // přes půl baru — a třpytlo by se to hned na startu.
+    c.pY = c.m.position.y;
     c.vx = rand(-300, 300);
     c.vy = rand(-30, 150);
     c.vz = rand(-40, 40);
@@ -1658,6 +1763,7 @@ function mince3dZKachny(pocet, x, y, z){
     if(c.ziva) continue;
     c.ziva = true; c.rezim = 'ceka'; c.t = -dano*0.07;     // rozestup, ať nesplynou
     c.m.position.set(x + rand(-22, 22), y + rand(-6, 18), z + 20);
+    c.pY = c.m.position.y;                  // viz vysypMince3d
     c.m.scale.setScalar(MINCE_Z_KACHNY);
     c.zx = c.m.position.x; c.zy = c.m.position.y; c.zz = c.m.position.z;
     c.vx = c.vy = c.vz = 0;
@@ -1732,6 +1838,23 @@ function krokMinci3d(dt){
       c.ziva = false; c.m.visible = false;
     }
   }
+
+  // TŘPYT PŘI PRŮCHODU DŘEVEM. Jeden průchod přes všechny mince až tady, ne
+  // uvnitř jednotlivých režimů — létající mince prochází policemi stejně jako
+  // padající a rozepisovat to do každé větve zvlášť by znamenalo tři místa,
+  // která se rozejdou. Třpyt se pouští v OKAMŽIKU vstupu do desky, proto se
+  // pamatuje, jestli v ní mince byla i minulý snímek.
+  for(const c of mince3d){
+    if(!c.ziva){ c.vDreve = null; continue; }
+    const kv = mincVDreve(c);
+    // Pamatuje se DESKA, ne jen „byla uvnitř": mince, která vyjede z jedné
+    // police rovnou do druhé, musí dostat druhý třpyt, a s pouhým příznakem
+    // by se ztratil.
+    // Do výšky desky, ne mince: třpytí se to místo, kde mince mizí ve dřevě.
+    if(kv && kv !== c.vDreve) trpyt(c.m.position.x, (kv.min[1] + kv.max[1])/2, c.m.position.z);
+    c.vDreve = kv;
+    c.pY = c.m.position.y;
+  }
 }
 
 // Sebrání proudem: mince odletí do pruhu s penězi a připíše se.
@@ -1745,6 +1868,99 @@ function narazDoMince(bod){
 }
 function seberMinci(c){
   zamirDoBaru(c);            // odsud už letí stejně jako mince z kachničky
+}
+
+// ---- třpyt mince v dřevě ---------------------------------------------------
+// Mince procházejí policemi skrz naskrz: ty, co letí do pruhu s penězi, míří
+// napříč celým barem, a spadlé propadnou všude, kde deska není. Je to jediné
+// místo, kde se scéna vědomě chová jako by pevná nebyla — a nechat to bez
+// povšimnutí vypadá jako chyba kreslení. Krátký třpyt v okamžiku průchodu
+// z toho dělá záměr: mince se v tom místě odlesknou a jde se dál.
+//
+// Musí být DROBNÝ. Hvězdicový záblesk (`zablesk`) je rána z koltu nebo vysypaný
+// měšec, tedy událost; tohle je jen odlesk, a kdyby byl stejně velký, začaly by
+// police při každém vysypání blikat jako vánoční stromek.
+const TRPYTU = 10;
+const TRPYT_T = 0.26;
+const TRPYT_VEL = MINCE_R*2.4;
+function texturaTrpytu(){
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  // Jádro je bílé a malé, kolem něj zlatavý závoj — zlato drží třpyt u mince,
+  // bílé jádro dělá to „cink".
+  const gr = g.createRadialGradient(32, 32, 0.5, 32, 32, 17);
+  gr.addColorStop(0,    'rgba(255,255,255,1)');
+  gr.addColorStop(0.35, 'rgba(255,240,190,0.7)');
+  gr.addColorStop(1,    'rgba(255,205,90,0)');
+  g.fillStyle = gr;
+  g.beginPath(); g.arc(32, 32, 17, 0, Math.PI*2); g.fill();
+  // ČTYŘI paprsky, ne osm: osmicípá hvězda se v téhle velikosti slije do
+  // kuličky a je z ní druhý záblesk. Čtyři do kříže se čtou jako jiskra.
+  g.strokeStyle = 'rgba(255,252,236,0.9)';
+  g.lineCap = 'round';
+  for(let i=0;i<4;i++){
+    const a = i*Math.PI/2;
+    g.lineWidth = 3;
+    g.beginPath(); g.moveTo(32, 32);
+    g.lineTo(32 + Math.cos(a)*29, 32 + Math.sin(a)*29); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.generateMipmaps = false; t.minFilter = THREE.LinearFilter;
+  return t;
+}
+const texTrpyt = texturaTrpytu();
+const trpyty = [];
+for(let i=0;i<TRPYTU;i++){
+  // depthTest je vypnutý schválně: v okamžiku průchodu mince V DESCE JE,
+  // takže by ji dřevo zakrylo a z třpytu by nezbylo nic.
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texTrpyt, transparent: true, depthTest: false, opacity: 0 }));
+  sp.visible = false;
+  scene.add(sp);
+  trpyty.push({ sp, t: 0, ziva: false });
+}
+function trpyt(x, y, z){
+  const q = trpyty.find(t => !t.ziva) || trpyty[0];
+  q.ziva = true; q.t = 0;
+  q.sp.position.set(x, y, z);
+  q.sp.material.rotation = rand(0, Math.PI/2);
+  q.sp.visible = true;
+}
+function krokTrpytu(dt){
+  for(const q of trpyty){
+    if(!q.ziva) continue;
+    q.t += dt;
+    const u = q.t/TRPYT_T;
+    if(u >= 1){ q.ziva = false; q.sp.visible = false; continue; }
+    // Naskočí a hned mizí, cestou lehce povyroste — odlesk, ne výbuch.
+    const m = TRPYT_VEL*(0.5 + 0.8*u);
+    q.sp.scale.set(m, m, 1);
+    q.sp.material.opacity = Math.sin(Math.PI*u)*0.85;
+  }
+}
+
+// Vrací desku, kterou mince mezi minulým a tímhle snímkem PROJELA. Testuje se
+// dráha, ne poloha — a stálo to jeden opravený omyl: první verze se ptala, kde
+// mince PRÁVĚ JE, a mince letící do pruhu urazí za snímek klidně 60 jednotek,
+// takže celé pásmo (2 × 20 kolem desky) přeskočila mezi dvěma snímky. Naměřeno
+// sebetestem: propad skokem po 60 dal nula třpytů, po 90 zase dva ze dvou
+// pater — tedy přesně ta náhoda, na které nemá stát efekt. Odraz mince o desku
+// dráhu testuje ze stejného důvodu.
+//
+// Poloměr zmenšený o dvě jednotky drží pod prahem minci, která na desce LEŽÍ:
+// ta stojí přesně o poloměr nad ní a bez té rezervy by se třpytila pořád.
+function mincVDreve(c){
+  const p = c.m.position;
+  const dol = Math.min(c.pY, p.y) - (MINCE_R - 2);
+  const hor = Math.max(c.pY, p.y) + (MINCE_R - 2);
+  for(const kv of DREVO){
+    if(kv.max[1] - kv.min[1] > 40) continue;                // deska, ne stěna
+    if(p.x < kv.min[0] || p.x > kv.max[0]) continue;
+    if(p.z < kv.min[2] || p.z > kv.max[2]) continue;
+    if(dol <= kv.max[1] && hor >= kv.min[1]) return kv;
+  }
+  return null;
 }
 
 // ---- mince stojící na policích ---------------------------------------------
@@ -5987,6 +6203,9 @@ function smycka(now){
   krokPeri(dt, now/1000);
   krokPopupu(dt);
   krokKrouzku(dt);
+  // Mimo blok `!konec`: rozsvícený třpyt má dohořet i po konci hry, jinak
+  // v okamžiku smrti zůstane viset uprostřed police.
+  krokTrpytu(dt);
   krokFleku(dt);
   krokKapacu(dt);
   krokKorunek(dt);
@@ -6030,6 +6249,7 @@ function smycka(now){
   }
 }
 requestAnimationFrame(smycka);
+
 </script>
 </body>
 </html>
