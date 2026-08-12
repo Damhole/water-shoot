@@ -270,9 +270,37 @@
   /* Vodní kapka z lahve letí do zásobníku a cestou se protahuje po směru
      letu (dělá to krokLetMinci v transformaci). Mince tudy nelétají — ty
      jsou od v196 tělesa ve scéně. */
+  /* Kapka je ZÁMĚRNĚ velká — je to jediná odměna, která letí přes celou
+     obrazovku, a při 3,6vh se v půli letu ztrácela mezi kachničkami a vodou.
+     Letová velikost se ještě násobí měřítkem podle fáze letu (0,7 až 1,25). */
   .letVoda{position:fixed;left:0;top:0;z-index:6;pointer-events:none;
-    width:3.6vh;height:3.6vh;
+    width:4.4vh;height:4.4vh;
     filter:drop-shadow(0 .3vh .4vh rgba(0,0,0,.45))}
+  /* PŘÍJEM VODY. Kapka doletí do rohu a dosud se tam jen tiše povysunul pruh —
+     jenže ten roste o čtyři procenta, což je pár pixelů, a hráči si toho
+     nevšímali. Zásah proto potvrzuje samotná IKONA: lokne si (natáhne se
+     a splácne) a k tomu problikne. Pruh problikne s ní, protože právě on je
+     ta odměna — kdyby se hýbala jen ikona, oko by k číslu nedojelo.
+     Měřítko musí v každém kroku nést translateY(-50%), jinak ikona při každém
+     doletu poskočí o půl své výšky (táž past jako u pulzu „malo").
+     Filtr se v animaci opakuje celý: kdyby se uvedla jen jasnost, přišla by
+     ikona na dobu animace o obrys i stín. */
+  #vodaRoh.prijem .kapka{animation:prijalaVodu .42s ease-out}
+  #vodaRoh.prijem .vypln{animation:prijalaVoduPruh .42s ease-out}
+  @keyframes prijalaVodu{
+    0%  {transform:translateY(-50%) scale(1,1)}
+    20% {transform:translateY(-50%) scale(.82,1.22);
+         filter:drop-shadow(0 var(--hloub) 0 var(--zobrys))
+                drop-shadow(0 .28vh .38vh rgba(0,0,0,.4)) brightness(2.2)}
+    50% {transform:translateY(-50%) scale(1.18,.86);
+         filter:drop-shadow(0 var(--hloub) 0 var(--zobrys))
+                drop-shadow(0 .28vh .38vh rgba(0,0,0,.4)) brightness(1.5)}
+    75% {transform:translateY(-50%) scale(.95,1.05)}
+    100%{transform:translateY(-50%) scale(1,1)}}
+  @keyframes prijalaVoduPruh{
+    0%  {filter:brightness(1)}
+    18% {filter:brightness(1.85)}
+    100%{filter:brightness(1)}}
   /* „Floor cleared!" — přes celou šířku, uprostřed výšky terčů. Naskočí
      s krátkým přiblížením, ať to má úder; bez animace by to jen bliklo. */
   #hlaska{position:fixed;left:0;right:0;top:45vh;z-index:5;text-align:center;
@@ -3040,6 +3068,21 @@ const VODA_MALO = 0.25;
 let maloHlaseno = false;
 const vodaMaloEl = document.getElementById('vodaMalo');
 const vodaRohEl = document.getElementById('vodaRoh');
+// Potvrzení, že kapka došla do zásobníku. Třída se před nasazením sundá
+// a vynutí se přepočet stylu — bez toho by druhá kapka v řadě animaci
+// nespustila znovu (třída na prvku už je) a z pěti kapek by potvrdila jen
+// první. Sundává se časem, ne přes `animationend`: pruh má nad sebou ještě
+// nekonečný pulz „malo" a rozlišovat, která animace zrovna skončila, by bylo
+// víc práce než jeden časovač.
+let prijemCas = 0;
+function prijalaVodu(){
+  vodaRohEl.classList.remove('prijem');
+  void vodaRohEl.offsetWidth;
+  vodaRohEl.classList.add('prijem');
+  clearTimeout(prijemCas);
+  prijemCas = setTimeout(() => vodaRohEl.classList.remove('prijem'), 460);
+}
+
 function hlidejMaloVody(){
   const malo = voda > 0 && voda <= VODA_MALO && !konec;
   vodaRohEl.classList.toggle('malo', malo);
@@ -3143,7 +3186,8 @@ function naObrazovku(x, y, z, out){
 // takže HUD verze jejich letu už není k čemu.
 const LETY = {
   voda:  { sablona: '#vodaRoh .kapka',  cil: '#vodaRoh .kapka',
-           trida: 'letVoda',  pruzna: true,  dorazil: () => nastavVodu(voda + VODA_ZA_KAPKU) },
+           trida: 'letVoda',  pruzna: true,
+           dorazil: () => { nastavVodu(voda + VODA_ZA_KAPKU); prijalaVodu(); } },
 };
 // Kolik zásoby přinese jedna kapka z lahve. Lahve mají jen PŘILEPŠOVAT, ne
 // být hlavním zdrojem — od toho budou truhly s pořádnou dávkou. S desetinou
