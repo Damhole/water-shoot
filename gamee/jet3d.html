@@ -1933,13 +1933,38 @@ function vysypMince3d(pocet){
 const MINCE_Z_KACHNY = 1.0;        // měřítko proti rozsypaným
 const KM_CEKANI = 0.34;            // jak dlouho visí u kachničky, než odletí
 const KM_LET = 0.55;               // jak dlouho letí do pruhu
+// ROZESTAVENÍ, NE ROZHOZ. Mince se dřív rozhazovaly náhodně do krabičky
+// ±22 × 24, jenže mince má průměr 44 — takže při třech a víc ležely přes sebe
+// a nebylo poznat, kolik jich vlastně vypadlo. Teď stojí v řadě vystředěné na
+// kachničku, s rozestupem o kus větším, než je jejich průměr. Nad pět kusů se
+// zakládá další řada nad tou první, aby se z toho na vyšších patrech (kde
+// jich padá až devět) nestal pás přes půl baru.
+const KM_ROZESTUP = 54;            // vodorovná rozteč (průměr mince je 44)
+const KM_RADA_MAX = 5;             // kolik se jich vejde do jedné řady
+const KM_RADY = 54;                // svislá rozteč mezi řadami
 function mince3dZKachny(pocet, x, y, z){
+  // Kolik jich opravdu vyletí, se musí vědět PŘEDEM: řada se středí na
+  // kachničku, takže poloha první mince závisí na jejich počtu. Bez toho by
+  // se při plném poolu rozestavila řada pro devět a přišly by jen tři —
+  // vystředěné mimo kachničku.
+  let volnych = 0;
+  for(const c of mince3d) if(!c.ziva) volnych++;
+  const n = Math.min(pocet, volnych);
+  if(n <= 0) return;
   let dano = 0;
   for(const c of mince3d){
-    if(dano >= pocet) break;
+    if(dano >= n) break;
     if(c.ziva) continue;
+    const rada = (dano/KM_RADA_MAX)|0;
+    const vRade = Math.min(KM_RADA_MAX, n - rada*KM_RADA_MAX);
+    const i = dano - rada*KM_RADA_MAX;
+    const odStredu = i - (vRade - 1)/2;
     c.ziva = true; c.rezim = 'ceka'; c.t = -dano*0.07;     // rozestup, ať nesplynou
-    c.m.position.set(x + rand(-22, 22), y + rand(-6, 18), z + 20);
+    // Kraje řady sedí o kousek níž — rovná řada vypadá jako vyskládané zboží,
+    // mírný oblouk jako něco, co vylétlo.
+    c.m.position.set(x + odStredu*KM_ROZESTUP + rand(-3, 3),
+                     y + 8 + rada*KM_RADY - Math.abs(odStredu)*3 + rand(-2, 2),
+                     z + 20);
     c.pY = c.m.position.y;                  // viz vysypMince3d
     c.m.scale.setScalar(MINCE_Z_KACHNY);
     c.zx = c.m.position.x; c.zy = c.m.position.y; c.zz = c.m.position.z;
