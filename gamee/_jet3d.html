@@ -1863,7 +1863,7 @@ for(let i=0;i<MINCI_MAX;i++){
   m.visible = false;
   scene.add(m);
   mince3d.push({ m, ziva:false, rezim:'pada', t:0, vx:0, vy:0, vz:0, otoc:0,
-                 cx:0, cy:0, cz:0, zx:0, zy:0, zz:0, vDreve:null, pY:0 });
+                 cx:0, cy:0, cz:0, zx:0, zy:0, zz:0, vDreve:null, pY:0, cekani:0 });
 }
 
 // Vysypání při zásahu. Mince se odečtou hned a vyletí z místa, kde je v HUD
@@ -1932,6 +1932,14 @@ function vysypMince3d(pocet){
 // honit, kdežto tyhle letí rovnou do pruhu.
 const MINCE_Z_KACHNY = 1.0;        // měřítko proti rozsypaným
 const KM_CEKANI = 0.34;            // jak dlouho visí u kachničky, než odletí
+// ODLÉTAJÍ PO JEDNÉ, ne najednou. Rozestup 0,07 s byl proti půlvteřinovému
+// letu tak malý, že se pět mincí sneslo do pruhu jako jeden chuchvalec a
+// nešlo je spočítat. S 0,16 s se do pruhu ťukají jedna po druhé — a protože
+// každá pípne ikonou v HUD, je z toho rytmus, ne jedno cinknutí.
+// Celkový rozjezd se přitom drží pod 0,9 s: na vyšších patrech padá až devět
+// mincí a čekat na poslední dvě vteřiny by bylo dlouhé.
+const KM_ODSTUP = 0.16, KM_ODSTUP_CELKEM = 0.9;
+const KM_VYNOR = 0.05;             // o kolik se opozdí vynoření další mince
 const KM_LET = 0.55;               // jak dlouho letí do pruhu
 // ROZESTAVENÍ, NE ROZHOZ. Mince se dřív rozhazovaly náhodně do krabičky
 // ±22 × 24, jenže mince má průměr 44 — takže při třech a víc ležely přes sebe
@@ -1951,6 +1959,13 @@ function mince3dZKachny(pocet, x, y, z){
   for(const c of mince3d) if(!c.ziva) volnych++;
   const n = Math.min(pocet, volnych);
   if(n <= 0) return;
+  // Krok mezi odlety: čím víc mincí, tím kratší, ať se celý zástup vejde do
+  // KM_ODSTUP_CELKEM.
+  // `krok` je rozestup ODLETŮ na hodinách hry. Vynoření se stupňuje taky
+  // (KM_VYNOR), a protože si každá mince počítá vlastní čas od svého vynoření,
+  // musí se to od čekání odečíst — jinak by se obě zpoždění sčítala a devět
+  // mincí by se do pruhu sypalo dvě a čtvrt vteřiny místo devadesáti setin.
+  const krok = n > 1 ? Math.min(KM_ODSTUP, KM_ODSTUP_CELKEM/(n - 1)) : 0;
   let dano = 0;
   for(const c of mince3d){
     if(dano >= n) break;
@@ -1959,7 +1974,10 @@ function mince3dZKachny(pocet, x, y, z){
     const vRade = Math.min(KM_RADA_MAX, n - rada*KM_RADA_MAX);
     const i = dano - rada*KM_RADA_MAX;
     const odStredu = i - (vRade - 1)/2;
-    c.ziva = true; c.rezim = 'ceka'; c.t = -dano*0.07;     // rozestup, ať nesplynou
+    // Vynořují se skoro naráz (rozestup KM_VYNOR), ať je hned vidět, KOLIK jich
+    // vypadlo; teprve odlet je rozstřídaný.
+    c.ziva = true; c.rezim = 'ceka'; c.t = -dano*KM_VYNOR;
+    c.cekani = KM_CEKANI + dano*Math.max(0, krok - KM_VYNOR);
     // Kraje řady sedí o kousek níž — rovná řada vypadá jako vyskládané zboží,
     // mírný oblouk jako něco, co vylétlo.
     c.m.position.set(x + odStredu*KM_ROZESTUP + rand(-3, 3),
@@ -1999,7 +2017,7 @@ function krokMinci3d(dt){
     if(c.rezim === 'ceka'){
       if(c.t < 0) continue;                       // ještě nenaskočila (rozestup)
       c.m.position.y = c.zy + Math.sin(c.t*7)*3 + c.t*22;
-      if(c.t >= KM_CEKANI) zamirDoBaru(c);
+      if(c.t >= (c.cekani || KM_CEKANI)) zamirDoBaru(c);
       continue;
     }
     // LETÍ DO PRUHU: klidný rozjezd i dojezd, u cíle se připíše.
