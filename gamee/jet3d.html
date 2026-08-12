@@ -311,10 +311,12 @@
   /* Pivní hláška sedí VÝŠ než „Floor cleared!" — obojí naráz nastat může
      (korbel spadne s posledním terčem) a přes sebe by se to nedalo přečíst.
      Zlatá je táž, jakou má pivo v proudu. */
-  /* Úvod sedí NAD hracím pásem: první kachničky naskakují do prostředních
-     polic a text přes ně by hráči překážel v tom, kvůli čemu ho čte.
+  /* Úvod sedí KOUSEK NAD STŘEDEM obrazovky: ve 27vh byl u horní hrany, kde ho
+     oko hledá až po zbytku HUD. Blok je vysoký zhruba 11vh, takže s horní
+     hranou ve 40vh vyjde jeho střed na 45,5vh — tedy o kus výš než půlka, ale
+     už v místě, kam se člověk dívá první.
      Řádky se nasouvají jeden po druhém, ať se čtou v pořadí, ne najednou. */
-  #uvod{position:fixed;left:0;right:0;top:27vh;z-index:6;pointer-events:none;
+  #uvod{position:fixed;left:0;right:0;top:40vh;z-index:6;pointer-events:none;
     display:flex;flex-direction:column;align-items:center;gap:1.1vh;
     transition:opacity .35s ease}
   #uvod.pryc{opacity:0}
