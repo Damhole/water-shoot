@@ -6230,10 +6230,16 @@ function zasahKachny(k, u){
               k.skup.position.z, k.hodnota);
     // Kváknutí letí VEDLE „+N", ne přes něj — jinak se dva nápisy překrývají
     // a nepřečte se ani jeden.
-    if(Math.random() < CITOSLOVCE_SANCE)
+    // KDO DOSTAL PIVEM, TEN SI ŘÍHNE. Ne náhodně jako kváknutí: je to odměna
+    // za raritu a hráč ji má vidět pokaždé. Anglicky se říhnutí píše „BURP!";
+    // „Grrr" je vrčení, a to kachnička po pivu dělat nemá.
+    const rihne = tecePivo();
+    if(rihne || Math.random() < CITOSLOVCE_SANCE)
       pustNapis(k.skup.position.x + (Math.random() < 0.5 ? -1 : 1)*KACH_R*1.15,
                 k.skup.position.y + k.stred + KACH_R*0.35,
-                k.skup.position.z, KVAKY[(Math.random()*KVAKY.length)|0], 'komiks');
+                k.skup.position.z,
+                rihne ? 'BURP!' : KVAKY[(Math.random()*KVAKY.length)|0],
+                rihne ? 'rihnuti' : 'komiks');
     // `zbyva` klesá JEN sestřelem; zasunutá kachnička se vrátí jinde
     zbyva = Math.max(0, zbyva - 1);
     ukazPatro();
@@ -6392,7 +6398,13 @@ const STYLY = {
   skoreMale: { px:76, barva:'#fbf1dc', obrys:'#2c1a0d', obrysSir:9, hloubka:6, mer:[65,33],
             stoupa:45, doba:0.85, kriv:0 },
   komiks: { px:60, barva:'#000000', obrys:'#ffffff', obrysSir:9, hloubka:0, mer:[168,84],
-            stoupa:52, doba:0.80, kriv:0.20 },
+            stoupa:52, doba:0.80, kriv:0.20, kmit:26, vych:0.038, bok:2.6 },
+  // ŘÍHNUTÍ PO PIVU. Zlaté v tmavém obrysu, ať je poznat, že patří k pivu a ne
+  // ke kváknutí. Kmitá dvakrát rychleji a s větší výchylkou než ostatní
+  // citoslovce — říhnutí je krátký hrubý zvuk, ne vykřiknuté slovo, a pomalé
+  // kolébání by z něj udělalo povzdech.
+  rihnuti: { px:60, barva:'#ffd257', obrys:'#2a1608', obrysSir:9, hloubka:0, mer:[176,88],
+            stoupa:40, doba:0.95, kriv:0.16, kmit:54, vych:0.06, bok:4.2 },
 };
 for(let i=0;i<POPUPU;i++){
   const c = document.createElement('canvas');
@@ -6471,9 +6483,11 @@ function krokPopupu(dt){
     // tolik kmitů, a protože je výchylka poloviční, čte se to jako chvění,
     // ne jako houpačka.
     if(s.kriv){
-      const f = p.faze + p.t*26;
-      p.sp.material.rotation = p.kriv + Math.sin(f)*0.038;
-      p.sp.position.x = p.x0 + Math.sin(f*0.8)*2.6;
+      // Rychlost i výchylka jsou ve STYLU, ne natvrdo: říhnutí po pivu
+      // potřebuje kmit, kdežto kváknutí kolébání.
+      const f = p.faze + p.t*(s.kmit || 26);
+      p.sp.material.rotation = p.kriv + Math.sin(f)*(s.vych || 0.038);
+      p.sp.position.x = p.x0 + Math.sin(f*0.8)*(s.bok || 2.6);
     }
   }
 }
