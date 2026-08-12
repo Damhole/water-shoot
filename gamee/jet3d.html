@@ -3653,7 +3653,7 @@ const flekVel = new Float32Array(FLEKU_MAX);
 const flekKryti = new Float32Array(FLEKU_MAX);
 const flekUhel = new Float32Array(FLEKU_MAX);
 const fleky = [];
-for(let i=0;i<FLEKU_MAX;i++) fleky.push({ ziva:false, x:0,y:0,z:0, mokro:0, uhel:0 });
+for(let i=0;i<FLEKU_MAX;i++) fleky.push({ ziva:false, x:0,y:0,z:0, mokro:0, uhel:0, pivo:false });
 
 // Nepravidelná MĚKKÁ skvrna. Napoprvé to byly malé kruhy s poměrně ostrým
 // spádem a výsledek vypadal jako zásahy od kulometu — samostatné puntíky
@@ -3731,6 +3731,13 @@ const FLEK_ZASAH = 0.014;       // kolik mokra přidá jeden uzel proudu
 // a k oříznutí dojde nanejvýš okrajem. Plochu dělá SLÉVÁNÍ, ne jeden obr.
 const FLEK_MIN = 70, FLEK_MAX = 190;
 const FLEK_ALFA = 0.34;
+// PIVNÍ FLEK. Pivo po sobě nechává víc než voda — je hustší a zaschne pomaleji.
+// Velikost se ale NESMÍ pustit přes FLEK_MAX: strop je daný roztečí polic
+// (185) a co přes něj přeteče, to deska ořízne rovnou vodorovnou hranou, takže
+// to vypadá jako nedokreslený flek. Násobek proto jen ZRYCHLUJE růst ke stropu,
+// nezvedá ho — pivní flek je tím pádem větší po celou dobu, kdy zasychá.
+const PIVO_FLEK_VEL = 1.18;
+const PIVO_FLEK_SCHNE = 1.6;     // 5 s → 8 s
 // Kolem kachničky se flek nedělá. Voda se o ni zastaví, takže na stěnu za ní
 // nic nedoletí — a hlavně: flek je velký kruh na zdi, takže by kachničce
 // vykoukl kolem těla a vypadalo by to, že stojí v kaluži na skle.
@@ -3760,6 +3767,10 @@ function mokryFlek(x, y, z){
     const dx = f.x - x, dy = f.y - y, dz = f.z - z;
     if(dx*dx + dy*dy + dz*dz < FLEK_SLITI*FLEK_SLITI){
       f.mokro = Math.min(1, f.mokro + FLEK_ZASAH);
+      // Kdo do fleku stříkne pivem, ten z něj pivní flek UDĚLÁ, a zpátky to
+      // nejde. Pěna se z něj do konce piva nevypere a míchat dvě rychlosti
+      // schnutí v jednom fleku nemá jak vypadat.
+      if(tecePivo()) f.pivo = true;
       return;
     }
   }
@@ -3774,6 +3785,7 @@ function mokryFlek(x, y, z){
   // Začíná sotva znatelně: hned po prvním uzlu tam nemá být louže.
   cil.mokro = 0.10;
   cil.uhel = rand(0, Math.PI*2);
+  cil.pivo = tecePivo();
 }
 
 // ---- odkapávání z polic ----------------------------------------------------
@@ -3869,13 +3881,13 @@ function krokFleku(dt){
   let n = 0;
   for(const f of fleky){
     if(!f.ziva) continue;
-    f.mokro -= dt/FLEK_SCHNUTI;
+    f.mokro -= dt/(FLEK_SCHNUTI * (f.pivo ? PIVO_FLEK_SCHNE : 1));
     if(f.mokro <= 0){ f.ziva = false; continue; }
     // odmocnina: prvních pár kapek je znát víc než poslední, jinak by flek
     // dlouho nebyl vidět vůbec a pak by naskočil
     const m = Math.sqrt(f.mokro);
     flekPos[n*3] = f.x; flekPos[n*3+1] = f.y; flekPos[n*3+2] = f.z;
-    flekVel[n] = FLEK_MIN + (FLEK_MAX - FLEK_MIN)*m;
+    flekVel[n] = Math.min(FLEK_MAX, (FLEK_MIN + (FLEK_MAX - FLEK_MIN)*m) * (f.pivo ? PIVO_FLEK_VEL : 1));
     flekKryti[n] = FLEK_ALFA*m;
     flekUhel[n] = f.uhel;
     n++;
