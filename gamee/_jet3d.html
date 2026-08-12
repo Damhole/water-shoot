@@ -785,6 +785,10 @@
   <input type="range" id="vod" min="0" max="100" step="1" value="100">
   <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
     <input type="checkbox" id="autoStrik"> automatické stříkání (na ladění)</label>
+  <!-- Pivo teče normálně jen šest vteřin po sejmutí korbelu, což je na ladění
+       vzhledu proudu nepoužitelně krátko. Tímhle teče pořád. -->
+  <label style="display:flex;gap:8px;align-items:center">
+    <input type="checkbox" id="pivoVzdyBox"> pivo místo vody (na ladění)</label>
   <button class="btn" id="reset">↺ tovární hodnoty</button>
   <!-- Nastavení nikam neodchází samo (localStorage patří k adrese), takže
        tohle je most: zkopíruje všechna čísla jako text, který se dá poslat
@@ -3466,6 +3470,11 @@ const PIVO_OBRYS = '#6b3d0c';
 const PIVO_TLUSTKA = 1.26;          // o kolik je proud tlustší
 const PIVO_HRBOL = 0.15;            // hrbolatost navíc (bublání)
 let pivoT = 0;                      // kolik vteřin piva zbývá
+// Přepínač v ⚙: pivo napořád. Je to LADICÍ věc — šest vteřin je málo na to,
+// aby se dal doladit vzhled proudu. Drží se v proměnné, ne se čte z prvku:
+// ptá se na to plnění trubice, tedy nejteplejší místo ve smyčce.
+let pivoVzdy = false;
+function tecePivo(){ return pivoVzdy || pivoT > 0; }
 const pivoHlaskaEl = document.getElementById('pivoHlaska');
 
 // Pěna do textury proudu. Vodorovná osa textury běží PO DÉLCE trubice a svislá
@@ -3499,7 +3508,7 @@ function kresliPivo(barva){
 // při tom JEN ČTOU — nastavení uživatele se nepřepisuje, po dotečení se vrátí
 // přesně to, co si nastavil.
 function vzhledProudu(){
-  const pivo = pivoT > 0;
+  const pivo = tecePivo();
   const barva = pivo ? PIVO_BARVA : vodaB.value;
   if(pivo) kresliPivo(barva); else kresliVodu(barva);
   texVoda.needsUpdate = true;
@@ -4051,6 +4060,7 @@ function naplnTrubici(t, krivka, seg, tl, cas, sil){
   // přes maximum znamenalo, že se u krátkého proudu vešel na jeho délku jen
   // zlomek textury — a ten vyšel jako jednolitá modrá bez jediného pruhu.
   const frames = krivka.computeFrenetFrames(seg, false);
+  const pivo = tecePivo();          // jednou za trubici, ne u každého vrcholu
   for(let i=0;i<=seg;i++){
     const u = i/seg;
     const stred = krivka.getPointAt(u);
@@ -4068,7 +4078,7 @@ function naplnTrubici(t, krivka, seg, tl, cas, sil){
     // PIVO TEČE JINAK NEŽ VODA: je ho víc a hrbolatí, jak v něm praskají
     // bubliny. Násobí se to až tady, tedy i obrysu — kdyby ztloustl jen proud,
     // obrys by se do něj zařízl.
-    if(pivoT > 0) r *= PIVO_TLUSTKA * (1 + PIVO_HRBOL*Math.sin(u*34 - cas*13));
+    if(pivo) r *= PIVO_TLUSTKA * (1 + PIVO_HRBOL*Math.sin(u*34 - cas*13));
 
     const amp = 7*u;
     const w1 = Math.sin(u*9.0 - cas*8.5)*amp, w2 = Math.sin(u*11.7 - cas*6.2)*amp*0.6;
@@ -4780,6 +4790,7 @@ function uloz(){
   for(const id of VZHLED_POSUVNIKY) o[id] = document.getElementById(id).value;
   o._stiny = document.getElementById('stiny').checked;
   o._auto = document.getElementById('autoStrik').checked;
+  o._pivo = document.getElementById('pivoVzdyBox').checked;
   o._panel = !document.getElementById('hud').hidden;
   try{ localStorage.setItem(ULOZ_KLIC, JSON.stringify(o)); }catch(e){}
   const h = {};
@@ -4799,6 +4810,7 @@ function nacti(){
       for(const id of HRA_POSUVNIKY) if(o[id] !== undefined) document.getElementById(id).value = o[id];
       if(o._stiny !== undefined) document.getElementById('stiny').checked = o._stiny;
       if(o._auto !== undefined) document.getElementById('autoStrik').checked = o._auto;
+      if(o._pivo !== undefined) document.getElementById('pivoVzdyBox').checked = o._pivo;
       document.getElementById('hud').hidden = !o._panel;
     }
     const h = JSON.parse(localStorage.getItem(hraKlic()) || 'null');
@@ -4845,6 +4857,14 @@ cbStiny.addEventListener('change', ()=>{ nastavStiny(); uloz(); });
 // (viz krokAutoMireni), takže se dá hýbat posuvníky a hned vidět, co to
 // udělalo, aniž by člověk musel držet tlačítko a mířit zároveň.
 cbAuto.addEventListener('change', uloz);
+// Pivo napořád. Přepnutí platí HNED (ne až od dalšího korbelu), takže se dá
+// srovnávat voda a pivo tam a zpátky.
+const cbPivo = document.getElementById('pivoVzdyBox');
+cbPivo.addEventListener('change', () => {
+  pivoVzdy = cbPivo.checked;
+  vzhledProudu();
+  uloz();
+});
 
 // PŘEPÍNAČ REŽIMU. Neukládá se mezi posuvníky (`uloz`), ale zvlášť — resetem
 // panelu na výchozí hodnoty se režim hry měnit nemá.
@@ -5139,17 +5159,15 @@ function obnovPopisky(){
   // světlé pruhy svítily v tónu vody a ne natvrdo domodra.
   vVodaA.textContent = vodaA.value + ' %';
   vVodaS.textContent = vodaS.value + ' %';
-  kresliVodu(vodaB.value);
-  texVoda.needsUpdate = true;
   matVoda.opacity = +vodaA.value/100;
   matVoda.emissiveIntensity = +vodaS.value/100;
-  matVoda.emissive.set(vodaB.value).multiplyScalar(0.55);
+  // Barva, kresba a obrys se nastavují JEDINÝM místem, a to je `vzhledProudu`
+  // na konci téhle funkce — ono totiž musí umět obojí, vodu i pivo.
   // Obrys proudu je druhá trubice kreslená zevnitř (BackSide) o kus tlustší.
   // Tloušťka je NÁSOBEK poloměru, ne pevný přídavek — jinak by u tenkého
   // proudu obrys převládl a u tlustého zmizel.
   vObrT.textContent = obrT.value + ' %';
   OBRYS_RUST = +obrT.value/100;
-  matObrys.color.set(obrB.value);
   vRad.textContent = rad.value;
   vTl.textContent = tl.value;  vSp.textContent = sp.value;
   // POZOR NA `sila`: tak se jmenuje i modulová proměnná s okamžitou silou
@@ -5173,9 +5191,16 @@ function obnovPopisky(){
   PROJ_BARVA_B.set(projB.value);
   korunkaMer = +kor.value/100;
   vKor.textContent = kor.value + ' %';
-  // Posuvníky vzhledu přepisují barvu i kresbu proudu, takže by uprostřed
-  // piva vrátily vodu. Tohle to zase přebije zpátky.
-  if(pivoT > 0) vzhledProudu();
+  // Zaškrtávátko „pivo místo vody" se čte až tady, protože `nacti()` běží
+  // dřív než tenhle první průchod a bez toho by se uložený stav projevil až
+  // po ručním přepnutí.
+  pivoVzdy = document.getElementById('pivoVzdyBox').checked;
+  // VŽDYCKY, ne jen když teče pivo. Podmíněné volání nechávalo po vypnutí piva
+  // zlaté kapky: barvu kapek nastavuje výhradně `vzhledProudu`, kdežto texturu
+  // a obrys uměl přepsat i tenhle blok. Naměřeno testem — po vypnutí byla
+  // textura 60,184,251 (voda), ale kapka f0b02f (pivo). Teď je vzhled proudu
+  // na jednom místě a rozejít se nemá jak.
+  vzhledProudu();
 }
 obnovPopisky();
 nastavStiny();
