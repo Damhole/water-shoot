@@ -297,6 +297,22 @@
                 drop-shadow(0 .28vh .38vh rgba(0,0,0,.4)) brightness(1.5)}
     75% {transform:translateY(-50%) scale(.95,1.05)}
     100%{transform:translateY(-50%) scale(1,1)}}
+  /* Mince při doletu: ikona lokne stejně jako kapka, ale bez zploštění do
+     stran — kotouč, který se mačká, vypadá jako guma. Číslo v pruhu k tomu
+     povyskočí, protože právě ono se změnilo. */
+  #minceRoh.prijem .mince{animation:prijalaMinci .40s ease-out}
+  #minceRoh.prijem .pocet{animation:prijalaMinciCislo .40s ease-out}
+  @keyframes prijalaMinci{
+    0%  {transform:translateY(-50%) scale(1)}
+    22% {transform:translateY(-50%) scale(1.30);
+         filter:drop-shadow(0 var(--hloub) 0 var(--zobrys))
+                drop-shadow(0 .28vh .38vh rgba(0,0,0,.4)) brightness(1.9)}
+    55% {transform:translateY(-50%) scale(.94)}
+    100%{transform:translateY(-50%) scale(1)}}
+  @keyframes prijalaMinciCislo{
+    0%  {transform:scale(1)}
+    25% {transform:scale(1.22);color:#fff6d8}
+    100%{transform:scale(1)}}
   @keyframes prijalaVoduPruh{
     0%  {filter:brightness(1)}
     18% {filter:brightness(1.85)}
@@ -1909,7 +1925,12 @@ function vysypMince3d(pocet){
 // MINCE Z KACHNIČKY. Taky tělesa, ne rovnou ikonky v HUD: hráč má vidět, že
 // peníze VYPADLY z terče a teprve pak si je hra připsala. Jsou o kus menší
 // než ty rozsypané, aby se ta dvě sdělení nepletla — tyhle si nemusí honit.
-const MINCE_Z_KACHNY = 0.78;       // měřítko proti rozsypaným
+// STEJNĚ VELKÁ JAKO NA POLICI. Dřív byla 0,78, tedy menší než rozsypané mince,
+// aby se ta dvě sdělení nepletla — jenže tím pádem se mince při sebrání z police
+// ZMENŠILA (na polici stojí v plné velikosti) a odměna vypadala jako ztráta.
+// Rozsypané se od těchhle poznají chováním, ne velikostí: padají a musí se
+// honit, kdežto tyhle letí rovnou do pruhu.
+const MINCE_Z_KACHNY = 1.0;        // měřítko proti rozsypaným
 const KM_CEKANI = 0.34;            // jak dlouho visí u kachničky, než odletí
 const KM_LET = 0.55;               // jak dlouho letí do pruhu
 function mince3dZKachny(pocet, x, y, z){
@@ -1963,8 +1984,11 @@ function krokMinci3d(dt){
       c.m.position.set(c.zx + (c.cx - c.zx)*e,
                        c.zy + (c.cy - c.zy)*e - Math.sin(Math.PI*e)*40,
                        c.zz + (c.cz - c.zz)*e);
-      c.m.scale.setScalar(MINCE_Z_KACHNY*(1 - 0.35*u));
-      if(u >= 1){ c.ziva = false; c.m.visible = false; c.m.scale.setScalar(1); pripisMinci(1); }
+      // U cíle se zmenšuje jen mírně (dřív o 35 %): u pruhu má být pořád vidět,
+      // co tam přilétlo, ne tečka.
+      c.m.scale.setScalar(MINCE_Z_KACHNY*(1 - 0.20*u));
+      if(u >= 1){ c.ziva = false; c.m.visible = false; c.m.scale.setScalar(1);
+                  pripisMinci(1); prijalaMinci(); }
       continue;
     }
 
@@ -3140,6 +3164,7 @@ const VODA_MALO = 0.25;
 let maloHlaseno = false;
 const vodaMaloEl = document.getElementById('vodaMalo');
 const vodaRohEl = document.getElementById('vodaRoh');
+const minceRohEl = document.getElementById('minceRoh');
 // ---- úvodní tři věty ------------------------------------------------------
 // Musí se dát pochopit dřív, než hráč začne hrát, takže mizí ze dvou důvodů:
 // po pár vteřinách samy, a HNED v okamžiku, kdy hráč poprvé stříkne. Kdo už
@@ -3151,6 +3176,17 @@ function krokUvodu(dt, strikaJe){
   if(uvodT <= 0) return;
   if(strikaJe) uvodT = 0; else uvodT -= dt;
   if(uvodT <= 0) uvodEl.classList.add('pryc');
+}
+
+// Totéž pro minci: ikona v pruhu si „lokne" a problikne. Vody i peněz přibývá
+// tak málo naráz, že samotné číslo v pruhu se koutkem oka ztratí.
+let prijemMinceCas = 0;
+function prijalaMinci(){
+  minceRohEl.classList.remove('prijem');
+  void minceRohEl.offsetWidth;
+  minceRohEl.classList.add('prijem');
+  clearTimeout(prijemMinceCas);
+  prijemMinceCas = setTimeout(() => minceRohEl.classList.remove('prijem'), 460);
 }
 
 // Potvrzení, že kapka došla do zásobníku. Třída se před nasazením sundá
