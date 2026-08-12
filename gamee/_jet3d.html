@@ -311,12 +311,24 @@
   /* Pivní hláška sedí VÝŠ než „Floor cleared!" — obojí naráz nastat může
      (korbel spadne s posledním terčem) a přes sebe by se to nedalo přečíst.
      Zlatá je táž, jakou má pivo v proudu. */
-  #pivoHlaska{position:fixed;left:0;right:0;top:34vh;z-index:5;text-align:center;
-    pointer-events:none;font-size:3.9vh;line-height:1;--o:0.15vh;--o2:0.21vh;--hloubka:0.25vh;
-    letter-spacing:.06em;color:#ffcf5a;
-    opacity:0;transform:scale(.6) rotate(-6deg);
+  #pivoRoh{position:fixed;left:0;right:0;top:32vh;z-index:5;pointer-events:none;
+    display:flex;flex-direction:column;align-items:center;gap:.7vh;
+    opacity:0;transform:scale(.6);
     transition:opacity .14s ease, transform .22s cubic-bezier(.2,1.6,.4,1)}
-  #pivoHlaska.vidno{opacity:1;transform:scale(1) rotate(-6deg)}
+  #pivoRoh.vidno{opacity:1;transform:scale(1)}
+  /* NAKLONĚNÝ JE JEN NÁPIS, ne celá skupina. Když se s ním naklonil i pruh,
+     přestal to být ukazatel a začal vypadat jako škrtnutá čára. */
+  #pivoHlaska{font-size:3.9vh;line-height:1;--o:0.15vh;--o2:0.21vh;--hloubka:0.25vh;
+    letter-spacing:.06em;color:#ffcf5a;transform:rotate(-6deg)}
+  /* Půllitr, ne ukazatel: nahoře pěna, dole tmavší dno. Stejná stavba jako
+     pruh vody v rohu (černý obrys, vysunutá kopie pod ním), jen menší —
+     je to dočasná věc uprostřed obrazu, ne trvalý stav v rohu. */
+  #pivoPruh{width:24vh;height:1.9vh;box-sizing:border-box;overflow:hidden;
+    border:.28vh solid #000;border-radius:.95vh;
+    background:linear-gradient(#3a2408,#1a1004);
+    box-shadow:0 .3vh 0 #000, 0 .55vh .45vh rgba(0,0,0,.35)}
+  #pivoPruh i{display:block;height:100%;width:100%;
+    background:linear-gradient(#fff6e2 0 26%,#ffdc82 26%,#f0b02f 62%,#b9761a 100%)}
   /* Konec hry sedí na výšce terčů jako „Floor cleared!", jen výš a ve dvou
      řádcích. Přes celou šířku, takže se dlouhý text nemusí zmenšovat. */
   /* VAROVÁNÍ „Low water!". Naskočí jednou při poklesu pod práh a zase
@@ -405,7 +417,7 @@
      stav běhu už nikoho nezajímá a výsledek stojí v panelu. */
   /* I hláška „Floor cleared!" — dohasínala za panelem a vypadala, jako by
      hra běžela dál. */
-  body.konecPanel #hlaska,
+  body.konecPanel #hlaska, body.konecPanel #pivoRoh,
   body.konecPanel #skoreRoh, body.konecPanel #patroRoh,
   body.konecPanel #zivotRoh, body.konecPanel #vodaRoh, body.konecPanel #minceRoh{
     opacity:0;transition:opacity .3s ease;pointer-events:none}
@@ -624,7 +636,11 @@
      sranda, na pravidla to nesahá — ale hráč musí vědět, PROČ mu zežloutla
      voda, jinak to vypadá jako chyba. Vlastní prvek, ne „Floor cleared!":
      ta hláška má svůj časovač, kterým se spouští přechod na další patro. -->
-<div id="pivoHlaska" class="titulek" data-text="BEER!">BEER!</div>
+<div id="pivoRoh" aria-hidden="true">
+  <div id="pivoHlaska" class="titulek" data-text="BEER!">BEER!</div>
+  <!-- Kolik piva zbývá. Ubývá JEN při stříkání, takže je to zásoba, ne odpočet. -->
+  <div id="pivoPruh"><i></i></div>
+</div>
 <!-- STARTOVNÍ OBRAZOVKA. Přijde po vynulování postupu: hráč si chce nejdřív
      nastavit, s čím do nového postupu jde, a teprve pak spustit hru. Kachničky
      zatím nechodí, patro se neposouvá a VODA SE NESPOTŘEBOVÁVÁ, takže si může
@@ -3466,18 +3482,24 @@ let OBRYS_RUST = 1.22;   // násobek poloměru, mění se posuvníkem
 //   1) barva a kresba proudu (zlatá s bublinami místo modré s pruhy),
 //   2) tvar — proud je znatelně tlustší a hrbolatější, jako když teče pěna,
 //   3) odtržené kapky jsou pěna, ne voda.
-const PIVO_DOBA = 6.0;              // vteřin, ne nastavitelné — je to gag
+// Pivo je ZÁSOBA, ne odpočet: ubývá jen tehdy, když se s ním stříká, takže
+// si ho hráč může schovat na plnou polici. Pět vteřin proudu je proti plné
+// nádrži vody (30 s) přilepšení, ne druhá hra.
+const PIVO_ZASOBA = 5.0;            // vteřin stříkání na jeden korbel
 const PIVO_BARVA = '#f0b02f';       // zlatá jako pivo v korbelu, o kousek světlejší
 const PIVO_OBRYS = '#6b3d0c';
 const PIVO_TLUSTKA = 1.26;          // o kolik je proud tlustší
 const PIVO_HRBOL = 0.15;            // hrbolatost navíc (bublání)
-let pivoT = 0;                      // kolik vteřin piva zbývá
+// Jméno NENÍ `pivo`: uvnitř `vzhledProudu` a `naplnTrubici` je místní
+// `const pivo = tecePivo()` a modulová proměnná by se pod ním schovala.
+let pivoZbyva = 0;                  // 0..1, kolik piva zbývá v korbelu
 // Přepínač v ⚙: pivo napořád. Je to LADICÍ věc — šest vteřin je málo na to,
 // aby se dal doladit vzhled proudu. Drží se v proměnné, ne se čte z prvku:
 // ptá se na to plnění trubice, tedy nejteplejší místo ve smyčce.
 let pivoVzdy = false;
-function tecePivo(){ return pivoVzdy || pivoT > 0; }
-const pivoHlaskaEl = document.getElementById('pivoHlaska');
+function tecePivo(){ return pivoVzdy || pivoZbyva > 0; }
+const pivoRohEl = document.getElementById('pivoRoh');
+const pivoVyplnEl = document.querySelector('#pivoPruh i');
 
 // Pěna do textury proudu. Vodorovná osa textury běží PO DÉLCE trubice a svislá
 // KOLEM OBVODU, takže z kolečka na plátně je na proudu bublina. Každá se kreslí
@@ -3533,24 +3555,30 @@ function vzhledProudu(){
   matObrys.color.set(pivo ? PIVO_OBRYS : obrB.value);
   BARVA_VODY.set(pivo ? PIVO_BARVA : VODA_ZAKLADNI);
 }
-let pivoHlaskaCas = 0;
 function spustPivo(x, y, z){
-  const znovu = pivoT > 0;
-  pivoT = PIVO_DOBA;
+  const znovu = pivoZbyva > 0;
+  pivoZbyva = 1;                     // druhý korbel dolije, nesčítá se
   if(!znovu) vzhledProudu();
   // Pěna z rozbitého korbelu. Kropenatá bíle, ne modře — teče z ní pivo.
   rozprsk(new THREE.Vector3(x, y, z), new THREE.Vector3(0,1,0), new THREE.Vector3(0, 520, 0), 22);
   zablesk(x, y, z, 220);
-  if(pivoHlaskaEl){
-    pivoHlaskaEl.classList.add('vidno');
-    clearTimeout(pivoHlaskaCas);
-    pivoHlaskaCas = setTimeout(() => pivoHlaskaEl.classList.remove('vidno'), 1100);
-  }
+  // Hláška se neschovává časem, ale s pivem — je to popiska toho pruhu pod ní.
+  pivoRohEl.classList.add('vidno');
+  ukazPivo();
 }
-function krokPiva(dt){
-  if(pivoT <= 0) return;
-  pivoT -= dt;
-  if(pivoT <= 0){ pivoT = 0; vzhledProudu(); }
+function ukazPivo(){
+  pivoVyplnEl.style.width = (pivoZbyva*100).toFixed(1) + '%';
+}
+// Pivo ubývá JEN při stříkání. Ladicí přepínač („pivo místo vody") do zásoby
+// nesahá — proto se s ním pruh neukazuje a nikdy nedojde.
+function krokPiva(dt, strikaJe){
+  if(pivoZbyva <= 0) return;
+  if(strikaJe) pivoZbyva = Math.max(0, pivoZbyva - dt/PIVO_ZASOBA);
+  ukazPivo();
+  if(pivoZbyva <= 0){
+    pivoRohEl.classList.remove('vidno');
+    vzhledProudu();                  // zpátky na vodu, a ta se zase spotřebovává
+  }
 }
 
 let jet = null;                       // mesh trubice
@@ -4004,7 +4032,11 @@ function krokProudu(dt, cil, strikaJe){
   // úplně, ale klesne na poslední kapky (SUCHO_SILA). Kdyby zhasla docela,
   // hráč bez vody by neměl jak vodu z lahví získat a hra by se zasekla —
   // tohle je jediné místo, kde se dá uváznout, tak ať nemá kudy vzniknout.
-  if(strikaJe && voda > 0 && !cekaSeNaStart) nastavVodu(voda - SPOTREBA_VODY()*dt);
+  // DOKUD TEČE PIVO, VODA SE NESPOTŘEBOVÁVÁ. Je to celá odměna za korbel:
+  // pár vteřin, kdy se dá stříkat zadarmo. Nádrž se přitom nedoplňuje —
+  // po dopití se pokračuje přesně tam, kde se přestalo.
+  if(strikaJe && voda > 0 && !cekaSeNaStart && !tecePivo())
+    nastavVodu(voda - SPOTREBA_VODY()*dt);
 
   // náběh/doběh. TLAK KLESÁ S DOCHÁZEJÍCÍ VODOU: pod hladinou TLAK_OD už
   // tryska nedává plný proud a čůrek se plynule zkracuje k nule. Je to
@@ -6465,6 +6497,9 @@ function smycka(now){
   // dostojí. Zamrznutý obraz působí jako pád hry, kdežto dozvuk jako konec.
   // Nepřibývá ale nic nového — patro se neposouvá, kachničky se nenasazují
   // a tryska nestříká.
+  // Jestli se právě stříká, potřebuje vědět i pivo (ubývá jen při stříkání),
+  // takže se to spočítá jednou tady a pošle oběma.
+  const strikaJe = !konec && (strika || cbAuto.checked);
   if(!konec && !cekaSeNaStart){
     krokPostupu(dt);
     krokKachen(dt);
@@ -6475,7 +6510,7 @@ function smycka(now){
   }
   krokNahledu(dt, now/1000);
   krokRozmazani(dt);
-  krokProudu(dt, cil, !konec && (strika || cbAuto.checked));
+  krokProudu(dt, cil, strikaJe);
   const kapekZivych = krokKapek(dt) + krokDrobnych(dt);
   krokPeri(dt, now/1000);
   krokPopupu(dt);
@@ -6485,7 +6520,7 @@ function smycka(now){
   krokTrpytu(dt);
   // Taky mimo `!konec` — po smrti musí pivo dotéct a proud se vrátit k vodě,
   // jinak by po restartu naskočila hra rovnou se zlatým proudem.
-  krokPiva(dt);
+  krokPiva(dt, strikaJe);
   krokFleku(dt);
   krokKapacu(dt);
   krokKorunek(dt);
