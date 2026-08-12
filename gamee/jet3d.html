@@ -312,23 +312,30 @@
      (korbel spadne s posledním terčem) a přes sebe by se to nedalo přečíst.
      Zlatá je táž, jakou má pivo v proudu. */
   #pivoRoh{position:fixed;left:0;right:0;top:32vh;z-index:5;pointer-events:none;
-    display:flex;flex-direction:column;align-items:center;gap:.7vh;
+    display:flex;justify-content:center;
     opacity:0;transform:scale(.6);
     transition:opacity .14s ease, transform .22s cubic-bezier(.2,1.6,.4,1)}
   #pivoRoh.vidno{opacity:1;transform:scale(1)}
-  /* NAKLONĚNÝ JE JEN NÁPIS, ne celá skupina. Když se s ním naklonil i pruh,
-     přestal to být ukazatel a začal vypadat jako škrtnutá čára. */
-  #pivoHlaska{font-size:3.9vh;line-height:1;--o:0.15vh;--o2:0.21vh;--hloubka:0.25vh;
-    letter-spacing:.06em;color:#ffcf5a;transform:rotate(-6deg)}
-  /* Půllitr, ne ukazatel: nahoře pěna, dole tmavší dno. Stejná stavba jako
-     pruh vody v rohu (černý obrys, vysunutá kopie pod ním), jen menší —
-     je to dočasná věc uprostřed obrazu, ne trvalý stav v rohu. */
-  #pivoPruh{width:24vh;height:1.9vh;box-sizing:border-box;overflow:hidden;
-    border:.28vh solid #000;border-radius:.95vh;
-    background:linear-gradient(#3a2408,#1a1004);
-    box-shadow:0 .3vh 0 #000, 0 .55vh .45vh rgba(0,0,0,.35)}
-  #pivoPruh i{display:block;height:100%;width:100%;
-    background:linear-gradient(#fff6e2 0 26%,#ffdc82 26%,#f0b02f 62%,#b9761a 100%)}
+  /* Spodní vrstva = PRÁZDNÁ SKLENICE. Tmavý jantar, ale pořád čitelné slovo,
+     takže i dopité pivo říká, o co jde. Naklonění drží nápis, ne skupina. */
+  #pivoHlaska{position:relative;font-size:3.5vh;line-height:1;
+    --o:0.15vh;--o2:0.21vh;--hloubka:0.25vh;
+    letter-spacing:.06em;color:#7c5a1f;transform:rotate(-6deg)}
+  /* Horní vrstva = PIVO. Táž písmena přesně přes ta spodní, obarvená
+     přechodem přes background-clip:text; odkrajuje se shora `clip-path`.
+     JEDNA proměnná --u (0 plno … 100 prázdno) řídí obojí: kam sahá řez
+     i kam se posune přechod, takže pěna sedí přesně na hladině. Přechod má
+     dvojnásobnou výšku, aby s ním šlo posouvat — při shodné výšce s prvkem
+     by procenta v background-position neměla co posouvat.
+     Vlastní obrys mít nesmí: leží přesně na spodní vrstvě, která už ho má,
+     a druhý by ho jen ztloustil a prosvítal by řezem. */
+  #pivoPlne{position:absolute;left:0;top:0;white-space:nowrap;
+    text-shadow:none;color:transparent;
+    background-image:linear-gradient(#fff6e2 0 3%,#ffe8ab 3% 9%,#ffc63f 9% 55%,#c07f18 100%);
+    background-repeat:no-repeat;background-size:100% 200%;
+    background-position-y:calc(var(--u,0) * 1%);
+    -webkit-background-clip:text;background-clip:text;
+    clip-path:inset(calc(var(--u,0) * 1%) 0 0 0)}
   /* Konec hry sedí na výšce terčů jako „Floor cleared!", jen výš a ve dvou
      řádcích. Přes celou šířku, takže se dlouhý text nemusí zmenšovat. */
   /* VAROVÁNÍ „Low water!". Naskočí jednou při poklesu pod práh a zase
@@ -636,10 +643,12 @@
      sranda, na pravidla to nesahá — ale hráč musí vědět, PROČ mu zežloutla
      voda, jinak to vypadá jako chyba. Vlastní prvek, ne „Floor cleared!":
      ta hláška má svůj časovač, kterým se spouští přechod na další patro. -->
+<!-- SLOVO SAMO JE UKAZATEL. Pod zlatým nápisem leží jeho tmavá kopie
+     (prázdná sklenice) a zlatá se odshora dolů odkrajuje, jak piva ubývá —
+     jedna věc říká „máš pivo" i „kolik ho zbývá". Ubývá jen při stříkání,
+     takže je to zásoba, ne odpočet. -->
 <div id="pivoRoh" aria-hidden="true">
-  <div id="pivoHlaska" class="titulek" data-text="BEER!">BEER!</div>
-  <!-- Kolik piva zbývá. Ubývá JEN při stříkání, takže je to zásoba, ne odpočet. -->
-  <div id="pivoPruh"><i></i></div>
+  <div id="pivoHlaska" class="titulek" data-text="BEER!">BEER!<span id="pivoPlne">BEER!</span></div>
 </div>
 <!-- STARTOVNÍ OBRAZOVKA. Přijde po vynulování postupu: hráč si chce nejdřív
      nastavit, s čím do nového postupu jde, a teprve pak spustit hru. Kachničky
@@ -3499,7 +3508,7 @@ let pivoZbyva = 0;                  // 0..1, kolik piva zbývá v korbelu
 let pivoVzdy = false;
 function tecePivo(){ return pivoVzdy || pivoZbyva > 0; }
 const pivoRohEl = document.getElementById('pivoRoh');
-const pivoVyplnEl = document.querySelector('#pivoPruh i');
+const pivoPlneEl = document.getElementById('pivoPlne');
 
 // Pěna do textury proudu. Vodorovná osa textury běží PO DÉLCE trubice a svislá
 // KOLEM OBVODU, takže z kolečka na plátně je na proudu bublina. Každá se kreslí
@@ -3567,7 +3576,8 @@ function spustPivo(x, y, z){
   ukazPivo();
 }
 function ukazPivo(){
-  pivoVyplnEl.style.width = (pivoZbyva*100).toFixed(1) + '%';
+  // 0 = plno (řez nikde), 100 = prázdno (řez přes celou výšku)
+  pivoPlneEl.style.setProperty('--u', ((1 - pivoZbyva)*100).toFixed(1));
 }
 // Pivo ubývá JEN při stříkání. Ladicí přepínač („pivo místo vody") do zásoby
 // nesahá — proto se s ním pruh neukazuje a nikdy nedojde.
