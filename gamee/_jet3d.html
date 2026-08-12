@@ -1003,9 +1003,11 @@ const GEO_SKLENICE = lathe(PROFIL_SKLENICE, 14);
 // jantarový váleček. Tři meshe by ale stály tři draw cally na KAŽDÝ korbel,
 // a těch stojí na polici až šest — proto je z toho JEDNA sloučená geometrie
 // a barvy sedí ve vrcholech. Cena je pak stejná jako u lahve: tělo + obrys.
-const KORBEL_W = 27, KORBEL_H = 64;
-// Sklenice v okně (index 0) má w 26 a rozestup ve skupině je 62, takže širší
-// korbel by se se sousedy pral. 27 je strop, který ještě projde.
+const KORBEL_W = 29, KORBEL_H = 70;
+// Korbel je jako rarita na první pohled větší než všechno kolem (sklenice má
+// 26 × 52). Do šířky je ale strop: rozestup ve skupině je 62, tedy 31 na
+// každou stranu, takže tělo o poloměru 29 a ucho natočené šikmo jsou tak
+// akorát — kolmo do boku by dorazilo do souseda.
 const PROFIL_PIVO = [
   [0.00,0.00],[0.95,0.00],[1.00,0.05],[0.98,0.70],[0.00,0.76],
 ];
@@ -1256,6 +1258,10 @@ function rozlozPolici(n){
 // přestavění se mění jen pozice), takže „nultá je vždycky sklenice" stačí
 // zařídit jednou tady a v okně pak stojí sklenice i po přestavění.
 const TYP_SKLENICE = 3;
+// KORBEL JE RARITA a z losu druhů je proto venku — losuje se jen z prvních
+// čtyř. Nasazuje se zvlášť, viz `rozdejKorbel`.
+const TYP_KORBEL = 4;
+const BEZNYCH_SKEL = 4;
 // Jak se sklo postaví na polici. Lahev je rotační těleso, takže je jí natočení
 // jedno; KORBEL ale musí ukázat ucho. Kolmo do stran by zajíždělo do souseda
 // (ucho sahá 1,46 poloměru, kdežto rozestup ve skupině dává 31), a přímo na
@@ -1267,11 +1273,12 @@ function uhelSkla(typ){
   return u + (Math.random() < 0.5 ? Math.PI : 0);
 }
 function novaLahev(sek, police, i, xPozice, typVynuceny){
-  const typ = SKLA[typVynuceny !== undefined ? typVynuceny : (Math.random()*SKLA.length)|0];
+  const typ = SKLA[typVynuceny !== undefined ? typVynuceny : (Math.random()*BEZNYCH_SKEL)|0];
   // Korbel má barvy ve vrcholech a jeden společný materiál; ostatní sklo
   // dostává vlastní materiál se svou barvou.
-  const m = new THREE.Mesh(typ.geo, typ.mat || barevny(new THREE.MeshToonMaterial({
-    color: typ.barva, gradientMap: toonGrad }), typ.barva));
+  const matVlastni = barevny(new THREE.MeshToonMaterial({
+    color: typ.barva, gradientMap: toonGrad }), typ.barva);
+  const m = new THREE.Mesh(typ.geo, matVlastni);
   // model má počátek ve SPODKU (profil 0..1), fyzikální válec ve STŘEDU —
   // proto se mesh posouvá o půl výšky dolů proti tělesu
   m.scale.set(typ.w, typ.h, typ.w);
@@ -1294,9 +1301,52 @@ function novaLahev(sek, police, i, xPozice, typVynuceny){
 
   // Zhruba třetina lahví v sobě má vodu do zásoby. Losuje se při stavbě police
   // i při každém přestavění, takže nové patro rozdá zásoby znovu.
-  const L = { m, telo, typ, police, i, sek, hp: HP_LAHVE, mrtva: 0, trefena: false,
+  // `zaklTyp` a `matVlastni` jsou to, čím sklo JE, když z něj zrovna není
+  // korbel — bez nich by se z převlečeného slotu nedalo vrátit zpátky.
+  const L = { m, obrys, telo, typ, zaklTyp: typ, matVlastni, police, i, sek,
+              hp: HP_LAHVE, mrtva: 0, trefena: false,
               voda: Math.random() < 0.32, zaklX: x };
   sek.lahve.push(L);
+  return L;
+}
+
+// PŘEVLEČENÍ SLOTU NA JINÝ DRUH SKLA. Korbel se nedá losovat jako pátý druh —
+// to by z rarity udělalo běžnou lahev — a nedá se ani nechat slot prázdný,
+// protože police by tím prořídly. Sklo se proto na začátku patra převlékne
+// a po patře vrátí zpátky.
+//
+// Vyměnit se musí VŠECHNO NAJEDNOU: geometrie těla, geometrie obrysu, materiál,
+// měřítko I kolizní válec. Kdyby zůstal starý válec, korbel by se opíral
+// o vzduch ve výšce lahve. A cannonu se musí říct o novém tvaru (`removeShape`
+// s `addShape` přepočítají hmotnost i poloměr, `aabbNeedsUpdate` obálku).
+function prevlecSklo(L, typ){
+  if(L.typ === typ) return;
+  L.typ = typ;
+  L.m.geometry = typ.geo;
+  L.m.material = typ.mat || L.matVlastni;
+  L.obrys.geometry = typ.geo;
+  L.m.scale.set(typ.w, typ.h, typ.w);
+  L.telo.removeShape(L.telo.shapes[0]);
+  L.telo.addShape(new CANNON.Cylinder(typ.w*0.9, typ.w*0.9, typ.h, 10));
+  L.telo.position.y = L.sek.zaklY + POLICE_Y[L.police] + typ.h/2;
+  L.telo.quaternion.setFromEuler(0, uhelSkla(typ), 0);
+  L.telo.aabbNeedsUpdate = true;
+}
+
+// KOLIK KORBELŮ ZA HRU. Patro je jedna sekce, takže „jednou za čtyři patra"
+// znamená při obvyklé délce hry (osm až deset pater) zhruba dva korbely —
+// právě tolik, aby zůstaly událostí. Víc než jeden na patro schválně ne:
+// dva vedle sebe by z rarity udělaly kolekci.
+const KORBEL_SANCE = 0.25;
+function rozdejKorbel(sek){
+  for(const L of sek.lahve) prevlecSklo(L, L.zaklTyp);   // nejdřív všechno zpátky
+  if(Math.random() >= KORBEL_SANCE) return null;
+  // Okno (index 0) musí zůstat sklenicí — kachnička jím projíždí a korbel je
+  // vyšší i širší, takže by jí do něj koukalo ucho.
+  const police = (Math.random()*POLIC)|0;
+  const i = 1 + ((Math.random()*(LAHVI_NA_POLICI - 1))|0);
+  const L = sek.lahve.find(x => x.police === police && x.i === i);
+  if(L) prevlecSklo(L, SKLA[TYP_KORBEL]);
   return L;
 }
 
@@ -1347,6 +1397,9 @@ function novaSekce(zaklY){
     for(let i=0;i<LAHVI_NA_POLICI;i++)
       lahve.push(novaLahev(sek, p, i, xs[i], i === 0 ? TYP_SKLENICE : undefined));
   }
+  // Prvních tři patra vznikají tudy, dál už přes `prestavLahve` — korbel se
+  // musí losovat na obou cestách stejně, jinak by první patra byla jiná hra.
+  rozdejKorbel(sek);
   nastavSekci(sek, zaklY);
   return sek;
 }
@@ -1370,6 +1423,9 @@ function nastavSekci(sek, y){
 // Nové rozestavení lahví — sekce, která vyjede nahoru, musí vypadat jako jiný
 // kus baru, ne jako ten, co hráč právě vyčistil.
 function prestavLahve(sek){
+  // Korbel se rozdává JAKO PRVNÍ: mění druh skla, tedy i jeho výšku, a poloha
+  // těla se počítá právě z ní.
+  rozdejKorbel(sek);
   // Kompozice se losuje ZNOVU a pro každou polici zvlášť — jinak by vyjelo
   // stejné patro, jaké hráč právě vyčistil.
   const xsPodle = POLICE_Y.map(()=> rozlozPolici(LAHVI_NA_POLICI));
