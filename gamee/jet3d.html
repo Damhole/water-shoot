@@ -1350,7 +1350,7 @@ function novaLahev(sek, police, i, xPozice, typVynuceny){
   // `zaklTyp` a `matVlastni` jsou to, čím sklo JE, když z něj zrovna není
   // korbel — bez nich by se z převlečeného slotu nedalo vrátit zpátky.
   const L = { m, obrys, telo, typ, zaklTyp: typ, matVlastni, police, i, sek,
-              hp: HP_LAHVE, mrtva: 0, trefena: false, pivoDano: false,
+              hp: HP_LAHVE, mrtva: 0, trefena: false,
               voda: Math.random() < 0.32, zaklX: x };
   sek.lahve.push(L);
   return L;
@@ -1477,7 +1477,6 @@ function prestavLahve(sek){
   const xsPodle = POLICE_Y.map(()=> rozlozPolici(LAHVI_NA_POLICI));
   for(const L of sek.lahve){
     L.hp = HP_LAHVE; L.mrtva = 0; L.pada = false; L.trefena = false;
-    L.pivoDano = false;
     L.voda = Math.random() < 0.32; L.m.visible = true;
     L.zaklX = xsPodle[L.police][L.i];
     L.telo.position.set(L.zaklX, sek.zaklY + POLICE_Y[L.police] + L.typ.h/2, POLICE_Z + rand(-16, 16));
@@ -3323,17 +3322,6 @@ function zasahyLahvi(dt){
       continue;
     }
 
-    // PIVO SPOUŠTÍ KORBEL, KTERÝ SPADL Z POLICE — ne až ten, co dopadl na zem.
-    // Rozbití o zem je jediná událost, kterou tu sklo má, jenže nad přízemím
-    // propadne mimo obraz a hláška i pěna by vyskočily o vteřinu později
-    // někde pod hranou displeje. Padesát jednotek pod hranou police je
-    // okamžik, kdy je na obrázku vidět, že korbel letí dolů — a přitom o tolik
-    // se převržené sklo LEŽÍCÍ na polici nikdy nesníží (poloměr je 29).
-    if(L.typ.ucho && !L.pivoDano &&
-       L.telo.position.y < L.sek.zaklY + POLICE_Y[L.police] - 30){
-      L.pivoDano = true;
-      spustPivo(L.telo.position.x, L.telo.position.y, L.telo.position.z);
-    }
 
     // zásah proudem = skutečný impulz v bodě dopadu
     for(const u of uzly){
@@ -3358,7 +3346,16 @@ function zasahyLahvi(dt){
       if(!L.trefena){
         L.trefena = true;
         const stred = L.telo.position.y + L.typ.h*0.5;
-        if(L.voda){
+        // KORBEL PLATÍ PIVEM, A TO HNED PŘI ZÁSAHU. Původně to spouštěl až
+        // korbel spadlý z police a bylo to špatně dvakrát: než ho proud
+        // shodí, uběhne skoro vteřina — a když se jen převrhne nebo se
+        // zaklíní o souseda, nespadne vůbec a pivo nepřijde nikdy. Zásah je
+        // navíc to, co hráč UDĚLAL; pád je jen důsledek fyziky.
+        // Platí tu totéž pravidlo jako u lahví: jedna trefa = jedna odměna.
+        // Korbel proto nedává ani bod, ani kapku — dává pivo.
+        if(L.typ.ucho){
+          spustPivo(L.telo.position.x, stred, L.telo.position.z);
+        } else if(L.voda){
           L.voda = false;
           letVody(1, L.telo.position.x, stred, L.telo.position.z);
         } else {
@@ -3384,7 +3381,12 @@ function zasahyLahvi(dt){
 // v nastavení, takže se mění za běhu — vyrobit při každé změně novou texturu
 // by znamenalo nahrávat ji znovu na GPU a starou uklízet.
 const _cVoda = document.createElement('canvas');
-_cVoda.width = 128; _cVoda.height = 8;
+// VÝŠKA 24, ne 8. Svislá osa textury se ovíjí kolem obvodu trubice, takže na
+// osmi řádcích zabrala bublina o poloměru 3 přes tři čtvrtiny obvodu a pěna
+// se nedala kreslit jinak než jako pruh. Na vodu to vliv nemá — její pruhy
+// jsou svislé, tedy na výšce nezávislé.
+const TEX_V = 24;
+_cVoda.width = 128; _cVoda.height = TEX_V;
 
 function kresliVodu(barva){
   // Textura je ŠIROKÁ a nízká: u TubeGeometry jde 'u' (osa X textury) podél
@@ -3394,7 +3396,7 @@ function kresliVodu(barva){
   const c = _cVoda;
   const g = c.getContext('2d');
   g.fillStyle = barva;
-  g.fillRect(0, 0, 128, 8);
+  g.fillRect(0, 0, 128, TEX_V);
   // ŠIROKÉ BÍLÉ SHLUKY — to, čím se voda kreslí v anime a kresleném filmu:
   // kromě tenkých linek po ní občas putuje výrazná bílá část, která proud
   // „doplňuje". Jsou jen dva na celou výšku textury, takže projdou zřídka
@@ -3409,7 +3411,7 @@ function kresliVodu(barva){
     grd.addColorStop(0.85, 'rgba(255,255,255,1)');
     grd.addColorStop(1.00, 'rgba(255,255,255,0)');
     g.fillStyle = grd;
-    g.fillRect(x-w, 0, w*2, 8);
+    g.fillRect(x-w, 0, w*2, TEX_V);
   }
   // tenké linky mezi nimi, aby proud nebyl jen dva bloky
   const pruhy = [[64,0.45],[76,0.3],[100,0.5],[112,0.35]];
@@ -3421,7 +3423,7 @@ function kresliVodu(barva){
     grd.addColorStop(0.78, 'rgba(238,250,255,' + a + ')');
     grd.addColorStop(1.00, 'rgba(255,255,255,0)');
     g.fillStyle = grd;
-    g.fillRect(x-w, 0, w*2, 8);
+    g.fillRect(x-w, 0, w*2, TEX_V);
   }
 }
 kresliVodu('#4aa9dd');
@@ -3484,23 +3486,31 @@ const pivoHlaskaEl = document.getElementById('pivoHlaska');
 function kresliPivo(barva){
   const c = _cVoda, g = c.getContext('2d');
   g.fillStyle = barva;
-  g.fillRect(0, 0, 128, 8);
+  g.fillRect(0, 0, 128, TEX_V);
   // Tmavší jantar dělá hloubku — plochá žlutá vypadá jako limonáda.
   g.fillStyle = 'rgba(150,86,10,0.28)';
-  for(const [x, w] of [[8,7],[52,6],[95,8]]) g.fillRect(x, 0, w, 8);
-  // Krémová čepice: jeden široký pás pěny, který proudem projede jako vlna —
-  // totéž, co u vody dělá bílý shluk, jen hustší.
-  const grd = g.createLinearGradient(24, 0, 48, 0);
-  grd.addColorStop(0.00, 'rgba(255,250,235,0)');
-  grd.addColorStop(0.20, 'rgba(255,250,235,0.95)');
-  grd.addColorStop(0.80, 'rgba(255,250,235,0.95)');
-  grd.addColorStop(1.00, 'rgba(255,250,235,0)');
-  g.fillStyle = grd;
-  g.fillRect(24, 0, 24, 8);
+  for(const [x, w] of [[8,7],[52,6],[95,8]]) g.fillRect(x, 0, w, TEX_V);
+  // DVĚ ČEPICE PĚNY přes celý obvod. Jedna byla málo: textura se po proudu
+  // opakuje jen 1,4×, takže mezi dvěma průchody pěny byl dlouhý kus čisté
+  // žluté — a odtud hlášení „žádná pěna nevzniká".
+  for(const [x, w] of [[26, 13], [82, 9]]){
+    const grd = g.createLinearGradient(x-w, 0, x+w, 0);
+    grd.addColorStop(0.00, 'rgba(255,250,235,0)');
+    grd.addColorStop(0.22, 'rgba(255,250,235,0.97)');
+    grd.addColorStop(0.78, 'rgba(255,250,235,0.97)');
+    grd.addColorStop(1.00, 'rgba(255,250,235,0)');
+    g.fillStyle = grd;
+    g.fillRect(x-w, 0, w*2, TEX_V);
+  }
+  // Bubliny. Vodorovná osa textury běží PO DÉLCE trubice a svislá KOLEM
+  // OBVODU, takže z kolečka na plátně je na proudu bublina. Každá se kreslí
+  // třikrát (nad, na, pod), protože svislá osa se ovíjí dokola a bublina
+  // u kraje by byla seříznutá.
   g.fillStyle = 'rgba(255,252,242,0.95)';
-  for(const [x, y, r] of [[18,2,2.4],[24,6,1.6],[40,3,2.0],[46,6,1.3],[63,2,1.9],
-                          [70,5,2.6],[78,1,1.4],[86,4,2.2],[104,6,1.9],[112,2,2.3],[120,5,1.5]]){
-    for(const dy of [-8, 0, 8]){ g.beginPath(); g.arc(x, y + dy, r, 0, Math.PI*2); g.fill(); }
+  for(const [x, y, r] of [[6,5,4.5],[14,17,3.4],[20,9,2.6],[42,4,5.0],[47,15,3.6],
+                          [56,21,3.0],[62,7,4.2],[68,16,5.2],[73,3,3.0],[90,12,4.6],
+                          [97,20,3.4],[103,5,4.0],[110,15,5.0],[117,8,3.2],[123,19,4.4]]){
+    for(const dy of [-TEX_V, 0, TEX_V]){ g.beginPath(); g.arc(x, y + dy, r, 0, Math.PI*2); g.fill(); }
   }
 }
 
@@ -3509,6 +3519,9 @@ function kresliPivo(barva){
 // přesně to, co si nastavil.
 function vzhledProudu(){
   const pivo = tecePivo();
+  // Pěna má hrubší zrno než vodní tříšť. PointsMaterial umí jen jednu velikost
+  // pro celý objekt, takže se přepíná tady, ne u jednotlivé kapky.
+  kapkyMesh.material.size = pivo ? 23 : 16;
   const barva = pivo ? PIVO_BARVA : vodaB.value;
   if(pivo) kresliPivo(barva); else kresliVodu(barva);
   texVoda.needsUpdate = true;
@@ -3967,7 +3980,8 @@ function krokProudu(dt, cil, strikaJe){
     // kužel ~7°): kapka letí s proudem a jen z něj vystřelí. Zvýšený je JEN
     // počet — základ 0,45 místo nuly, protože od chvíle, kdy proud končí
     // nárazem do dřeva, se uzly nedožijí stáří, na kterém původní vzorec stál.
-    if(Math.random() < dt * 2.4 * (0.45 + 0.55*u.t/ZIVOT)) pustKapku(u);
+    // Pivo se tříští víc než voda — pěna je to, co se od proudu odtrhává.
+    if(Math.random() < dt * (tecePivo() ? 4.3 : 2.4) * (0.45 + 0.55*u.t/ZIVOT)) pustKapku(u);
   }
 
   // nový stisk = nová generace, která se se starou nikdy nespojí
@@ -4154,7 +4168,10 @@ function postavJet(cas){
 // 220 stačilo, dokud se kapky trhaly hlavně na doletu. S hustším odtrháváním
 // po celé délce vychází při volném letu ~270 kapek za vteřinu při životnosti
 // kolem 0,85 s, takže by se pool vyčerpal a odtržení by tiše přestalo fungovat.
-const KAPEK_MAX = 340;
+// Pivo trhá kapky skoro dvakrát hustěji (4,3 místo 2,4 za vteřinu na uzel),
+// takže při 340 by se pool vyčerpal a odtrhávání by tiše přestalo fungovat —
+// přesně ta chyba, kvůli které se z 220 zvedalo na 340.
+const KAPEK_MAX = 560;
 const kapkyPos = new Float32Array(KAPEK_MAX*3);
 const kapkyBarva = new Float32Array(KAPEK_MAX*3);
 const kapky = [];
@@ -4171,6 +4188,13 @@ const BARVA_VODY = new THREE.Color(VODA_ZAKLADNI);
 const BARVA_PENY = new THREE.Color(0xffffff);
 const _barva = new THREE.Color();
 function barvaKapky(){
+  // V PIVU JE TO NAOPAK: pěna převažuje a i ta „pivní" kapka je jen nakřáplá
+  // do zlata. Poměr půl na půl, který sedí vodě, dal u piva hrst zlatých
+  // teček na zlatém proudu — tedy nic, co by šlo poznat.
+  if(tecePivo()){
+    const t = Math.random() < 0.78 ? 0 : 0.30 + Math.random()*0.45;
+    return _barva.copy(BARVA_PENY).lerp(BARVA_VODY, t);
+  }
   const t = Math.random() < 0.5 ? 0 : 0.45 + Math.random()*0.55;
   return _barva.copy(BARVA_PENY).lerp(BARVA_VODY, t);
 }
