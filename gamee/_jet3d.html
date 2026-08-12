@@ -311,6 +311,24 @@
   /* Pivní hláška sedí VÝŠ než „Floor cleared!" — obojí naráz nastat může
      (korbel spadne s posledním terčem) a přes sebe by se to nedalo přečíst.
      Zlatá je táž, jakou má pivo v proudu. */
+  /* Úvod sedí NAD hracím pásem: první kachničky naskakují do prostředních
+     polic a text přes ně by hráči překážel v tom, kvůli čemu ho čte.
+     Řádky se nasouvají jeden po druhém, ať se čtou v pořadí, ne najednou. */
+  #uvod{position:fixed;left:0;right:0;top:27vh;z-index:6;pointer-events:none;
+    display:flex;flex-direction:column;align-items:center;gap:1.1vh;
+    transition:opacity .35s ease}
+  #uvod.pryc{opacity:0}
+  #uvod .titulek{font-size:2.9vh;line-height:1;letter-spacing:.03em;
+    --o:0.13vh;--o2:0.18vh;--hloubka:0.22vh;position:relative;
+    opacity:0;transform:translateY(1.2vh) scale(.9);
+    animation:uvodRadek .34s cubic-bezier(.2,1.5,.4,1) forwards}
+  /* Barva = to, o čem řádek je: bandité červeně, voda modře, peníze zlatě.
+     Hráč si tím větu spojí s tím, co pak na obrazovce uvidí. */
+  #uvod .r1{color:#ff7f60;animation-delay:.10s}
+  #uvod .r2{color:#7ddcff;animation-delay:.30s}
+  #uvod .r3{color:#ffc63f;animation-delay:.50s}
+  @keyframes uvodRadek{
+    to{opacity:1;transform:translateY(0) scale(1)}}
   #pivoRoh{position:fixed;left:0;right:0;top:32vh;z-index:5;pointer-events:none;
     display:flex;justify-content:center;
     opacity:0;transform:scale(.6);
@@ -647,6 +665,15 @@
      (prázdná sklenice) a zlatá se odshora dolů odkrajuje, jak piva ubývá —
      jedna věc říká „máš pivo" i „kolik ho zbývá". Ubývá jen při stříkání,
      takže je to zásoba, ne odpočet. -->
+<!-- ÚVOD. Tři věty, které musí hráč pobrat dřív, než začne hrát — proto
+     rozkazovacím způsobem, každá o jiné věci a každá v barvě té věci:
+     červená za bandity, modrá za vodu, zlatá za peníze. Mizí samo po pár
+     vteřinách a hned, jakmile hráč poprvé stříkne. -->
+<div id="uvod" aria-hidden="true">
+  <div class="titulek r1" data-text="SOAK THE BANDITS">SOAK THE BANDITS</div>
+  <div class="titulek r2" data-text="POP BOTTLES FOR WATER">POP BOTTLES FOR WATER</div>
+  <div class="titulek r3" data-text="HOARD THE GOLD">HOARD THE GOLD</div>
+</div>
 <div id="pivoRoh" aria-hidden="true">
   <div id="pivoHlaska" class="titulek" data-text="BEER!">BEER!<span id="pivoPlne">BEER!</span></div>
 </div>
@@ -3111,6 +3138,19 @@ const VODA_MALO = 0.25;
 let maloHlaseno = false;
 const vodaMaloEl = document.getElementById('vodaMalo');
 const vodaRohEl = document.getElementById('vodaRoh');
+// ---- úvodní tři věty ------------------------------------------------------
+// Musí se dát pochopit dřív, než hráč začne hrát, takže mizí ze dvou důvodů:
+// po pár vteřinách samy, a HNED v okamžiku, kdy hráč poprvé stříkne. Kdo už
+// hraje, ten je nečte a jen mu překážejí v obraze.
+const UVOD_DOBA = 4.5;
+const uvodEl = document.getElementById('uvod');
+let uvodT = UVOD_DOBA;
+function krokUvodu(dt, strikaJe){
+  if(uvodT <= 0) return;
+  if(strikaJe) uvodT = 0; else uvodT -= dt;
+  if(uvodT <= 0) uvodEl.classList.add('pryc');
+}
+
 // Potvrzení, že kapka došla do zásobníku. Třída se před nasazením sundá
 // a vynutí se přepočet stylu — bez toho by druhá kapka v řadě animaci
 // nespustila znovu (třída na prvku už je) a z pěti kapek by potvrdila jen
@@ -5209,6 +5249,9 @@ if(!LADENI){
   if(cekaSeNaStart){ cekaSeNaStart = false; try{ localStorage.removeItem(START_KLIC); }catch(e){} }
 }
 if(cekaSeNaStart){
+  // Startovní obrazovka má vlastní text a vlastní tlačítko; úvodní věty by se
+  // s ní praly. Přijdou na řadu po spuštění hry, kdy se stránka načte znovu.
+  uvodT = 0; uvodEl.classList.add('pryc');
   nastavTitulek(document.getElementById('startNadpis'), JE_POSTUP ? 'Nový postup' : 'Nová hra');
   startRoh.hidden = false;
   hud.hidden = false;
@@ -6545,6 +6588,7 @@ function smycka(now){
   // Taky mimo `!konec` — po smrti musí pivo dotéct a proud se vrátit k vodě,
   // jinak by po restartu naskočila hra rovnou se zlatým proudem.
   krokPiva(dt, strikaJe);
+  krokUvodu(dt, strikaJe);
   krokFleku(dt);
   krokKapacu(dt);
   krokKorunek(dt);
